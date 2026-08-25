@@ -86,6 +86,12 @@ shows this (and `preview.py` excludes those rows from its "every star was
 drawn" check rather than pretending otherwise). For the real game this argues
 for putting the HUD on the **background** layer, where it is also free.
 
+Note that this bench's HUD is on the **image** layer on purpose, six `VTEXT`
+commands every frame. That is legal — image-layer commands are never replayed —
+but it is *not* what the game will do, and it would be illegal on the background:
+there, only one write per frame is allowed plus a cooldown frame, so a three-line
+HUD refreshes on a 6-frame round-robin. See `design_technical.md` 5.5.
+
 **5. About a third of the star layer is on screen.** 35–48 of 110, against the
 ~46% the geometry predicts; the occlusion pass eats the rest. If a denser field
 is wanted, raising `STAR_N` is nearly free on PPRAM and linear on CPU.

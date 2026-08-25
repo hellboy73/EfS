@@ -110,13 +110,17 @@ their parallax factors. Cost is one `DOT_PIXELS` call per layer plus the point-l
 build. PPRAM cost is 2 bytes per *visible* star, so the star count is bounded by
 the 2 KB list as well as by CPU.
 
-**D5. HUD layer (SETTLED — background).** Measured in proto 01: `TEXT`/`VTEXT`
-write whole cells including the background, so an image-layer HUD erases the
-starfield under it. Slow-changing HUD goes on the VRAM background, where it is
-also free; anything that must update every frame stays on the image layer and
-owns its rectangle. Folded into `design_technical.md` 5.5. What is still open is
-**where** it goes: 300 x 400 is tall and narrow, and the HUD competes with
-look-ahead.
+**D5. HUD layer (SETTLED — background, one line per two frames).** Measured in
+proto 01: `TEXT`/`VTEXT` write whole cells including the background, so an
+image-layer HUD erases the starfield under it. The HUD goes on the VRAM
+background, where it is free — and where the double-buffer replay allows **one
+background write per frame plus a cooldown frame**. With two HUD lines and a
+message line that is a **6-frame round-robin, ~10 Hz per line**. Folded into
+`design_technical.md` 5.5.
+
+What is still open: **how many lines** (each one added slows every other line
+down — a fourth makes it 8 frames), and **where** they go, since 300 x 400 is
+tall and narrow and the HUD competes with look-ahead.
 
 **D6. Star occlusion behind asteroids (TBM).** Rocks are dot-line outlines and are
 therefore hollow; stars must be suppressed where a rock covers them or the rock

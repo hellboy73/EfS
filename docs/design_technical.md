@@ -245,22 +245,71 @@ Two details that follow:
 - The mask must be a **disc**, not a bounding box — a square hole punched in the
   starfield around a round rock reads as a rectangle and is worse than the
   see-through problem it fixes. Rasterise per cell-row with an x-span.
+
+  A disc is still only an approximation: the drawn outline is deliberately
+  irregular, so a star sitting in a concave notch survives when it should not,
+  and one just outside a lobe dies when it should not. Both errors are a few
+  pixels at the rim of a moving object and neither reads on screen. What matters
+  more is that the occlusion disc uses the **same radius as the collision
+  circle** (7.3), so what looks solid and what actually hits you are the same
+  shape — a rock that visibly swallows a star but lets a bullet through would be
+  a real complaint.
 - **Sprites do not need this.** A sprite can carry an overlay (black) plane that
   masks whatever is under it, so sprite-based objects occlude for free. Only the
   vector layer needs the mask — which is another quiet argument for the sprite LOD
   in 5.1.
 
-### 5.5 Text erases what is under it
+### 5.5 The HUD lives on the background, and it is rate-limited
 
-`TEXT` / `VTEXT` write whole character cells, background included; they do not OR
-a glyph over what is already on screen. An **image-layer HUD therefore punches
-black rectangles into the starfield**. Measured in proto 01, which draws its HUD
-on the image layer and loses every star underneath it.
+**Text erases what is under it.** `TEXT` / `VTEXT` write whole character cells,
+background included; they do not OR a glyph over what is already on screen. An
+image-layer HUD therefore punches black rectangles into the starfield — measured
+in proto 01, which draws its HUD on the image layer and loses every star beneath
+it.
 
-The fix is to put the HUD on the **VRAM background** instead, where the hardware
-re-copies it every frame for free and it never fights the image layer. That only
-works for a HUD that changes rarely (score, lives, level); anything updating every
-frame has to live on the image layer and own its rectangle.
+So the HUD goes on the **VRAM background**, where the hardware re-copies it under
+the image every frame for nothing. That brings a hard constraint with it.
+
+**One background write per frame, plus a cooldown frame — never two in a row.**
+This is the rule CETAS arrived at (`text-bg-one-line-per-frame`) and it carries
+over unchanged. Every VRAM-background write — each `TEXT_BG` / `VTEXT_BG` line
+*and* `CLEAR_BG` — must be the only one on its frame, with at least one idle frame
+after it.
+
+*Why:* the background is double-buffered and the OS replays each background
+command across **two** frames so it lands in both buffers. A second background op
+on the same or the next frame stomps the first one's replay, so that line reaches
+only one buffer — and since the hardware ping-pongs the buffers, it **blinks every
+other displayed frame**. The classic symptoms are "the banner still flickers" and
+"the background only half cleared".
+
+**What that costs EfS.** Two frames per line, round-robin over however many lines
+exist:
+
+| background text lines | frames per line | refresh rate |
+|---|---|---|
+| 1 | 2 | 30 Hz |
+| 2 (HUD) | 4 | ~15 Hz |
+| **3 (2 HUD + 1 message)** | **6** | **~10 Hz** |
+| 4 | 8 | ~7.5 Hz |
+
+So with the planned two HUD lines plus a message line, **no HUD line may be
+rewritten more often than every 6 frames**, and adding a fourth line pushes that
+to 8. Ten refreshes a second is plenty for score, lives, speed and mission state —
+but it means the HUD must be driven by a **per-frame sequencer**, not by whoever
+happens to change a value.
+
+Two consequences worth planning for now:
+
+- **Draw on change, not every frame.** Cache each line's inputs and re-emit only
+  when one actually moved; then the sequencer usually has nothing to do and the
+  budget is spare for the message line.
+- **Anything that must update every frame cannot be background text.** If some
+  readout genuinely needs 60 Hz, it has to be an image-layer element that owns its
+  rectangle — and pays for erasing the starfield under it.
+
+`CLEAR_BG` obeys the same rule, so a screen transition is a sequence
+(clear, wait, line 0, wait, line 1, …), never a burst.
 
 ---
 
