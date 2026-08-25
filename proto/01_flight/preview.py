@@ -29,7 +29,7 @@ from PIL import Image
 from py65.devices.mpu65c02 import MPU
 from py65.memory import ObservableMemory
 
-FRAMES = 90                     # 1.5 s: long enough for the drift to show
+FRAMES = 200                    # long enough to turn right round and then fly
 SCALE = 2
 OUT = "preview.png"
 
@@ -51,7 +51,8 @@ ZP = {"HEAD": 0x83, "TIER": 0x84, "TURNIX": 0x85,
       "VELXL": 0x91, "VELXH": 0x92, "VELYL": 0x93, "VELYH": 0x94,
       "STARN": 0xA0, "OCCN": 0xA1,
       "TRAVL": 0xC0, "TRAVH": 0xC1, "TRAVI": 0xC2, "BASEHEAD": 0xC3,
-      "SPDL": 0xBD, "SPDH": 0xBE, "TSCALE": 0xCC, "SHOFFH": 0xD0}
+      "SPDL": 0xBD, "SPDH": 0xBE, "TSCALE": 0xCC, "SHOFFH": 0xD0,
+      "REFI": 0xD1}
 
 
 def decode(stream):
@@ -185,7 +186,8 @@ call(cpu, CART_INIT)
 # The OS's frame ISR normally maintains these bytes; here we drive them.
 JOY1, JOY1_PRESS = 0x0A, 0x0C
 JOY_UP, JOY_RIGHT = 0x01, 0x08
-TURN_UNTIL = 12                 # heading ends at $18 = 34 deg, well off-axis
+TURN_UNTIL = 140                # a full revolution: every heading, so the
+                                #   fold band below is swept from end to end
 
 frames = []
 cycles = []
@@ -204,8 +206,8 @@ for f in range(FRAMES):
     end = cpu_mem[0x04] | (cpu_mem[0x05] << 8)  # PPWP points AT the WAI
     frames.append(bytes(cpu_mem[PPRAM + i] for i in range(end - PPRAM + 1)))
     trace.append({k: cpu_mem[a] for k, a in ZP.items()})
-    bases.append([(cpu_mem[0x0B00 + i], cpu_mem[0x0B80 + i])
-                  for i in range(STAR_N)])
+    bases.append([(cpu_mem[0x0B00 + i], cpu_mem[0x0B80 + i],
+                   cpu_mem[0x0D00 + i]) for i in range(STAR_N)])
 
 
 def s16(lo, hi):
@@ -447,6 +449,8 @@ for i in range(STAR_N):
     for axis in (0, 1):
         seq = []
         for n in range(1, TURN_UNTIL):
+            if bases[n][i][2] or bases[n - 1][i][2]:
+                continue                        # parked: it has no position
             d = sb8((bases[n][i][axis] - bases[n - 1][i][axis]) & 0xFF)
             if d:
                 seq.append(d)
@@ -455,6 +459,76 @@ for i in range(STAR_N):
 print(f"        turning: {tot} base steps, {rev} of them reversals")
 check("the star bases march smoothly through a turn",
       rev <= tot // 10, f"{rev}/{tot} reversed")
+
+# --- no star may be a folded one ---------------------------------------------
+# A star's view position reaches 128*(|cos|+|sin|) - up to 181 off-axis - while
+# a base is one byte and folds at 128. A folded star lands back on the top or
+# bottom edge carrying the sweep speed of a radius it does not have, and
+# teleports across the screen when it crosses the fold. star_rebase parks those
+# instead. This reconstructs every star's drawn position from RAM and looks for
+# the teleports: on a turn, a star on screen in two consecutive frames cannot
+# move further than its radius times the turn angle, which is about 6 px.
+def drawn(n):
+    """{star index: (fb_x, fb_y)} for the stars actually on screen in frame n."""
+    out = {}
+    ti = trace[n]["TRAVI"]
+    for i, (bx, by, parked) in enumerate(bases[n]):
+        if parked:
+            continue
+        fx = HCX + sb8((by + ti) & 0xFF)
+        fy = HCY - sb8(bx)
+        if 0 <= fx < 200 and 0 <= fy < 150:
+            out[i] = (fx, fy)
+    return out
+
+
+# Under a rotation every star moves TANGENTIALLY, so the cross product of its
+# radius with its motion has the same sign for all of them - the turn's
+# handedness. A folded star is drawn near one edge while carrying the motion
+# belonging to its true position near the opposite one, so its cross product
+# comes out backwards. That is exactly the "flying the wrong way" streak, and it
+# is a scale-free test: no thresholds on speed or radius beyond ignoring the
+# stars too close to the centre or too slow to have a reliable direction.
+wrong = tested = 0
+for n in range(1, TURN_UNTIL):
+    a, b = drawn(n - 1), drawn(n)
+    signs = []
+    for i in set(a) & set(b):
+        rx, ry = a[i][0] - HCX, a[i][1] - HCY
+        vx, vy = b[i][0] - a[i][0], b[i][1] - a[i][1]
+        if rx * rx + ry * ry < 40 * 40 or abs(vx) + abs(vy) < 2:
+            continue
+        signs.append((i, rx * vy - ry * vx))
+    if len(signs) < 8:
+        continue
+    pos = sum(1 for _, c in signs if c > 0)
+    turn = 1 if pos * 2 > len(signs) else -1
+    for _, c in signs:
+        tested += 1
+        if c * turn < 0:
+            wrong += 1
+parked = sum(1 for _, _, q in bases[-1] if q)
+print(f"        turn: {tested} star motions checked, {wrong} against the "
+      f"rotation; {parked} of {STAR_N} parked in the last frame")
+check("every star sweeps the way the turn does", wrong == 0,
+      f"{wrong} of {tested} moved against the rotation - a folded base is "
+      f"being drawn at the wrong edge")
+
+# The drawn set must also match what the cart actually emitted, or the model
+# above is measuring something other than the screen.
+model = set(drawn(FRAMES - 1).values())
+emitted = set(dots)
+# The forced refresh has to actually fire, or parked stars are never brought
+# back and a long straight flight thins the leading edge.
+refs = sum(1 for a, b in zip(trace[TURN_UNTIL:], trace[TURN_UNTIL + 1:])
+           if a["REFI"] != b["REFI"])
+print(f"        straight leg: {refs} forced refresh(es)")
+check("the parked set is refreshed while flying straight", refs >= 1,
+      "REFI never moved - parked stars would never come back")
+
+check("the reconstructed star set matches the emitted one",
+      emitted <= model and len(model) - len(emitted) <= len(model) // 3,
+      f"model {len(model)}, emitted {len(emitted)} (occlusion removes some)")
 
 # --- objects must not swim ---------------------------------------------------
 # On the straight leg both the ship and the objects move at constant velocity, so

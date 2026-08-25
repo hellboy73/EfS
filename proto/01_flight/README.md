@@ -155,6 +155,28 @@ rebuilding 110 stars anyway. `preview.py` reads the star bases straight out of
 RAM - so stars keep their identity through a turn - and counts direction
 reversals: **2180 base steps, 32 reversals**.
 
+**9. The star layer is only just big enough, and the overflow was being folded
+onto the screen.** A few stars streaked along the top and bottom edges during
+turns, *against* the rotation, and it came and went with the heading. A star's
+view position is `R·d` over the whole 256 × 256 layer, so it reaches
+128·(|cos| + |sin|) — 128 at heading 0, but 181 at 45°. The base is one byte and
+folds at 128, so a star whose true view_y was 156–181 folded to −100…−75 and was
+drawn at the *top* of the screen while still carrying the motion belonging to a
+radius of 170 near the bottom. Hence: wrong place, too fast, wrong direction, and
+absent at axis-aligned headings.
+
+Stars that do not fit in a byte are now **parked** rather than folded — all of
+them are off-screen by construction — and because parking at ±127 leaves only 27
+pixels of margin past the visible ±100, a **refresh** re-runs the transform for
+the parked stars alone before the scroll uses that margin up. It touches nothing
+on screen, so the rigid scroll is undisturbed.
+
+`preview.py` turns the ship through a full revolution and uses the fact that a
+rotation moves every star **tangentially**: the cross product of radius and
+motion has one sign for the whole field, and a folded star's comes out backwards.
+With parking off: **123 of 5985 star motions against the rotation**. With it on:
+**0**.
+
 **8. Objects were swimming because they were rounded before the rotation, not
 after.** The transform used to truncate the world delta to whole pixels first,
 throwing away four bits of position, and the rotation turned that into one to two

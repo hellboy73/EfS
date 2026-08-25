@@ -121,6 +121,14 @@ would give full-res placement at 5 PPRAM bytes per star and one dispatch each,
 against 2 bytes in a single batched call. Only worth it if the lattice reads as
 chunky on a real screen.
 
+**D9. Star layer size (SETTLED — park, do not fold).** A 256 × 256 layer rotates
+to a view radius of up to 181, which does not fit the byte the view position is
+stored in; folded stars are drawn at the wrong screen edge sweeping against the
+turn. Stars that do not fit are now parked (all are off-screen anyway) and a
+refresh un-parks them before the field scrolls past the 27-pixel margin. See
+`design_technical.md` 5.3. What stays open is whether a *denser* layer is wanted
+(see D4) — that is a separate question from this one.
+
 **D4. Star layers (TBM).** How many parallax layers, how many stars per layer, and
 their parallax factors. Cost is one `DOT_PIXELS` call per layer plus the point-list
 build. PPRAM cost is 2 bytes per *visible* star, so the star count is bounded by

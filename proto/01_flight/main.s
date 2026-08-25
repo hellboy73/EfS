@@ -98,7 +98,7 @@ SGVX        = $95               ; sign extensions of VELXH / VELYH
 SGVY        = $96
 ACCL        = $97               ; running sum while building ROTC / ROTS
 ACCH        = $98
-CDXI        = $99               ; rebase scratch: ROTC[dx] and ROTS[dx], 8.8
+CDXI        = $99               ; rebase scratch: the eight table reads, 8.8
 CDXF        = $9A
 SDXI        = $9B
 SDXF        = $9C
@@ -160,6 +160,14 @@ RATEH       = $CE
 SHOFFL      = $CF               ; how far down the screen the ship is drawn,
 SHOFFH      = $D0               ;   signed 8.8 full-res pixels, eased toward
                                 ;   the speed tier's target - see do_ship
+REFI        = $D1               ; the scroll offset at the last star refresh
+RBMODE      = $D3               ; 0 = rebuild every star, 1 = only parked ones
+CDYI        = $D4
+CDYF        = $D5
+SDYI        = $D6
+SDYF        = $D7
+CF          = $D8               ; carry out of a fractional sum, -1..2
+PKX         = $D9               ; nonzero if this star must be parked
 
 ; --- cartridge RAM ($0400-$77FF is free game RAM) ----------------------------
 ROTC_I      = $0400             ; the rotation tables, 8.8: ROT[i] = signed(i) *
@@ -190,6 +198,7 @@ OBJSYH      = $0A88
 OBJVIS      = $0A90             ; nonzero when the object survived the cull
 BASEX       = $0B00             ; STAR_N bytes: each star's VIEW-space position at
 BASEY       = $0B80             ;   the last rebase - see do_stars
+PARKED      = $0D00             ; STAR_N bytes: 1 = out of byte range, do not draw
 STR_SPD     = $0C00             ; HUD strings, patched in place every frame
 STR_TRN     = $0C20
 STR_HDG     = $0C40
@@ -984,12 +993,6 @@ add_occluder:
 ; so the step is SPD/256 pixels, which is SPD in 8.8. Nothing to compute.
 ; -----------------------------------------------------------------------------
 do_stars:
-        lda     HEAD
-        cmp     BASEHEAD
-        beq     @scroll
-        jsr     star_rebase
-        bra     @ready
-@scroll:
         lda     SPDL                    ; travel += speed / 128. A world unit is
         sta     T0                      ;   1/32 of a half-res pixel and the
         lda     SPDH                    ;   parallax is 1/4, so the step is
@@ -1008,15 +1011,34 @@ do_stars:
         lda     TRAVH
         adc     T1
         sta     TRAVH
-@ready:
-        lda     TRAVH                   ; the integer part IS this frame's offset
-        sta     TRAVI
-
+        lda     TRAVH                   ; the integer part IS the scroll offset.
+        sta     TRAVI                   ;   It is never reset - a base is stored
+                                        ;   as (true - TRAVI), so base + TRAVI is
+                                        ;   the true position whenever it is set.
+        lda     HEAD
+        cmp     BASEHEAD
+        beq     @maybe
+        jsr     star_rebase_full
+        bra     @draw
+@maybe:
+        sec                             ; refresh once the field has scrolled far
+        lda     TRAVI                   ;   enough that a parked star could have
+        sbc     REFI                    ;   reached the screen - see star_rebase
+        bpl     :+
+        eor     #$FF
+        inc     a
+:       cmp     #STAR_REFRESH
+        bcc     @draw
+        jsr     star_rebase_refresh
+@draw:
         stz     DIDX
         stz     STARN
         ldx     #$00
 @lp:
-        clc                             ; scrolled view-y; the byte wrap is the
+        lda     PARKED,x
+        beq     :+
+        jmp     @next
+:       clc                             ; scrolled view-y; the byte wrap is the
         lda     BASEY,x                 ;   view torus, so a star leaving the
         adc     TRAVI                   ;   bottom re-enters at the top for free
         sta     VYT
@@ -1101,28 +1123,48 @@ do_stars:
 @done:  rts
 
 ; -----------------------------------------------------------------------------
-; star_rebase — rebuild every star's view-space base for the current heading.
+; star_rebase — rebuild the stars' view-space positions from the layer.
 ; -----------------------------------------------------------------------------
-; Runs only on a frame where the heading actually moved, so it is a turning-time
-; cost, not a flying-time one: two 256-byte table builds plus one transform per
-; star. Straight flight pays none of it.
+; Two entry points. FULL runs when the heading moved: it rebuilds the rotation
+; tables and every star. REFRESH runs during straight flight and rewrites only
+; the PARKED stars, so nothing that is currently on screen ever moves - a
+; rebuild rounds each star independently and would put a scattered one-pixel
+; twitch into an otherwise perfectly rigid scroll.
 ;
-; The bases come from the LAYER, not from the previous bases, so nothing
-; accumulates. Rotating the stars in place each frame would have been cheaper
-; still, but the table's matrix has a determinant of about 0.987 — the field
-; would visibly implode, roughly 20% per quarter turn.
+; PARKING is what this is really for. A star's view position is R*d over the
+; whole 256x256 layer square, so it reaches 128*(|cos|+|sin|) - up to 181 at 45
+; degrees - while a base is one byte and folds at 128. A star whose true view_y
+; is 128..156 folds to -128..-100 and is drawn at the TOP of the screen, at a
+; radius of about 150, so it sweeps faster than everything else and the wrong
+; way. That is the streak along the top and bottom edges during a turn, and it
+; is worst off-axis: at heading 0 the maximum is exactly 128 and nothing folds,
+; which is why it looked clean flying north.
 ;
-; Travel resets to zero here, which re-registers the field against the integer
-; sample and can shift a star by up to one pixel. That happens only while
-; turning, when the whole field is rotating anyway.
+; So a star whose true position does not fit in a byte is parked instead of
+; folded. Every parked star is off screen by construction - the visible band is
+; |view_x| <= 75 and |view_y| <= 100, well inside +/-127 - so nothing is lost.
+; What IS lost is the margin: the kept band clears the screen by only 27 pixels
+; in y, and the field scrolls in y. STAR_REFRESH forces a refresh before that
+; margin runs out, which is what un-parks stars as they come round.
+;
+; The bases carry no travel: a base is stored as (true - TRAVI), so base + TRAVI
+; is the true position at any later frame. TRAVI is therefore never reset.
 ; -----------------------------------------------------------------------------
-star_rebase:
+STAR_REFRESH = 24               ; refresh after this much scroll; the margin is 27
+
+star_rebase_full:
         lda     HEAD
         sta     BASEHEAD
-        stz     TRAVL
-        stz     TRAVH
+        stz     RBMODE
         BUILD_ROT ROTC_I, ROTC_F, COSV, SGNC
         BUILD_ROT ROTS_I, ROTS_F, SINV, SGNS
+        bra     srb_core
+star_rebase_refresh:
+        lda     #$01
+        sta     RBMODE
+srb_core:
+        lda     TRAVI
+        sta     REFI
 
         lda     SHXL                    ; sample = ship_pos >> 7 at parallax 1/4,
         asl     a                       ;   and the bit below it is the sub-unit
@@ -1138,10 +1180,7 @@ star_rebase:
         sta     SAMPY
 
         ; U = -R * frac. Without it a rebase re-registers the field against the
-        ; INTEGER sample and the whole field pops by up to a pixel; with it, the
-        ; field is continuous across a rebase, which is most of what made turning
-        ; look rough. Four multiplies, once, on a frame that is rebuilding 110
-        ; stars anyway.
+        ; INTEGER sample and the whole field pops by up to a pixel.
         lda     FRACX                   ; UX = -(fx*cos + fy*sin)
         sta     MAL
         stz     MAH
@@ -1198,7 +1237,15 @@ star_rebase:
         sta     UYH
 
         ldx     #$00
-@lp:    lda     STARBX,x
+srb_lp:
+        lda     RBMODE                  ; a refresh leaves live stars alone
+        beq     srb_do
+        lda     PARKED,x
+        bne     srb_do
+        jmp     srb_next
+srb_do:
+        stz     PKX
+        lda     STARBX,x
         sec
         sbc     SAMPX
         tay
@@ -1213,40 +1260,130 @@ star_rebase:
         lda     STARBY,x
         sec
         sbc     SAMPY
-        tay                             ; Y = dy for the rest of the star
-
-        clc                             ; view x = ROTC[dx] + ROTS[dy] + UX,
-        lda     CDXF                    ;   summed in 8.8 and floored ONCE. The
-        adc     ROTS_F,y                ;   old code floored both lookups and
-        sta     T0                      ;   then added, so the error was twice
-        lda     CDXI                    ;   as large and not a smooth function
-        adc     ROTS_I,y                ;   of the heading - visible shimmer.
-        sta     T1
-        clc
-        lda     T0
-        adc     UXL
-        lda     T1
-        adc     UXH
-        sta     BASEX,x                 ; the byte IS the view torus
-
-        sec                             ; view y = ROTC[dy] - ROTS[dx] + UY
-        lda     ROTC_F,y
-        sbc     SDXF
-        sta     T0
+        tay
         lda     ROTC_I,y
-        sbc     SDXI
-        sta     T1
-        clc
-        lda     T0
-        adc     UYL
-        lda     T1
-        adc     UYH
-        sta     BASEY,x
+        sta     CDYI
+        lda     ROTC_F,y
+        sta     CDYF
+        lda     ROTS_I,y
+        sta     SDYI
+        lda     ROTS_F,y
+        sta     SDYF
 
+        ; ---- view x = ROTC[dx] + ROTS[dy] + UX, kept to 9 bits so the fold
+        ;      can be SEEN rather than silently happening
+        stz     CF
+        clc
+        lda     CDXF
+        adc     SDYF
+        bcc     :+
+        inc     CF
+:       clc
+        adc     UXL
+        bcc     :+
+        inc     CF
+:       ldy     #$00
+        lda     CDXI
+        bpl     :+
+        dey
+:       clc
+        adc     SDYI
+        bcc     :+
+        iny
+:       bit     SDYI
+        bpl     :+
+        dey
+:       clc
+        adc     UXH
+        bcc     :+
+        iny
+:       bit     UXH
+        bpl     :+
+        dey
+:       clc
+        adc     CF
+        bcc     :+
+        iny
+:       sta     T0                      ; T0 = the byte, Y = its ninth bit
+        cpy     #$00
+        bne     :+
+        cmp     #$80
+        bcc     srb_x_ok
+        bra     srb_x_bad
+:       cpy     #$FF
+        bne     srb_x_bad
+        cmp     #$80
+        bcs     srb_x_ok
+srb_x_bad:
+        inc     PKX
+srb_x_ok:
+
+        ; ---- view y = ROTC[dy] - ROTS[dx] + UY
+        stz     CF
+        sec
+        lda     CDYF
+        sbc     SDXF
+        bcs     :+
+        dec     CF
+:       clc
+        adc     UYL
+        bcc     :+
+        inc     CF
+:       ldy     #$00
+        lda     CDYI
+        bpl     :+
+        dey
+:       sec
+        sbc     SDXI
+        bcs     :+
+        dey
+:       bit     SDXI
+        bpl     :+
+        iny
+:       clc
+        adc     UYH
+        bcc     :+
+        iny
+:       bit     UYH
+        bpl     :+
+        dey
+:       clc
+        adc     CF
+        bcc     :+
+        iny
+:       bit     CF
+        bpl     :+
+        dey
+:       sta     T1
+        cpy     #$00
+        bne     :+
+        cmp     #$80
+        bcc     srb_y_ok
+        bra     srb_y_bad
+:       cpy     #$FF
+        bne     srb_y_bad
+        cmp     #$80
+        bcs     srb_y_ok
+srb_y_bad:
+        inc     PKX
+srb_y_ok:
+        lda     PKX
+        beq     :+
+        lda     #$01                    ; out of byte range: park it rather than
+        sta     PARKED,x                ;   let it fold onto the screen edge
+        bra     srb_next
+:       stz     PARKED,x
+        lda     T0
+        sta     BASEX,x
+        sec                             ; the scroll is in y only, so only y
+        lda     T1                      ;   carries the travel back out
+        sbc     TRAVI
+        sta     BASEY,x
+srb_next:
         inx
         cpx     #STAR_N
         beq     :+
-        jmp     @lp
+        jmp     srb_lp
 :       rts
 
 ; -----------------------------------------------------------------------------

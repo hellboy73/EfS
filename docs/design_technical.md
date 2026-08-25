@@ -260,6 +260,32 @@ The residual: a rebuild re-registers the field against the integer sample and ca
 shift a star by up to a pixel. That happens only while turning, when the whole
 field is rotating anyway.
 
+**The layer has to be bigger than it looks.** A star's view position is `R·d`
+over the whole layer square, so it reaches `L·(|cos| + |sin|)` — up to 1.41 times
+the layer's half-size, at 45°. If the stored view position is one byte it folds at
+128, and a star whose true view coordinate is 156–181 folds back to −100…−75 and
+is **drawn at the opposite edge of the screen carrying the sweep speed of a radius
+it does not have**. Under rotation that reads as a handful of stars streaking
+along the top and bottom edges *against* the turn. It vanishes at axis-aligned
+headings (where the maximum is exactly 128 and nothing folds), which is what makes
+it look like an intermittent glitch rather than a systematic one.
+
+Two things follow, and they are the same requirement stated twice:
+
+- **A star whose true position does not fit must be parked, not folded.** Every
+  such star is off-screen by construction — the visible band is far inside ±127 —
+  so parking costs nothing visible.
+- **The kept band must clear the screen by enough to scroll.** Parking at ±127
+  leaves 27 pixels of margin past the visible ±100, and the field scrolls along
+  that axis, so a *refresh* has to run before the margin is used up. It rewrites
+  only the parked stars, so nothing on screen moves — a full rebuild rounds every
+  star independently and would drop a scattered one-pixel twitch into an otherwise
+  rigid scroll.
+
+The general lesson for anything else drawn from a wrapping layer: **the layer's
+radius must cover the screen's half-diagonal plus the scroll between rebuilds**,
+and a square layer only guarantees its inscribed circle.
+
 ### 5.4 Star occlusion — asteroids are hollow
 
 Asteroids are drawn as **dot-line outlines**, so they have no interior. Stars
