@@ -47,13 +47,20 @@ unknown. The bench ships ten: `-60, -30, 0, +15, +30, +60, +121, +181, +271,
 +392` px/s, with the top tier crossing the 400-pixel screen in about a second.
 Judge in screen-heights per second, not internal units.
 
-**B2. Turn rate (TBM).** The bench cycles six rates on FIRE and shows the
-**milliseconds per full revolution**, which is the number worth arguing about:
-`4244, 2122, 1415, 1061, 707, 531`. Default 2122 ms. The original "1/32 of a turn
-per frame" idea is the 531 ms end — about four times faster than *Asteroids*, and
-in practice hard to fly. Still open: whether the rate should fall with speed
-(slower turning at cruise reads as mass). Must be judged *together with* B1 — the
-pair is what "handling" means.
+**B2. Turn rate (TBM, narrowed).** Flying the bench settled the band: **1 to 3
+brad per frame is usable**, and the original "1/32 of a turn per frame" (8
+brad/frame, 531 ms per revolution) is far too fast. Whole-brad steps inside that
+band turned out to be too coarse to choose between, so the heading now carries a
+fraction and the ladder is `5659, 4244, 3396, 2830, 2425, 2122, 1698, 1415` ms per
+revolution. Still open: which one, and whether the ladder wants finer steps still.
+
+**B6. Should the turn rate follow flight speed (TBM)?** Turn radius is `v/omega`,
+so a constant omega makes the radius grow in proportion to speed - at top speed
+the ship sweeps a circle seven times wider than at a crawl. Proto 01 has a toggle
+(joystick 2's button): `rate x (1 + xtra/128)`, unchanged at a standstill and
+doubled at top speed, which halves the growth. Open: whether coupling is wanted at
+all, and if so how strong. Full proportionality (constant radius) is probably too
+much - it makes the ship almost unable to turn at low speed.
 
 **B3. Camera lag constant (TBM).** Not in proto 01 (there is no zoom yet). How
 fast zoom and ship screen-Y follow a speed change. Too fast is nauseating; too
@@ -104,6 +111,13 @@ polyline to the MAD-65 GPU firmware. Would roughly halve PPRAM traffic for aster
 outlines versus per-edge `gpu_dotline_clip`. This is a **firmware** change in the
 MAD-65 repo (new opcode + builder + jump-table entry + py65 test), so it needs to
 be worth it — measure the per-edge path first.
+
+**D8. Star size and lattice (TBD).** `DOT_PIXELS` draws single pixels but takes
+half-res coordinates, so stars land only on even framebuffer pixels - a 2-pixel
+lattice, which is also the finest step the field can scroll by. `PIXEL` ($40)
+would give full-res placement at 5 PPRAM bytes per star and one dispatch each,
+against 2 bytes in a single batched call. Only worth it if the lattice reads as
+chunky on a real screen.
 
 **D4. Star layers (TBM).** How many parallax layers, how many stars per layer, and
 their parallax factors. Cost is one `DOT_PIXELS` call per layer plus the point-list

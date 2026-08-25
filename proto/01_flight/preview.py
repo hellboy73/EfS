@@ -184,6 +184,9 @@ TURN_UNTIL = 12                 # heading ends at $18 = 34 deg, well off-axis
 frames = []
 cycles = []
 trace = []
+bases = []                      # BASEX/BASEY straight out of RAM, so stars keep
+                                #   their identity across a turn and the rebase
+                                #   can be measured directly
 for f in range(FRAMES):
     cpu_mem[JOY1] = JOY_RIGHT if f < TURN_UNTIL else 0
     cpu_mem[JOY1_PRESS] = JOY_UP if f in (0, 1, 2, 3, 4, 5) else 0
@@ -195,6 +198,8 @@ for f in range(FRAMES):
     end = cpu_mem[0x04] | (cpu_mem[0x05] << 8)  # PPWP points AT the WAI
     frames.append(bytes(cpu_mem[PPRAM + i] for i in range(end - PPRAM + 1)))
     trace.append({k: cpu_mem[a] for k, a in ZP.items()})
+    bases.append([(cpu_mem[0x0B00 + i], cpu_mem[0x0B80 + i])
+                  for i in range(STAR_N)])
 
 
 def s16(lo, hi):
@@ -394,6 +399,72 @@ check("the starfield translates rigidly while flying straight",
       f"{rigid_bad} stars moved out of step with the field")
 check("the field does scroll on the straight leg", moving > 5,
       "TRAVI never advanced - the travel accumulator is not running")
+
+# --- the rebase must be smooth too -------------------------------------------
+# During the turn the field rotates and translates continuously, so each star's
+# base should march in one direction per axis; a reversal is the rebase rounding
+# differently from one frame to the next. This is what the 8.8 tables and the
+# sub-unit registration in star_rebase are for.
+def sb8(v):
+    return v - 256 if v > 127 else v
+
+
+rev = tot = 0
+for i in range(STAR_N):
+    for axis in (0, 1):
+        seq = []
+        for n in range(1, TURN_UNTIL):
+            d = sb8((bases[n][i][axis] - bases[n - 1][i][axis]) & 0xFF)
+            if d:
+                seq.append(d)
+        tot += len(seq)
+        rev += sum(1 for a, b in zip(seq, seq[1:]) if a * b < 0)
+print(f"        turning: {tot} base steps, {rev} of them reversals")
+check("the star bases march smoothly through a turn",
+      rev <= tot // 10, f"{rev}/{tot} reversed")
+
+# --- objects must not swim ---------------------------------------------------
+# On the straight leg both the ship and the objects move at constant velocity, so
+# every object's true path across the screen is a straight line at constant
+# speed. Any reversal in a screen coordinate is pure quantisation noise — which
+# is exactly the "sprites float +/-2 px" complaint. Objects are tracked frame to
+# frame by nearest match, which is unambiguous when they move a pixel or two.
+def sprites_of(stream):
+    out = []
+    for op, pl in decode(stream):
+        if op == 0x50:
+            x = pl[1] | (pl[2] << 8)
+            y = pl[3] | (pl[4] << 8)
+            out.append((x - 65536 if x & 0x8000 else x,
+                        y - 65536 if y & 0x8000 else y))
+    return out
+
+
+tracks = {}
+prev = None
+for n in range(TURN_UNTIL + 1, FRAMES):
+    cur = sprites_of(frames[n])
+    if prev is not None:
+        for i, (x, y) in enumerate(prev):
+            best = min(cur, key=lambda q: abs(q[0] - x) + abs(q[1] - y),
+                       default=None)
+            if best is None or abs(best[0] - x) + abs(best[1] - y) > 6:
+                continue
+            tracks.setdefault(i, []).append((best[0] - x, best[1] - y))
+    prev = cur
+
+reversals = 0
+steps = 0
+for deltas in tracks.values():
+    for axis in (0, 1):
+        seq = [d[axis] for d in deltas if d[axis]]
+        steps += len(seq)
+        reversals += sum(1 for a, b in zip(seq, seq[1:]) if a * b < 0)
+print(f"        object motion: {steps} pixel steps, {reversals} of them reversals")
+check("objects do not swim while flying straight",
+      reversals <= steps // 20,
+      f"{reversals}/{steps} steps reversed direction - the transform is "
+      f"quantising position before the rotation instead of after")
 
 # The starfield must MOVE.
 first_dots = stars_of(frames[0])

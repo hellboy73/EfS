@@ -76,7 +76,7 @@ SHIP_SY     = FBCY - 13
 ; --- cartridge zero page ($80-$FF belongs to the game) -----------------------
 FRAME       = $80               ; $80-$81 16-bit frame counter
 BGDONE      = $82
-HEAD        = $83               ; heading, brad 0-255
+HEAD        = $83               ; heading, brad 0-255 (the integer part)
 TIER        = $84               ; speed tier, index into TIER_SPD
 TURNIX      = $85               ; index into TURN_RATE
 TURNR       = $86               ; the selected rate itself, brad per frame
@@ -98,10 +98,10 @@ SGVX        = $95               ; sign extensions of VELXH / VELYH
 SGVY        = $96
 ACCL        = $97               ; running sum while building ROTC / ROTS
 ACCH        = $98
-CDX         = $99               ; per-star ROTC[dx], ROTS[dx], ROTC[dy], ROTS[dy]
-SDX         = $9A               ;   (rebase only)
-CDY         = $9B
-SDY         = $9C
+CDXI        = $99               ; rebase scratch: ROTC[dx] and ROTS[dx], 8.8
+CDXF        = $9A
+SDXI        = $9B
+SDXF        = $9C
 FBX         = $9D               ; per-star half-res framebuffer position
 FBY         = $9E
 DIDX        = $9F               ; write index into DOTBUF
@@ -142,38 +142,53 @@ TRAVH       = $C1               ;   signed 8.8, in half-res screen pixels
 TRAVI       = $C2               ;   ...its integer part, the frame's scroll offset
 BASEHEAD    = $C3               ; the heading the star bases were built for
 VYT         = $C4               ; per-star scrolled view-y
+HEADF       = $C5               ; heading fraction - turning is sub-brad, so the
+                                ;   rate table can have steps finer than 1/256 turn
+                                ;   per frame without the heading itself getting one
+FRACX       = $C6               ; the sub-unit part of the star sample, 0.8
+FRACY       = $C7
+UXL         = $C8               ; -R * frac, the sub-unit registration of a rebase
+UXH         = $C9
+UYL         = $CA
+UYH         = $CB
+TSCALE      = $CC               ; 1 = turn rate rises with flight speed
+RATEL       = $CD               ; this frame's effective turn rate, 8.8 brad
+RATEH       = $CE
 
 ; --- cartridge RAM ($0400-$77FF is free game RAM) ----------------------------
-ROTC        = $0400             ; 256 B: ROTC[i] = signed(i) * cos / 128
-ROTS        = $0500             ; 256 B: ROTS[i] = signed(i) * sin / 128
-STARBX      = $0600             ; STAR_N bytes: star layer X (the layer IS 0-255)
-STARBY      = $0680             ; STAR_N bytes: star layer Y
-DOTBUF      = $0700             ; 1 + 2*STAR_N: the DOT_PIXELS payload we build
-OCCX0       = $0800             ; occluder boxes, half-res framebuffer, max 8
-OCCX1       = $0808
-OCCY0       = $0810
-OCCY1       = $0818
-OBJXL       = $0820             ; object world positions, 16.8, structure-of-arrays
-OBJXH       = $0828
-OBJXF       = $0830
-OBJYL       = $0838
-OBJYH       = $0840
-OBJYF       = $0848
-OBJVXL      = $0850             ; object velocities, signed 8.8
-OBJVXH      = $0858
-OBJVYL      = $0860
-OBJVYH      = $0868
-OBJSXL      = $0870             ; object screen position for this frame
-OBJSXH      = $0878
-OBJSYL      = $0880
-OBJSYH      = $0888
-OBJVIS      = $0890             ; nonzero when the object survived the cull
-STR_SPD     = $0900             ; HUD strings, patched in place every frame
-STR_TRN     = $0920
-STR_HDG     = $0940
-STR_STA     = $0960
-BASEX       = $0A00             ; STAR_N bytes: each star's VIEW-space position at
-BASEY       = $0A80             ;   the last rebase - see do_stars
+ROTC_I      = $0400             ; the rotation tables, 8.8: ROT[i] = signed(i) *
+ROTC_F      = $0500             ;   coef / 128, integer byte and fraction byte.
+ROTS_I      = $0600             ;   Keeping the fraction is what stops a rebase
+ROTS_F      = $0700             ;   truncating twice - see star_rebase.
+STARBX      = $0800             ; STAR_N bytes: star layer X (the layer IS 0-255)
+STARBY      = $0880             ; STAR_N bytes: star layer Y
+DOTBUF      = $0900             ; 1 + 2*STAR_N: the DOT_PIXELS payload we build
+OCCX0       = $0A00             ; occluder boxes, half-res framebuffer, max 8
+OCCX1       = $0A08
+OCCY0       = $0A10
+OCCY1       = $0A18
+OBJXL       = $0A20             ; object world positions, 16.8, structure-of-arrays
+OBJXH       = $0A28
+OBJXF       = $0A30
+OBJYL       = $0A38
+OBJYH       = $0A40
+OBJYF       = $0A48
+OBJVXL      = $0A50             ; object velocities, signed 8.8
+OBJVXH      = $0A58
+OBJVYL      = $0A60
+OBJVYH      = $0A68
+OBJSXL      = $0A70             ; object screen position for this frame
+OBJSXH      = $0A78
+OBJSYL      = $0A80
+OBJSYH      = $0A88
+OBJVIS      = $0A90             ; nonzero when the object survived the cull
+BASEX       = $0B00             ; STAR_N bytes: each star's VIEW-space position at
+BASEY       = $0B80             ;   the last rebase - see do_stars
+STR_SPD     = $0C00             ; HUD strings, patched in place every frame
+STR_TRN     = $0C20
+STR_HDG     = $0C40
+STR_STA     = $0C60
+STR_SCL     = $0C80
 
 ; -----------------------------------------------------------------------------
 ; BUILD_ROT — fill a 256-byte table with signed(i) * coef / 128.
@@ -183,16 +198,17 @@ BASEY       = $0A80             ;   the last rebase - see do_stars
 ; and the negative half is just the mirror. This is what buys the star loop its
 ; multiply-free inner body: four table lookups and two adds per star.
 ; -----------------------------------------------------------------------------
-.macro  BUILD_ROT tbl, coef, sgn
+.macro  BUILD_ROT tblI, tblF, coef, sgn
         .local  pos, neg
         stz     ACCL
         stz     ACCH
         ldx     #$00
-pos:    lda     ACCL                    ; store acc >> 7, arithmetic
-        asl     a                       ;   carry = bit 7 of the low byte
+pos:    lda     ACCL                    ; the entry is acc/128, i.e. acc<<1 read
+        asl     a                       ;   as 8.8 - so the fraction is free, it
+        sta     tblF,x                  ;   is the byte we used to throw away
         lda     ACCH
-        rol     a                       ;   A = (ACCH << 1) | that bit
-        sta     tbl,x
+        rol     a
+        sta     tblI,x
         clc
         lda     ACCL
         adc     coef
@@ -203,17 +219,20 @@ pos:    lda     ACCL                    ; store acc >> 7, arithmetic
         inx
         cpx     #128
         bne     pos
-        sec                             ; index 128 IS -128, so this entry is
-        lda     #$00                    ;   exactly -coef
+        stz     tblF+128                ; index 128 IS -128, so this entry is
+        sec                             ;   exactly -coef, with no fraction
+        lda     #$00
         sbc     coef
-        sta     tbl+128
-        ldx     #127                    ; mirror: tbl[256-k] = -tbl[k]
-        ldy     #129
-neg:    lda     tbl,x
-        eor     #$FF
-        clc
-        adc     #$01
-        sta     tbl,y
+        sta     tblI+128
+        ldx     #127                    ; mirror: tbl[256-k] = -tbl[k], negated
+        ldy     #129                    ;   as the 16-bit value it now is
+neg:    sec
+        lda     #$00
+        sbc     tblF,x
+        sta     tblF,y
+        lda     #$00
+        sbc     tblI,x
+        sta     tblI,y
         iny
         dex
         bne     neg
@@ -234,10 +253,10 @@ cart_init:
         stz     HEAD
         lda     #2                      ; tier 2 = standing still
         sta     TIER
-        lda     #1                      ; turn rate 2 brad/frame, ~2.1 s per rev
+        lda     #5                      ; 2.00 brad/frame, ~2.1 s per revolution
         sta     TURNIX
-        lda     #2
-        sta     TURNR
+        stz     HEADF
+        stz     TSCALE
 
         stz     SHXL                    ; the middle of the torus, which means
         stz     SHYL                    ;   nothing on a torus but keeps a
@@ -353,6 +372,8 @@ init_strings:
         sta     STR_HDG,x
         lda     TPL_STA,x
         sta     STR_STA,x
+        lda     TPL_SCL,x
+        sta     STR_SCL,x
         inx
         cpx     #24
         bne     @lp
@@ -389,23 +410,52 @@ cart_frame:
 ; second and nothing could be judged.
 ; -----------------------------------------------------------------------------
 do_input:
-        ldx     TURNIX
+        ldx     TURNIX                  ; this frame's rate, 8.8 brad per frame
+        txa
+        asl     a
+        tax
         lda     TURN_RATE,x
-        sta     TURNR
-
-        lda     JOY1
-        and     #JOY_LEFT
-        beq     :+
+        sta     RATEL
+        lda     TURN_RATE+1,x
+        sta     RATEH
+        lda     TSCALE
+        beq     @rate_ok
+        ldy     TIER                    ; ...optionally scaled by flight speed:
+        lda     TURN_XTRA,y             ;   rate * (1 + xtra/128), so standstill
+        beq     @rate_ok                ;   is unchanged and top speed is doubled.
+        sta     MB                      ;   Turn radius is v/omega, so a constant
+        lda     RATEL                   ;   omega makes the radius grow with speed
+        sta     MAL                     ;   in proportion; this halves that growth
+        lda     RATEH                   ;   without making the ship spin like a
+        sta     MAH                     ;   top when it is crawling.
+        jsr     smul16q7
+        clc
+        lda     RATEL
+        adc     MAL
+        sta     RATEL
+        lda     RATEH
+        adc     MAH
+        sta     RATEH
+@rate_ok:
+        lda     JOY1                    ; the heading carries a FRACTION, so the
+        and     #JOY_LEFT               ;   rate table can step finer than one
+        beq     :+                      ;   brad per frame. Only the integer part
+        sec                             ;   is ever used for cos/sin, and only a
+        lda     HEADF                   ;   change in THAT rebases the starfield -
+        sbc     RATEL                   ;   so a slow turn also rebases less often.
+        sta     HEADF
         lda     HEAD
-        sec
-        sbc     TURNR
+        sbc     RATEH
         sta     HEAD
 :       lda     JOY1
         and     #JOY_RIGHT
         beq     :+
-        lda     HEAD
         clc
-        adc     TURNR
+        lda     HEADF
+        adc     RATEL
+        sta     HEADF
+        lda     HEAD
+        adc     RATEH
         sta     HEAD
 :
         lda     JOY1_PRESS
@@ -427,9 +477,15 @@ do_input:
         lda     TURNIX
         inc     a
         cmp     #TURN_N
-        bcc     @ok
+        bcc     @tok
         lda     #$00
-@ok:    sta     TURNIX
+@tok:   sta     TURNIX
+:       lda     JOY2_PRESS              ; joystick 2's button toggles the speed
+        and     #JOY_FIRE               ;   coupling, so the two can be compared
+        beq     :+                      ;   back to back without a rebuild
+        lda     TSCALE
+        eor     #$01
+        sta     TSCALE
 :       rts
 
 ; -----------------------------------------------------------------------------
@@ -579,34 +635,42 @@ do_objects:
         sbc     SHYH
         sta     PYH
 
-        jsr     asr4_p                  ; world units -> full-res pixels
-
         lda     PXL                     ; cull well outside the screen, so the
         ldy     PXH                     ;   transform only runs on what matters
-        jsr     in_range_400
+        jsr     in_range
         bcc     :+
         jmp     @cull
 :       lda     PYL
         ldy     PYH
-        jsr     in_range_400
+        jsr     in_range
         bcc     :+
         jmp     @cull
 :
-        jsr     view_xform              ; -> VXL/VXH, VYL/VYH
+        jsr     view_xform              ; -> VXL/VXH, VYL/VYH, still world units
 
-        clc                             ; fb_x = FBCX + vy
-        lda     VYL
+        lda     VYL                     ; fb_x = FBCX + round(vy / 16)
+        sta     MAL
+        lda     VYH
+        sta     MAH
+        jsr     asr4r
+        clc
+        lda     MAL
         adc     #<FBCX
         sta     FXL
-        lda     VYH
+        lda     MAH
         adc     #>FBCX
         sta     FXH
-        sec                             ; fb_y = FBCY - vx
+        lda     VXL                     ; fb_y = FBCY - round(vx / 16)
+        sta     MAL
+        lda     VXH
+        sta     MAH
+        jsr     asr4r
+        sec
         lda     #<FBCY
-        sbc     VXL
+        sbc     MAL
         sta     FYL
         lda     #>FBCY
-        sbc     VXH
+        sbc     MAH
         sta     FYH
 
         ldx     OBJI
@@ -633,35 +697,44 @@ do_objects:
         jmp     @lp
 :       rts
 
-; PX and PY >>= 4, arithmetic. CMP #$80 puts the sign bit into carry for ROR.
-asr4_p:
+; MA >>= 4, arithmetic, ROUNDED. CMP #$80 puts the sign bit into carry for ROR.
+; -----------------------------------------------------------------------------
+; This is the LAST step of an object's transform, not the first. Truncating the
+; world delta to whole pixels BEFORE the rotation - which is what the code used
+; to do - threw away four bits of position, and the rotation turned that into one
+; to two pixels of wander on screen: objects visibly swam at low speed. Rotating
+; at full 1/16-pixel resolution and rounding once at the end leaves them still.
+asr4r:
+        clc
+        lda     MAL
+        adc     #8                      ; +0.5 px, so this rounds instead of
+        sta     MAL                     ;   flooring - the magnitude multiply
+        lda     MAH                     ;   truncates toward zero, and a floor
+        adc     #$00                    ;   here would disagree with it across
+        sta     MAH                     ;   the origin: a 1 px hitch
         ldx     #4
-@lp:    lda     PXH
+@lp:    lda     MAH
         cmp     #$80
-        ror     PXH
-        ror     PXL
-        lda     PYH
-        cmp     #$80
-        ror     PYH
-        ror     PYL
+        ror     MAH
+        ror     MAL
         dex
         bne     @lp
         rts
 
-; A/Y = signed 16. Carry CLEAR if inside -400..400, SET if outside.
-in_range_400:
+; A/Y = signed 16 world units. Carry CLEAR inside +/-6400 (= 400 px), SET outside.
+in_range:
         clc
-        adc     #<400
+        adc     #<6400
         sta     T0
         tya
-        adc     #>400
+        adc     #>6400
         tay
         bmi     @out
-        cpy     #>801
+        cpy     #>12801
         bcc     @in
         bne     @out
         lda     T0
-        cmp     #<801
+        cmp     #<12801
         bcc     @in
 @out:   sec
         rts
@@ -669,11 +742,13 @@ in_range_400:
         rts
 
 ; -----------------------------------------------------------------------------
-; view_xform — rotate a full-res pixel offset (PX, PY) into view coords.
+; view_xform — rotate a WORLD-unit offset (PX, PY) into view coords.
 ; -----------------------------------------------------------------------------
 ;   vx =  px*cos + py*sin        vy = -px*sin + py*cos
-; Four 16x8 multiplies. Objects are few, so this is the honest path; the stars
-; take the table shortcut instead, because there are a hundred of them.
+; Four 16x8 multiplies, at the full 1/16-pixel resolution of a world coordinate -
+; the caller rounds to a pixel afterwards, not before. Objects are few, so this
+; is the honest path; the stars take the table shortcut instead, because there
+; are a hundred of them and they do not need it.
 ; -----------------------------------------------------------------------------
 view_xform:
         lda     PXL                     ; px * cos
@@ -847,17 +922,21 @@ do_stars:
         jsr     star_rebase
         bra     @ready
 @scroll:
-        ldy     #$00                    ; travel += speed, sign-extended
-        bit     SPD
-        bpl     :+
-        ldy     #$FF
-:       sty     T0
+        ldy     #$00                    ; travel += speed x 2. A world unit is
+        bit     SPD                     ;   1/32 of a half-res pixel and the
+        bpl     :+                      ;   parallax is 1/4, so the step is
+        ldy     #$FF                    ;   SPD/128 pixels - which IS SPD<<1 read
+:       sty     T1                      ;   as 8.8. Nothing to compute.
+        lda     SPD
+        sta     T0
+        asl     T0
+        rol     T1
         clc
         lda     TRAVL
-        adc     SPD
+        adc     T0
         sta     TRAVL
         lda     TRAVH
-        adc     T0
+        adc     T1
         sta     TRAVH
 @ready:
         lda     TRAVH                   ; the integer part IS this frame's offset
@@ -972,41 +1051,133 @@ star_rebase:
         sta     BASEHEAD
         stz     TRAVL
         stz     TRAVH
-        BUILD_ROT ROTC, COSV, SGNC
-        BUILD_ROT ROTS, SINV, SGNS
+        BUILD_ROT ROTC_I, ROTC_F, COSV, SGNC
+        BUILD_ROT ROTS_I, ROTS_F, SINV, SGNS
+
+        lda     SHXL                    ; sample = ship_pos >> 7 at parallax 1/4,
+        asl     a                       ;   and the bit below it is the sub-unit
+        sta     FRACX                   ;   fraction. Both fall out of one shift.
         lda     SHXH
+        rol     a
         sta     SAMPX
+        lda     SHYL
+        asl     a
+        sta     FRACY
         lda     SHYH
+        rol     a
         sta     SAMPY
+
+        ; U = -R * frac. Without it a rebase re-registers the field against the
+        ; INTEGER sample and the whole field pops by up to a pixel; with it, the
+        ; field is continuous across a rebase, which is most of what made turning
+        ; look rough. Four multiplies, once, on a frame that is rebuilding 110
+        ; stars anyway.
+        lda     FRACX                   ; UX = -(fx*cos + fy*sin)
+        sta     MAL
+        stz     MAH
+        lda     COSV
+        sta     MB
+        jsr     smul16q7
+        lda     MAL
+        sta     UXL
+        lda     MAH
+        sta     UXH
+        lda     FRACY
+        sta     MAL
+        stz     MAH
+        lda     SINV
+        sta     MB
+        jsr     smul16q7
+        clc
+        lda     UXL
+        adc     MAL
+        sta     UXL
+        lda     UXH
+        adc     MAH
+        sta     UXH
+        sec
+        lda     #$00
+        sbc     UXL
+        sta     UXL
+        lda     #$00
+        sbc     UXH
+        sta     UXH
+
+        lda     FRACX                   ; UY = fx*sin - fy*cos
+        sta     MAL
+        stz     MAH
+        lda     SINV
+        sta     MB
+        jsr     smul16q7
+        lda     MAL
+        sta     UYL
+        lda     MAH
+        sta     UYH
+        lda     FRACY
+        sta     MAL
+        stz     MAH
+        lda     COSV
+        sta     MB
+        jsr     smul16q7
+        sec
+        lda     UYL
+        sbc     MAL
+        sta     UYL
+        lda     UYH
+        sbc     MAH
+        sta     UYH
+
         ldx     #$00
 @lp:    lda     STARBX,x
         sec
         sbc     SAMPX
         tay
-        lda     ROTC,y
-        sta     CDX
-        lda     ROTS,y
-        sta     SDX
+        lda     ROTC_I,y
+        sta     CDXI
+        lda     ROTC_F,y
+        sta     CDXF
+        lda     ROTS_I,y
+        sta     SDXI
+        lda     ROTS_F,y
+        sta     SDXF
         lda     STARBY,x
         sec
         sbc     SAMPY
-        tay
-        lda     ROTC,y
-        sta     CDY
-        lda     ROTS,y
-        sta     SDY
-        clc                             ; view x = ROTC[dx] + ROTS[dy]
-        lda     CDX
-        adc     SDY
-        sta     BASEX,x
-        sec                             ; view y = ROTC[dy] - ROTS[dx]
-        lda     CDY
-        sbc     SDX
+        tay                             ; Y = dy for the rest of the star
+
+        clc                             ; view x = ROTC[dx] + ROTS[dy] + UX,
+        lda     CDXF                    ;   summed in 8.8 and floored ONCE. The
+        adc     ROTS_F,y                ;   old code floored both lookups and
+        sta     T0                      ;   then added, so the error was twice
+        lda     CDXI                    ;   as large and not a smooth function
+        adc     ROTS_I,y                ;   of the heading - visible shimmer.
+        sta     T1
+        clc
+        lda     T0
+        adc     UXL
+        lda     T1
+        adc     UXH
+        sta     BASEX,x                 ; the byte IS the view torus
+
+        sec                             ; view y = ROTC[dy] - ROTS[dx] + UY
+        lda     ROTC_F,y
+        sbc     SDXF
+        sta     T0
+        lda     ROTC_I,y
+        sbc     SDXI
+        sta     T1
+        clc
+        lda     T0
+        adc     UYL
+        lda     T1
+        adc     UYH
         sta     BASEY,x
+
         inx
         cpx     #STAR_N
-        bne     @lp
-        rts
+        beq     :+
+        jmp     @lp
+:       rts
 
 ; -----------------------------------------------------------------------------
 ; emit_objects / emit_ship — one SPRITE command each.
@@ -1089,6 +1260,35 @@ do_hud:
         cpy     #4
         bne     :-
 
+        lda     TSCALE                  ; "TSCALE OFF" / "TSCALE ON  x1.69"
+        beq     @scoff
+        lda     #'O'
+        sta     STR_SCL+7
+        lda     #'N'
+        sta     STR_SCL+8
+        lda     #' '
+        sta     STR_SCL+9
+        lda     TIER
+        asl     a
+        asl     a
+        clc
+        adc     TIER                    ; x5: the multiplier strings are 5 wide
+        tax
+        ldy     #$00
+:       lda     TSCALE_TXT,x
+        sta     STR_SCL+11,y
+        inx
+        iny
+        cpy     #5
+        bne     :-
+        bra     @scdone
+@scoff: ldx     #$00
+:       lda     TPL_SCL,x
+        sta     STR_SCL,x
+        inx
+        cpx     #24
+        bne     :-
+@scdone:
         lda     HEAD
         jsr     put_hex2
         lda     DEC0
@@ -1113,13 +1313,17 @@ do_hud:
         ldx     #>STR_TRN
         ldy     #4
         jsr     vtext_at
+        lda     #<STR_SCL
+        ldx     #>STR_SCL
+        ldy     #6
+        jsr     vtext_at
         lda     #<STR_HDG
         ldx     #>STR_HDG
-        ldy     #6
+        ldy     #8
         jsr     vtext_at
         lda     #<STR_STA
         ldx     #>STR_STA
-        ldy     #8
+        ldy     #10
         jsr     vtext_at
         lda     #<TXT_H1
         ldx     #>TXT_H1
@@ -1195,8 +1399,13 @@ sext_ma:
 ; -----------------------------------------------------------------------------
 ; smul_core — |MA| * |MB| -> MR0..MR2, MSGN = 1 if the result must be negated.
 ; -----------------------------------------------------------------------------
-; Shift-and-add over the seven magnitude bits of MB. MA is destroyed. The two
-; wrappers below turn the 24-bit magnitude into whatever the caller wanted.
+; Shift-and-add over the seven magnitude bits of MB, MOST significant first: the
+; 24-bit accumulator is what gets shifted, so the multiplicand never moves and
+; there is no ceiling on it. The earlier LSB-first version shifted MA left six
+; times, which capped it near 1024 and is why object positions had to be
+; pre-truncated to whole pixels before the rotation - the thing that made them
+; swim. MA is destroyed (sign only). The wrappers below shape the 24-bit
+; magnitude into whatever the caller wanted.
 ; -----------------------------------------------------------------------------
 smul_core:
         stz     MSGN
@@ -1225,8 +1434,12 @@ smul_core:
         stz     MR0
         stz     MR1
         stz     MR2
-        ldx     #7
-@lp:    lsr     MB
+        asl     MB                      ; the seven magnitude bits move up to
+        ldx     #7                      ;   bits 7..1, so the loop can take them
+@lp:    asl     MR0                     ;   off the top one at a time
+        rol     MR1
+        rol     MR2
+        asl     MB
         bcc     @noadd
         clc
         lda     MR0
@@ -1238,9 +1451,7 @@ smul_core:
         lda     MR2
         adc     #$00
         sta     MR2
-@noadd: asl     MAL
-        rol     MAH
-        dex
+@noadd: dex
         bne     @lp
         rts
 
@@ -1303,10 +1514,22 @@ TIER_TXT:
 ; milliseconds per revolution. Rate 8 is the "1/32 of a turn per frame" idea:
 ; half a second for a full revolution, which is why it sits at the far end of
 ; the list rather than in the middle of it.
-TURN_N      = 6
-TURN_RATE:  .byte   1, 2, 3, 4, 6, 8
+; Turn rates, 8.8 brad per frame, and the milliseconds per revolution each one
+; gives. Flying the first version showed rates 1, 2 and 3 brad/frame were the
+; usable band and that whole-brad steps inside it were far too coarse - hence the
+; fractional heading and the quarter-brad ladder here.
+TURN_N      = 8
+TURN_RATE:  .word   $00C0, $0100, $0140, $0180, $01C0, $0200, $0280, $0300
+;                    0.75   1.00   1.25   1.50   1.75   2.00   2.50   3.00
 TURN_TXT:
-        .byte   "4244", "2122", "1415", "1061", " 707", " 531"
+        .byte   "5659", "4244", "3396", "2830", "2425", "2122", "1698", "1415"
+
+; Optional speed coupling: rate = rate * (1 + xtra/128), indexed by speed tier.
+; Standstill is unchanged, top speed is doubled.
+TURN_XTRA:  .byte    20,  10,   0,   5,  10,  20,  39,  59,  88, 127
+TSCALE_TXT:
+        .byte   "x1.16", "x1.08", "x1.00", "x1.04", "x1.08"
+        .byte   "x1.16", "x1.30", "x1.46", "x1.69", "x1.99"
 
 ; Seed offsets from the ship, and constant velocities, for the drifting
 ; reference objects: dx16, dy16, vx16, vy16 — velocity is signed 8.8.
@@ -1326,6 +1549,7 @@ TPL_SPD:    .byte   "SPD +000 PX/S", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 TPL_TRN:    .byte   "TURN 2 2122 MS/REV", 0, 0, 0, 0, 0, 0
 TPL_HDG:    .byte   "HDG $00", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 TPL_STA:    .byte   "STARS 000/110", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+TPL_SCL:    .byte   "TSCALE OFF", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 
 TXT_H1:     .byte   "JOY1 L/R TURN  UP/DN SPEED", 0
-TXT_H2:     .byte   "FIRE CYCLES TURN RATE", 0
+TXT_H2:     .byte   "FIRE RATE  JOY2 FIRE SCALE", 0

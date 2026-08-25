@@ -24,9 +24,10 @@ the geometry, reports the cycle budget, and writes `preview.png`.
 ## What is on screen
 
 - **A starfield.** 110 stars in their own 256 × 256 wrapping layer, drawn as
-  half-res `DOT_PIXELS`. They are *not* world objects: no world coordinates, no
-  zoom, no collision. They drift at **1/8** of the ship's speed. Flying scrolls
-  them along one axis; only *turning* rotates them — see finding 6.
+  half-res `DOT_PIXELS` - single pixels, but only on even coordinates, so they
+  sit on a 2-pixel lattice. They are *not* world objects: no world coordinates,
+  no zoom, no collision. They drift at **1/4** of the ship's speed. Flying
+  scrolls them along one axis; only *turning* rotates them - see finding 6.
 - **The ship.** Sprite 0 (the GPU's built-in test sprite — placeholder art),
   fixed dead centre, always nose-up.
 - **Seven drifting objects.** Also sprite 0, but with real world positions and
@@ -42,15 +43,25 @@ the geometry, reports the cycle budget, and writes `preview.png`.
 | LEFT / RIGHT | turn (held) |
 | UP / DOWN | one speed tier up / down (on press) |
 | FIRE | cycle the turn rate |
+| JOY2 FIRE | toggle speed-coupled turn rate |
 
 Speed tiers, in pixels per second: `-60, -30, 0, +15, +30, +60, +121, +181,
 +271, +392`. The top tier crosses the 400-pixel screen height in about a second.
 
-Turn rates, in milliseconds per full revolution: `4244, 2122, 1415, 1061, 707,
-531`. **The default is 2122 ms.** The last one, 531 ms, is the "1/32 of a turn
-per frame" idea from the original brief — it is in the list so it can be felt,
-but half a second for a full revolution is roughly four times faster than
-*Asteroids* and it is very hard to fly.
+Turn rates, in milliseconds per full revolution: `5659, 4244, 3396, 2830, 2425,
+2122, 1698, 1415`. **The default is 2122 ms.** Flying the first version showed
+that 1-3 brad per frame was the usable band and that whole-brad steps inside it
+were far too coarse, so the heading now carries a **fraction** and the ladder
+steps a quarter of a brad at a time. Only the integer part of the heading is ever
+used for cos/sin - and only a change in *that* rebases the starfield, so a slow
+turn also rebases less often.
+
+**Speed-coupled turning** (joystick 2's button) makes the rate rise with flight
+speed: `rate x (1 + xtra/128)`, unchanged at a standstill and doubled at top
+speed. Turn radius is `v/omega`, so a constant omega makes the radius grow in
+proportion to speed; this halves that growth without making the ship spin like a
+top when it is crawling. The HUD shows the multiplier. It is off by default - the
+point is to be able to flip it back and forth and feel the difference.
 
 ---
 
@@ -73,8 +84,8 @@ regression shows up immediately.
 `ROTC[i] = i·cos/128` and `ROTS[i] = i·sin/128`, as a running 16-bit sum. The
 whole star transform is then **four table lookups and two adds per star** — no
 multiply at all. Since finding 6 the tables are only built on frames where the
-heading moved, so a straight frame is **19% of one CPU** and a turning frame
-**31%**, everything included (110 stars, 7 transformed objects, six HUD strings,
+heading moved, so a straight frame is **22% of one CPU** and a turning frame
+**39%**, everything included (110 stars, 7 transformed objects, six HUD strings,
 the occlusion pass). madsim's own meter agrees: 23% CPU1, 22% GPU.
 
 **3. PPRAM is not the constraint here.** A steady frame is **250 bytes of the
@@ -118,8 +129,30 @@ asserts it: 3130 star-moves in step with the field, 0 out of step.
 Two traps found on the way: rotating the stored positions by the frame's small
 heading delta instead of rebuilding is cheaper but the table matrix's determinant
 is ~0.987, so the field implodes about 20% per quarter turn; and a rebuild
-re-registers against the integer sample, which can shift a star a pixel — only
-while turning, when the field is rotating anyway.
+re-registers against the integer sample, which used to shift the whole field by
+up to a pixel.
+
+**7. Rebuilds have to be smooth too.** Turning still shimmered, for two reasons
+that were both cheap to remove. The rotation tables floored each lookup and the
+two were then added, so the error was twice as large as it needed to be and was
+not a smooth function of the heading; they now carry the fraction (which the
+running-sum build produces for free) and the sum is floored **once**. And a
+rebuild registered the field against the *integer* sample, throwing away the
+sub-unit part; it now subtracts `R * frac`, four multiplies on a frame that is
+rebuilding 110 stars anyway. `preview.py` reads the star bases straight out of
+RAM - so stars keep their identity through a turn - and counts direction
+reversals: **2180 base steps, 32 reversals**.
+
+**8. Objects were swimming because they were rounded before the rotation, not
+after.** The transform used to truncate the world delta to whole pixels first,
+throwing away four bits of position, and the rotation turned that into one to two
+pixels of visible wander at low speed. The multiply that forced it was
+shift-and-add LSB-first, which shifts the multiplicand left six times and so
+capped it near 1024. Rewriting it MSB-first shifts the *accumulator* instead, the
+multiplicand never moves, and objects can be rotated at full 1/16-pixel
+resolution and rounded once at the end. On a straight leg with constant
+velocities every object's path is a straight line, so any reversal is pure
+quantisation noise: **463 pixel steps, 5 reversals**.
 
 ---
 

@@ -22,6 +22,8 @@ API_GPU_VTEXT       = $FFB4     ; OS_ARG+0 = cell 0-36, +1 = line 0-49,
 OS_ARG            = $20         ; $20-$2F - builder argument block
 JOY1              = $0A         ; port 1 held state, 1 = pressed
 JOY1_PRESS        = $0C         ; port 1 edges: bits newly pressed this frame
+JOY2              = $0D         ; port 2 held state
+JOY2_PRESS        = $0F         ; port 2 edges
 
 JOY_UP            = %00000001
 JOY_DOWN          = %00000010
