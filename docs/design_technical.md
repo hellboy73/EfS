@@ -214,6 +214,54 @@ one `gpu_dotpixels_clip` call.
 The star layer also rotates with the camera; two layers at different `k` give depth
 for two calls. Star count and layer count **(TBM)**.
 
+Note the layer must **rotate** with the camera even though it is "distant".
+Parallax applies to translation only — rotation has no parallax, so a star layer
+that translated slowly but did not rotate would visibly tear away from the world
+every time the player turns.
+
+### 5.4 Star occlusion — asteroids are hollow
+
+Asteroids are drawn as **dot-line outlines**, so they have no interior. Stars
+behind one would shine straight through it and the rock would read as a wire
+hoop rather than a solid body. Stars must therefore be **suppressed where a rock
+covers them**.
+
+The suppression happens where the star list is built, not on the GPU: a star that
+is occluded is simply never written into the `DOT_PIXELS` buffer, so it costs
+nothing downstream and even saves PPRAM. Two ways to decide it:
+
+- **Per-star × per-rock test.** Straightforward, but the cost is the product: 50
+  stars × 20 rocks = 1000 tests per frame even with an early reject on one axis.
+- **A coarse occlusion mask.** Rasterise each rock's disc into a low-resolution
+  screen bitmap (8 × 8 half-res pixels per cell ⇒ 19 × 25 = 475 cells = 60 bytes),
+  then each star is **one bit test**. Cost becomes *rocks + stars* instead of
+  *rocks × stars*, and it stays flat as the star count grows.
+
+The mask is almost certainly the right structure, but the naive version is worth
+measuring first so the mask has a number to beat. **(TBM)**
+
+Two details that follow:
+
+- The mask must be a **disc**, not a bounding box — a square hole punched in the
+  starfield around a round rock reads as a rectangle and is worse than the
+  see-through problem it fixes. Rasterise per cell-row with an x-span.
+- **Sprites do not need this.** A sprite can carry an overlay (black) plane that
+  masks whatever is under it, so sprite-based objects occlude for free. Only the
+  vector layer needs the mask — which is another quiet argument for the sprite LOD
+  in 5.1.
+
+### 5.5 Text erases what is under it
+
+`TEXT` / `VTEXT` write whole character cells, background included; they do not OR
+a glyph over what is already on screen. An **image-layer HUD therefore punches
+black rectangles into the starfield**. Measured in proto 01, which draws its HUD
+on the image layer and loses every star underneath it.
+
+The fix is to put the HUD on the **VRAM background** instead, where the hardware
+re-copies it every frame for free and it never fights the image layer. That only
+works for a HUD that changes rarely (score, lives, level); anything updating every
+frame has to live on the image layer and own its rectangle.
+
 ---
 
 ## 6. Objects

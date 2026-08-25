@@ -36,22 +36,36 @@ wrap, so the bar is high.
 
 ---
 
-## B. Ship handling — the first prototype
+## B. Ship handling — proto 01 is built, now it has to be flown
+
+[`proto/01_flight`](../proto/01_flight/) puts all of B1-B3 on a joystick with a
+live readout. **These stay open until someone flies it and says which values are
+right.**
 
 **B1. Number of speed tiers and their values (TBM).** The single most important
-unknown. Prototype in madsim with a debug overlay: try 4, 6 and 8 tiers, plus one
-reverse tier. Measure in screen-heights per second at reference zoom, not in
-internal units.
+unknown. The bench ships ten: `-60, -30, 0, +15, +30, +60, +121, +181, +271,
++392` px/s, with the top tier crossing the 400-pixel screen in about a second.
+Judge in screen-heights per second, not internal units.
 
-**B2. Turn rate (TBM).** How many frames to swing 32 headings (a full turn), and
-whether the rate depends on speed (slower turning at cruise reads as mass). Must be
-tested *together with* B1 — the pair is what "handling" means.
+**B2. Turn rate (TBM).** The bench cycles six rates on FIRE and shows the
+**milliseconds per full revolution**, which is the number worth arguing about:
+`4244, 2122, 1415, 1061, 707, 531`. Default 2122 ms. The original "1/32 of a turn
+per frame" idea is the 531 ms end — about four times faster than *Asteroids*, and
+in practice hard to fly. Still open: whether the rate should fall with speed
+(slower turning at cruise reads as mass). Must be judged *together with* B1 — the
+pair is what "handling" means.
 
-**B3. Camera lag constant (TBM).** How fast zoom and ship screen-Y follow a speed
-change. Too fast is nauseating; too slow disconnects the throttle from the view.
+**B3. Camera lag constant (TBM).** Not in proto 01 (there is no zoom yet). How
+fast zoom and ship screen-Y follow a speed change. Too fast is nauseating; too
+slow disconnects the throttle from the view.
 
 **B4. Visual bank angle while turning (TBD).** How much the ship tilts, and whether
 it is a sprite swap (cheap, a handful of frames) or a real small rotation.
+
+**B5. 32 headings or 256 (TBD).** The design assumes 32. Proto 01 deliberately
+runs at 256 so the difference can be seen: with the ship always drawn nose-up,
+the only place the choice shows is the smoothness of the world's rotation. If 32
+is not visibly steppy it is free; if it is, the design should say 256.
 
 ---
 
@@ -92,11 +106,24 @@ MAD-65 repo (new opcode + builder + jump-table entry + py65 test), so it needs t
 be worth it — measure the per-edge path first.
 
 **D4. Star layers (TBM).** How many parallax layers, how many stars per layer, and
-their parallax factors. Cost is one `gpu_dotpixels_clip` per layer plus the point
-list build.
+their parallax factors. Cost is one `DOT_PIXELS` call per layer plus the point-list
+build. PPRAM cost is 2 bytes per *visible* star, so the star count is bounded by
+the 2 KB list as well as by CPU.
 
-**D5. HUD placement in portrait (TBD).** 300 x 400 is tall and narrow; the HUD
-competes with look-ahead. Background layer (free) vs image layer (costs per frame).
+**D5. HUD layer (SETTLED — background).** Measured in proto 01: `TEXT`/`VTEXT`
+write whole cells including the background, so an image-layer HUD erases the
+starfield under it. Slow-changing HUD goes on the VRAM background, where it is
+also free; anything that must update every frame stays on the image layer and
+owns its rectangle. Folded into `design_technical.md` 5.5. What is still open is
+**where** it goes: 300 x 400 is tall and narrow, and the HUD competes with
+look-ahead.
+
+**D6. Star occlusion behind asteroids (TBM).** Rocks are dot-line outlines and are
+therefore hollow; stars must be suppressed where a rock covers them or the rock
+reads as a wire hoop. Naive per-star × per-rock testing vs a coarse disc-rasterised
+occlusion mask — see `design_technical.md` 5.4. Measure the naive version first so
+the mask has a number to beat. The mask resolution (8 × 8 half-res pixels per cell
+= 60 bytes) is itself a **(TBD)**.
 
 ---
 
@@ -104,6 +131,10 @@ competes with look-ahead. Background layer (free) vs image layer (costs per fram
 
 **E1. Object pool size (TBM).** 64? 96? 128? Bounded by the collision broad phase,
 not by integration. Needs a worst-case measurement with everything on screen.
+Proto 01's baseline to build on: 110 stars + 7 transformed objects + a six-line
+HUD + the occlusion pass = **30% of one CPU's frame**, and **250 bytes of the
+2047-byte PPRAM list**. Whatever asteroids cost, that is what they are competing
+with.
 
 **E2. Sector grid resolution (TBD).** 16 x 16 sectors of 256 px is the baseline; a
 sector must be larger than the biggest asteroid or the adjacency test misses

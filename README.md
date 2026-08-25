@@ -7,7 +7,8 @@ physics model where rocks collide with each other, transfer spin, and break apar
 Played in **TATE (portrait) mode**: the monitor stands on its side, giving a
 300 x 400 screen.
 
-> **Status: design only.** No game code exists yet. The technical assumptions are
+> **Status: design, plus the first bench.** No game code yet — but
+> [`proto/01_flight`](proto/01_flight/) flies. The technical assumptions are
 > written down in [`docs/design_technical.md`](docs/design_technical.md); the
 > undecided parts are tracked in [`docs/open_questions.md`](docs/open_questions.md).
 
@@ -50,6 +51,9 @@ EfS/
   assets/
     png/                  source art (sprites, bitmaps)
     vgm/                  source music
+  proto/
+    01_flight/            flight model bench: camera, speed tiers, starfield.
+                          `make run` to fly it, `python preview.py` to check it
   tools/                  asset compilers (PNG -> sprite blobs, VGM -> streams)
   roms/
     cpu_os.bin            MAD-65 CPU1 firmware  ] bundled so the repo is
@@ -75,9 +79,18 @@ redone once assets have real sizes. The bank register reaches 1 MB, so growing t
 
 ---
 
+## Prototypes
+
+Before the game there are benches. [`proto/01_flight`](proto/01_flight/) is the
+first: the camera, the speed tiers and the starfield on a joystick, with a live
+readout, so the handling can be decided by flying it rather than by guessing.
+It already settled two things — Model B is worth 2.5x on this workload, and the
+text opcodes erase what is under them — and it leaves the handling numbers open
+for exactly the reason it exists.
+
 ## Building
 
-Nothing to build yet. When there is:
+The game itself is not started yet. When it is:
 
 ```bash
 make

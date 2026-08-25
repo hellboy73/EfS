@@ -8,6 +8,7 @@
 # bundled on purpose so this repo is self-contained. Generated .inc files stay
 # tracked (text, diffable).
 cart.bin
+proto/*/*.bin
 assets/*.bin
 assets/vgm/*_stream.bin
 

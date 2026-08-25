@@ -1,0 +1,10 @@
+# GPU OS symbols the py65 preview harnesses need, extracted from the MAD-65
+# build that produced gpu_os.bin in this directory. Refresh this file whenever
+# the bundled ROMs are refreshed:
+#
+#   cd <MAD-65>/roms
+#   cl65 -g -t none -C gpu.cfg -o gpu_dbg.bin -Wl --dbgfile,gpu.dbg gpu_os.s gpu_diag_list.s
+#   grep -o 'name="dispatch_loop".*val=0x[0-9A-Fa-f]*' gpu.dbg
+#
+# gpu_os.bin md5 = e2995235299d471c46f9b87380aea0b5
+dispatch_loop = 0xC104
