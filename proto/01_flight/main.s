@@ -151,6 +151,11 @@ BASEHEAD    = $C3               ; the heading the star bases were built for
 BASEOFF     = $DA               ; ...and the ship offset they were built for
 T2          = $DB               ; the camera point, while a rebase computes it
 T3          = $DC
+PSHOFFL     = $DD               ; last frame's ship offset, so the ease between
+PSHOFFH     = $DE               ;   speed tiers can be fed to the scroll
+TURNVL      = $DF               ; angular velocity, signed 8.8 brad per frame
+TURNVH      = $E0
+RAMPIX      = $E1               ; how sharply it reaches the held turn rate
 VYT         = $C4               ; per-star scrolled view-y
 HEADF       = $C5               ; heading fraction - turning is sub-brad, so the
                                 ;   rate table can have steps finer than 1/256 turn
@@ -279,6 +284,12 @@ cart_init:
         stz     SHOFFH
         lda     #5                      ; 2.00 brad/frame, ~2.1 s per revolution
         sta     TURNIX
+        stz     TURNVL
+        stz     TURNVH
+        lda     #2                      ; a middling wind-up by default
+        sta     RAMPIX
+        stz     PSHOFFL
+        stz     PSHOFFH
         stz     HEADF
         stz     TSCALE
 
@@ -471,27 +482,73 @@ do_input:
         adc     MAH
         sta     RATEH
 @rate_ok:
-        lda     JOY1                    ; the heading carries a FRACTION, so the
-        and     #JOY_LEFT               ;   rate table can step finer than one
-        beq     :+                      ;   brad per frame. Only the integer part
-        sec                             ;   is ever used for cos/sin, and only a
-        lda     HEADF                   ;   change in THAT rebases the starfield -
-        sbc     RATEL                   ;   so a slow turn also rebases less often.
-        sta     HEADF
-        lda     HEAD
+        ; ---- the turn has momentum ------------------------------------------
+        ; The stick sets a TARGET angular velocity and the real one eases toward
+        ; it, so a turn winds up and unwinds instead of switching on and off.
+        ; RAMP 0 is an instant ease, i.e. the old on/off behaviour, kept so the
+        ; two can be compared back to back.
+        stz     T0                      ; T0/T1 = the target
+        stz     T1
+        lda     JOY1
+        and     #JOY_LEFT
+        beq     :+
+        sec
+        lda     #$00
+        sbc     RATEL
+        sta     T0
+        lda     #$00
         sbc     RATEH
-        sta     HEAD
+        sta     T1
 :       lda     JOY1
         and     #JOY_RIGHT
         beq     :+
+        lda     RATEL
+        sta     T0
+        lda     RATEH
+        sta     T1
+:       ldx     RAMPIX
+        beq     @snap
+        sec                             ; delta = target - current, into MA so the
+        lda     T0                      ;   target stays in T0/T1
+        sbc     TURNVL
+        sta     MAL
+        lda     T1
+        sbc     TURNVH
+        sta     MAH
+        ldy     RAMPIX                  ; (ldx has no abs,x mode)
+        lda     RAMP_SHIFT,y
+        tax
+@rsh:   lda     MAH
+        cmp     #$80
+        ror     MAH
+        ror     MAL
+        dex
+        bne     @rsh
+        lda     MAL                     ; An exponential ease never lands on its
+        ora     MAH                     ;   target in integers: shifting a small
+        bne     @rapply                 ;   delta right gives 0 one way and -1 the
+@snap:  lda     T0                      ;   other, so the angular velocity sticks
+        sta     TURNVL                  ;   at some tiny nonzero value and the
+        lda     T1                      ;   heading creeps FOREVER - which fires a
+        sta     TURNVH                  ;   full star rebuild every few dozen
+        bra     @spin                   ;   frames and twitches the whole field.
+@rapply:                                ;   When the step underflows, snap.
         clc
-        lda     HEADF
-        adc     RATEL
-        sta     HEADF
-        lda     HEAD
-        adc     RATEH
+        lda     TURNVL
+        adc     MAL
+        sta     TURNVL
+        lda     TURNVH
+        adc     MAH
+        sta     TURNVH
+@spin:
+        clc                             ; the heading carries a FRACTION, so the
+        lda     HEADF                   ;   rate ladder can step finer than one
+        adc     TURNVL                  ;   brad per frame. Only the integer part
+        sta     HEADF                   ;   is used for cos/sin, and only a change
+        lda     HEAD                    ;   in THAT rebuilds the starfield, so a
+        adc     TURNVH                  ;   slow turn also rebuilds less often.
         sta     HEAD
-:
+
         lda     JOY1_PRESS
         and     #JOY_UP
         beq     :+
@@ -514,6 +571,23 @@ do_input:
         bcc     @tok
         lda     #$00
 @tok:   sta     TURNIX
+:       lda     JOY2_PRESS              ; joystick 2 left/right: how sharply the
+        and     #JOY_RIGHT              ;   turn winds up
+        beq     :+
+        lda     RAMPIX
+        inc     a
+        cmp     #RAMP_N
+        bcc     @rok
+        lda     #$00
+@rok:   sta     RAMPIX
+:       lda     JOY2_PRESS
+        and     #JOY_LEFT
+        beq     :+
+        lda     RAMPIX
+        bne     @rdn
+        lda     #RAMP_N
+@rdn:   dec     a
+        sta     RAMPIX
 :       lda     JOY2_PRESS              ; joystick 2's button steps the speed
         and     #JOY_FIRE               ;   coupling, so the settings can be
         beq     :+                      ;   compared back to back, no rebuild
@@ -1045,7 +1119,7 @@ add_occluder:
 ; so the step is SPD/256 pixels, which is SPD in 8.8. Nothing to compute.
 ; -----------------------------------------------------------------------------
 do_stars:
-        lda     SPDL                    ; travel += speed / 128. A world unit is
+        lda     SPDL                    ; flight: speed / 128. A world unit is
         sta     T0                      ;   1/32 of a half-res pixel and the
         lda     SPDH                    ;   parallax is 1/4, so the step is
         sta     T1                      ;   speed/128 pixels - with speed in 8.8
@@ -1056,6 +1130,40 @@ do_stars:
         ror     T0
         dex
         bne     :-
+
+        ; ...plus however far the CAMERA moved on its own. The camera point sits
+        ; ahead of the ship by the ship's screen offset, and that offset EASES
+        ; between speed tiers - so for a few frames after every tier change the
+        ; camera is travelling as well as the ship. That motion is along the
+        ; heading, which in view space is the scroll axis, so it belongs in this
+        ; same accumulator.
+        ;
+        ; It used to force a full rebuild instead, and a rebuild rounds every
+        ; star independently: while the offset was moving, stars twitched a pixel
+        ; or two ACROSS the screen even though the scroll itself was smooth.
+        sec
+        lda     SHOFFL
+        sbc     PSHOFFL
+        sta     T2
+        lda     SHOFFH
+        sbc     PSHOFFH
+        sta     T3
+        lda     T3                      ; /2: full-res screen px -> half-res
+        cmp     #$80
+        ror     T3
+        ror     T2
+        clc
+        lda     T0
+        adc     T2
+        sta     T0
+        lda     T1
+        adc     T3
+        sta     T1
+        lda     SHOFFL
+        sta     PSHOFFL
+        lda     SHOFFH
+        sta     PSHOFFH
+
         clc
         lda     TRAVL
         adc     T0
@@ -1067,13 +1175,10 @@ do_stars:
         sta     TRAVI                   ;   It is never reset - a base is stored
                                         ;   as (true - TRAVI), so base + TRAVI is
                                         ;   the true position whenever it is set.
-        lda     HEAD
-        cmp     BASEHEAD
-        bne     @full
-        lda     SHOFFH                  ; the camera point rides the ship offset,
-        cmp     BASEOFF                 ;   so easing between speed tiers has to
-        beq     @maybe                  ;   rebuild too
-@full:  jsr     star_rebase_full
+        lda     HEAD                    ; only the HEADING forces a rebuild - the
+        cmp     BASEHEAD                ;   camera's own drift is in the scroll
+        beq     @maybe
+        jsr     star_rebase_full
         bra     @draw
 @maybe:
         sec                             ; refresh once the field has scrolled far
@@ -1210,8 +1315,6 @@ STAR_REFRESH = 24               ; refresh after this much scroll; the margin is 
 star_rebase_full:
         lda     HEAD
         sta     BASEHEAD
-        lda     SHOFFH
-        sta     BASEOFF
         stz     RBMODE
         BUILD_ROT ROTC_I, ROTC_F, COSV, SGNC
         BUILD_ROT ROTS_I, ROTS_F, SINV, SGNS
@@ -1572,6 +1675,10 @@ do_hud:
         iny
         cpy     #4
         bne     :-
+        lda     RAMPIX
+        clc
+        adc     #'0'
+        sta     STR_TRN+20
 
         lda     TSCALE                  ; "TSCALE OFF" / "TSCALE 2 MAX x1.25"
         beq     @scoff
@@ -1847,16 +1954,22 @@ TURN_TXT:
 ; The speed coupling, at full strength: rate * (1 + xtra/128), so the top tier
 ; turns 1.5x faster than a standstill. TSCALE 2 and 1 shift this right once and
 ; twice, giving 1.25x and 1.12x.
+; How sharply the turn reaches the stick's rate: the angular velocity closes
+; 1/(2^shift) of the gap each frame. Index 0 is no ramp at all - the old on/off
+; behaviour - so the two can be compared side by side.
+RAMP_N      = 4
+RAMP_SHIFT: .byte   0, 2, 3, 4
+
 TURN_XTRA:  .byte    27,  18,   9,   0,   9,  18,  27,  37,  46,  55,  64
 TSCALE_TXT: .byte   "x1.12", "x1.25", "x1.50"
 
 ; HUD templates. Each is exactly 24 bytes, which is what init_strings copies.
 TPL_SPD:    .byte   "SPD +000 PX/S", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-TPL_TRN:    .byte   "TURN 2 2122 MS/REV", 0, 0, 0, 0, 0, 0
+TPL_TRN:    .byte   "TURN 2 2122 MS/REV R0", 0, 0, 0
 TPL_HDG:    .byte   "HDG $00", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 TPL_STA:    .byte   "STARS 000/110", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 TPL_SCL:    .byte   "TSCALE OFF", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 TPL_SCL2:   .byte   "TSCALE 0 MAX x1.00", 0, 0, 0, 0, 0, 0
 
 TXT_H1:     .byte   "JOY1 L/R TURN  UP/DN SPEED", 0
-TXT_H2:     .byte   "FIRE RATE  JOY2 SCALE", 0
+TXT_H2:     .byte   "FIRE RATE  J2 L/R RAMP", 0

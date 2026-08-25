@@ -52,7 +52,8 @@ ZP = {"HEAD": 0x83, "TIER": 0x84, "TURNIX": 0x85,
       "STARN": 0xA0, "OCCN": 0xA1,
       "TRAVL": 0xC0, "TRAVH": 0xC1, "TRAVI": 0xC2, "BASEHEAD": 0xC3,
       "SPDL": 0xBD, "SPDH": 0xBE, "TSCALE": 0xCC, "SHOFFH": 0xD0,
-      "REFI": 0xD1}
+      "REFI": 0xD1, "HEADF": 0xC5,
+      "TURNVL": 0xDF, "TURNVH": 0xE0, "RAMPIX": 0xE1}
 
 
 def s16(lo, hi):
@@ -191,21 +192,35 @@ call(cpu, CART_INIT)
 # starfield has to be smooth, and it is what the rigidity check below measures.
 # The OS's frame ISR normally maintains these bytes; here we drive them.
 JOY1, JOY1_PRESS = 0x0A, 0x0C
-JOY_UP, JOY_RIGHT = 0x01, 0x08
-TURN_UNTIL = 140                # a full revolution: every heading, so the
-                                #   fold band below is swept from end to end
+JOY_UP, JOY_DOWN, JOY_RIGHT = 0x01, 0x02, 0x08
+TURN_UNTIL = 70                 # half a revolution - enough to sweep the whole
+                                #   off-axis band the fold check needs - and then
+                                #   there is room left for a settled straight leg,
+                                #   which the turn's momentum delays by ~50 frames
 
 frames = []
 cycles = []
 trace = []
 rot = []                        # ROTC_I / ROTS_I + the sample, for the pivot check
 objs = []                       # object screen positions by index, for the swim test
+occ = []                        # the cart's own occluder boxes, straight from RAM
 bases = []                      # BASEX/BASEY straight out of RAM, so stars keep
                                 #   their identity across a turn and the rebase
                                 #   can be measured directly
 for f in range(FRAMES):
     cpu_mem[JOY1] = JOY_RIGHT if f < TURN_UNTIL else 0
-    cpu_mem[JOY1_PRESS] = JOY_UP if f in (0, 1, 2, 3, 4, 5) else 0
+    # Climb the tiers at the start, then change speed again TWICE on the
+    # straight leg: the ship's screen offset eases over ~40 frames after every
+    # tier change, and that ease used to force a full star rebuild - which is
+    # what made stars twitch sideways for a few frames each time.
+    press = 0
+    if f in (0, 1, 2, 3, 4, 5):
+        press = JOY_UP
+    elif f == 130:
+        press = JOY_DOWN
+    elif f == 160:
+        press = JOY_UP
+    cpu_mem[JOY1_PRESS] = press
     call(cpu, API_GPU_BEGIN)
     cart_reads[0] = 0
     c = call(cpu, CART_FRAME)
@@ -229,6 +244,12 @@ for f in range(FRAMES):
             vis[i] = (s16(cpu_mem[0x1A00 + i], cpu_mem[0x1B00 + i]),
                       s16(cpu_mem[0x1C00 + i], cpu_mem[0x1D00 + i]))
     objs.append(vis)
+    # The occluder boxes exactly as the cart built them. Rebuilding them from
+    # the emitted SPRITE commands nearly works and disagrees on about one star
+    # in four thousand, which is enough to make a strict rigidity check useless.
+    nb = cpu_mem[0xA1]
+    occ.append([(cpu_mem[0x0A00 + k], cpu_mem[0x0A20 + k],
+                 cpu_mem[0x0A40 + k], cpu_mem[0x0A60 + k]) for k in range(nb)])
 
 
 print("\nframe  head tier  ship X     ship Y     vel (8.8)        stars occl")
@@ -238,6 +259,25 @@ for f in (0, 1, 10, 30, 60, FRAMES - 1):
           f"${t['SHXH']:02X}{t['SHXL']:02X}      ${t['SHYH']:02X}{t['SHYL']:02X}      "
           f"{s16(t['VELXL'], t['VELXH']):+6d},{s16(t['VELYL'], t['VELYH']):+6d}   "
           f"{t['STARN']:4d}  {t['OCCN']:3d}")
+
+# Where the ship is ACTUALLY flying straight. Not "the heading looks constant" -
+# the heading carries a fraction, and a creeping fraction eventually carries into
+# the integer and fires a full star rebuild. The turn is over when the angular
+# velocity is exactly zero, and with momentum that is ~50 frames after release.
+STRAIGHT = TURN_UNTIL
+while STRAIGHT < FRAMES and s16(trace[STRAIGHT]["TURNVL"],
+                                trace[STRAIGHT]["TURNVH"]) != 0:
+    STRAIGHT += 1
+print(f"\nturn stops at frame {STRAIGHT}, {STRAIGHT - TURN_UNTIL} frames after "
+      f"the stick was released - the turn has momentum now (ramp "
+      f"{trace[-1]['RAMPIX']})")
+assert STRAIGHT + 30 < FRAMES, "no settled straight leg left to measure"
+
+# The heading must then STAY put: an ease that never quite reaches zero leaves the
+# heading creeping, and every carry into the integer part is a full star rebuild -
+# a scattered twitch in the middle of an otherwise rigid scroll.
+drift = sum(1 for n in range(STRAIGHT, FRAMES - 1)
+            if trace[n]["HEAD"] != trace[n + 1]["HEAD"])
 
 BUDGET = 237_404
 raw = [c for c, _ in cycles]                        # py65 charges no wait states
@@ -397,39 +437,21 @@ def sb(v):
     return v - 256 if v > 127 else v
 
 
-def occluders(stream, shoffh):
-    """The half-res boxes the cart suppresses stars inside, rebuilt from the
-    SPRITE commands it emitted. The objects move independently of the field, so
-    a star can vanish behind one without the field having done anything wrong —
-    those have to come out of the rigidity count or it measures occlusion."""
-    hx = ship_fbx(shoffh) >> 1
-    boxes = [(hx - SPR_W2, hx + SPR_W2, HCY - SPR_H2, HCY + SPR_H2)]
-    for op, pl in decode(stream):
-        if op != 0x50:
-            continue
-        cx = (pl[1] | (pl[2] << 8)) + 16        # top-left back to centre
-        cy = (pl[3] | (pl[4] << 8)) + 13
-        if cx & 0x8000 or cy & 0x8000:
-            continue
-        hx, hy = cx >> 1, cy >> 1
-        boxes.append((hx - SPR_W2, hx + SPR_W2, hy - SPR_H2, hy + SPR_H2))
-    return boxes
-
-
 def covered(boxes, x, y):
     return any(x0 <= x <= x1 and y0 <= y <= y1 for x0, x1, y0, y1 in boxes)
 
 
+print(f"        heading changes after the turn stopped: {drift}")
 rigid_ok = rigid_bad = 0
 steps = []
-for n in range(TURN_UNTIL + 1, FRAMES - 1):
+for n in range(STRAIGHT, FRAMES - 1):
     a, b = stars_of(frames[n]), stars_of(frames[n + 1])
     if a is None or b is None:
         continue
     d = sb((trace[n + 1]["TRAVI"] - trace[n]["TRAVI"]) & 0xFF)
     steps.append(d)
     bs = set(b)
-    boxes = occluders(frames[n + 1], trace[n + 1]["SHOFFH"])
+    boxes = occ[n + 1]
     for x, y in a:
         nx = x + d
         if not (0 <= nx < 200):
@@ -448,6 +470,8 @@ print(f"        {moving} of {len(steps)} frames scroll; "
 check("the starfield translates rigidly while flying straight",
       rigid_bad == 0 and rigid_ok > 500,
       f"{rigid_bad} stars moved out of step with the field")
+check("the heading stops creeping once the turn is over", drift == 0,
+      f"{drift} carries into the integer heading - the ease is not reaching zero")
 check("the field does scroll on the straight leg", moving > 5,
       "TRAVI never advanced - the travel accumulator is not running")
 
@@ -549,7 +573,7 @@ model = set(drawn(FRAMES - 1).values())
 emitted = set(dots)
 # The forced refresh has to actually fire, or parked stars are never brought
 # back and a long straight flight thins the leading edge.
-refs = sum(1 for a, b in zip(trace[TURN_UNTIL:], trace[TURN_UNTIL + 1:])
+refs = sum(1 for a, b in zip(trace[STRAIGHT:], trace[STRAIGHT + 1:])
            if a["REFI"] != b["REFI"])
 print(f"        straight leg: {refs} forced refresh(es)")
 check("the parked set is refreshed while flying straight", refs >= 1,
@@ -590,9 +614,17 @@ check("the star field pivots on the ship", worst <= 3,
 # is exactly the "sprites float +/-2 px" complaint. Objects are tracked frame to
 # frame by nearest match, which is unambiguous when they move a pixel or two.
 tracks = {}
-for a, b in zip(objs[TURN_UNTIL + 1:], objs[TURN_UNTIL + 2:]):
+for n in range(STRAIGHT, FRAMES - 1):
+    a, b = objs[n], objs[n + 1]
+    # The whole scene shifts when the ship's screen offset eases between speed
+    # tiers, so take that out first - it is the camera moving, not the object.
+    dcam = (trace[n + 1]["SHOFFH"] - 256 if trace[n + 1]["SHOFFH"] > 127
+            else trace[n + 1]["SHOFFH"]) - (
+           trace[n]["SHOFFH"] - 256 if trace[n]["SHOFFH"] > 127
+           else trace[n]["SHOFFH"])
     for i in set(a) & set(b):
-        tracks.setdefault(i, []).append((b[i][0] - a[i][0], b[i][1] - a[i][1]))
+        tracks.setdefault(i, []).append(
+            (b[i][0] - a[i][0] - dcam, b[i][1] - a[i][1]))
 
 reversals = 0
 steps = 0
