@@ -50,7 +50,8 @@ ZP = {"HEAD": 0x83, "TIER": 0x84, "TURNIX": 0x85,
       "SHXL": 0x8B, "SHXH": 0x8C, "SHYL": 0x8E, "SHYH": 0x8F,
       "VELXL": 0x91, "VELXH": 0x92, "VELYL": 0x93, "VELYH": 0x94,
       "STARN": 0xA0, "OCCN": 0xA1,
-      "TRAVL": 0xC0, "TRAVH": 0xC1, "TRAVI": 0xC2, "BASEHEAD": 0xC3}
+      "TRAVL": 0xC0, "TRAVH": 0xC1, "TRAVI": 0xC2, "BASEHEAD": 0xC3,
+      "SPDL": 0xBD, "SPDH": 0xBE, "TSCALE": 0xCC, "SHOFFH": 0xD0}
 
 
 def decode(stream):
@@ -99,6 +100,11 @@ HCX, HCY = 100, 74              # half-res framebuffer centre
 FBCX, FBCY = 200, 149           # full-res framebuffer centre
 SPR_W2, SPR_H2 = 8, 7           # sprite 0 half-extent, half-res
 STAR_N = 110
+
+
+def ship_fbx(shoffh):
+    """Full-res framebuffer x of the ship's centre for a signed offset byte."""
+    return FBCX + (shoffh - 256 if shoffh > 127 else shoffh)
 
 # -----------------------------------------------------------------------------
 # Build, then load the ROMs bundled with this repo.
@@ -316,27 +322,53 @@ if dots is not None:
     # there — so a star under a HUD line is erased after the fact. Worth knowing
     # for the real game: an image-layer HUD punches black rectangles into the
     # starfield, which is one more reason to put it on the background layer.
-    HUD_LINES = (2, 4, 6, 8, 45, 47)
+    HUD_LINES = (2, 4, 6, 8, 10, 45, 47)
     hud_rows = {r for L in HUD_LINES for r in range(4 * L, 4 * L + 4)}
+    # A sprite drawn over a star also erases it. The occluder list the cart
+    # keeps only holds boxes whose CENTRE is on screen, so a sprite hanging off
+    # an edge still paints over stars it never suppressed - that is a known
+    # limit of the naive box list, not a transform bug. Exclude those too.
+    sprite_rects = []
+    for op, pl in decode(frames[-1]):
+        if op == 0x50:
+            x = pl[1] | (pl[2] << 8)
+            y = pl[3] | (pl[4] << 8)
+            x = x - 65536 if x & 0x8000 else x
+            y = y - 65536 if y & 0x8000 else y
+            sprite_rects.append((x >> 1, (x + 31) >> 1, y >> 1, (y + 25) >> 1))
     missing = [(x, y) for x, y in dots
-               if not pix(2 * x, 2 * y) and x not in hud_rows]
+               if not pix(2 * x, 2 * y) and x not in hud_rows
+               and not any(x0 <= x <= x1 and y0 <= y <= y1
+                           for x0, x1, y0, y1 in sprite_rects)]
     check("every emitted star not under the HUD reached the framebuffer",
           not missing, f"{missing}")
     # The occlusion list: no star may land inside the ship's sprite box.
+    shipx = ship_fbx(trace[-1]["SHOFFH"]) >> 1
     inside = [(x, y) for x, y in dots
-              if abs(x - HCX) <= SPR_W2 and abs(y - HCY) <= SPR_H2]
+              if abs(x - shipx) <= SPR_W2 and abs(y - HCY) <= SPR_H2]
     check("no star was drawn inside the ship's sprite box",
           not inside, f"{inside}")
     check("stars are not all bunched in one place",
           len({x >> 5 for x, _ in dots}) >= 4 and
           len({y >> 5 for _, y in dots}) >= 3)
 
-# The ship: sprite 0 is 32x26 at full-res (184,136); something must be lit there
-# and it must be in the middle of the portrait screen, not the corner.
-ship = sum(pix(FBCX - 16 + dx, FBCY - 13 + dy)
+# The ship rides down the screen with the speed tier now, so "is it at the
+# centre" is no longer the question - "is it where the offset says" is.
+sx = ship_fbx(trace[-1]["SHOFFH"]) - 16
+ship = sum(pix(sx + dx, FBCY - 13 + dy)
            for dx in range(32) for dy in range(26))
-check("the ship sprite is drawn at the screen centre", ship > 50,
-      f"{ship} pixels lit in the 32x26 box at ({FBCX-16},{FBCY-13})")
+check("the ship sprite is drawn where the speed offset puts it", ship > 50,
+      f"{ship} pixels lit in the 32x26 box at ({sx},{FBCY-13})")
+
+# ...and it must actually have moved off centre, and eased rather than snapped.
+offs = [t["SHOFFH"] - 256 if t["SHOFFH"] > 127 else t["SHOFFH"] for t in trace]
+jump = max(abs(b - a) for a, b in zip(offs, offs[1:]))
+print(f"        ship screen offset: {offs[0]} -> {offs[-1]} px, "
+      f"largest single-frame move {jump} px")
+check("the ship offset follows the speed tier", abs(offs[-1]) > 20,
+      f"ended at {offs[-1]} px from centre")
+check("the ship offset eases rather than snapping", jump <= 12,
+      f"moved {jump} px in one frame")
 
 # --- the reason do_stars is shaped the way it is -----------------------------
 # On the straight leg the field must translate RIGIDLY: every visible star moves
@@ -347,12 +379,13 @@ def sb(v):
     return v - 256 if v > 127 else v
 
 
-def occluders(stream):
+def occluders(stream, shoffh):
     """The half-res boxes the cart suppresses stars inside, rebuilt from the
     SPRITE commands it emitted. The objects move independently of the field, so
     a star can vanish behind one without the field having done anything wrong —
     those have to come out of the rigidity count or it measures occlusion."""
-    boxes = [(HCX - SPR_W2, HCX + SPR_W2, HCY - SPR_H2, HCY + SPR_H2)]
+    hx = ship_fbx(shoffh) >> 1
+    boxes = [(hx - SPR_W2, hx + SPR_W2, HCY - SPR_H2, HCY + SPR_H2)]
     for op, pl in decode(stream):
         if op != 0x50:
             continue
@@ -378,7 +411,7 @@ for n in range(TURN_UNTIL + 1, FRAMES - 1):
     d = sb((trace[n + 1]["TRAVI"] - trace[n]["TRAVI"]) & 0xFF)
     steps.append(d)
     bs = set(b)
-    boxes = occluders(frames[n + 1])
+    boxes = occluders(frames[n + 1], trace[n + 1]["SHOFFH"])
     for x, y in a:
         nx = x + d
         if not (0 <= nx < 200):

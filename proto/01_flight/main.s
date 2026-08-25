@@ -134,9 +134,12 @@ DEC0        = $B9               ; 3-digit decimal / 2-digit hex scratch
 DEC1        = $BA
 DEC2        = $BB
 OBJI        = $BC
-SPD         = $BD               ; this frame's speed, signed
-PRNGL       = $BE               ; the bench's own LFSR state
-PRNGH       = $BF
+SPDL        = $BD               ; this frame's speed, signed 8.8 world units
+SPDH        = $BE               ;   per frame. 8.8 so the tiers can be round
+                                ;   numbers of pixels per second instead of
+                                ;   whatever a whole world unit lands on
+PRNGL       = $BF               ; the bench's own LFSR state
+PRNGH       = $D2
 TRAVL       = $C0               ; distance flown since the last star rebase,
 TRAVH       = $C1               ;   signed 8.8, in half-res screen pixels
 TRAVI       = $C2               ;   ...its integer part, the frame's scroll offset
@@ -154,6 +157,9 @@ UYH         = $CB
 TSCALE      = $CC               ; 1 = turn rate rises with flight speed
 RATEL       = $CD               ; this frame's effective turn rate, 8.8 brad
 RATEH       = $CE
+SHOFFL      = $CF               ; how far down the screen the ship is drawn,
+SHOFFH      = $D0               ;   signed 8.8 full-res pixels, eased toward
+                                ;   the speed tier's target - see do_ship
 
 ; --- cartridge RAM ($0400-$77FF is free game RAM) ----------------------------
 ROTC_I      = $0400             ; the rotation tables, 8.8: ROT[i] = signed(i) *
@@ -251,8 +257,10 @@ cart_init:
         stz     FRAME+1
         stz     BGDONE
         stz     HEAD
-        lda     #2                      ; tier 2 = standing still
+        lda     #TIER_ZERO              ; standing still
         sta     TIER
+        stz     SHOFFL
+        stz     SHOFFH
         lda     #5                      ; 2.00 brad/frame, ~2.1 s per revolution
         sta     TURNIX
         stz     HEADF
@@ -418,16 +426,26 @@ do_input:
         sta     RATEL
         lda     TURN_RATE+1,x
         sta     RATEH
-        lda     TSCALE
+        lda     TSCALE                  ; ...optionally scaled by flight speed:
+        beq     @rate_ok                ;   rate * (1 + xtra/128). Turn radius is
+        ldy     TIER                    ;   v/omega, so a constant omega lets the
+        lda     TURN_XTRA,y             ;   radius grow in proportion to speed;
+        beq     @rate_ok                ;   this pulls that back. The first cut
+        sta     T0                      ;   doubled the rate at top speed and rose
+        ldx     TSCALE                  ;   far too fast, so the dial now goes
+        cpx     #3                      ;   OFF / x1.12 / x1.25 / x1.50 at the top
+        beq     @xok                    ;   tier - three shifts of one table.
+        lsr     T0
+        cpx     #2
+        beq     @xok
+        lsr     T0
+@xok:   lda     T0
         beq     @rate_ok
-        ldy     TIER                    ; ...optionally scaled by flight speed:
-        lda     TURN_XTRA,y             ;   rate * (1 + xtra/128), so standstill
-        beq     @rate_ok                ;   is unchanged and top speed is doubled.
-        sta     MB                      ;   Turn radius is v/omega, so a constant
-        lda     RATEL                   ;   omega makes the radius grow with speed
-        sta     MAL                     ;   in proportion; this halves that growth
-        lda     RATEH                   ;   without making the ship spin like a
-        sta     MAH                     ;   top when it is crawling.
+        sta     MB
+        lda     RATEL
+        sta     MAL
+        lda     RATEH
+        sta     MAH
         jsr     smul16q7
         clc
         lda     RATEL
@@ -480,11 +498,12 @@ do_input:
         bcc     @tok
         lda     #$00
 @tok:   sta     TURNIX
-:       lda     JOY2_PRESS              ; joystick 2's button toggles the speed
-        and     #JOY_FIRE               ;   coupling, so the two can be compared
-        beq     :+                      ;   back to back without a rebuild
+:       lda     JOY2_PRESS              ; joystick 2's button steps the speed
+        and     #JOY_FIRE               ;   coupling, so the settings can be
+        beq     :+                      ;   compared back to back, no rebuild
         lda     TSCALE
-        eor     #$01
+        inc     a
+        and     #$03
         sta     TSCALE
 :       rts
 
@@ -521,32 +540,71 @@ do_camera:
 ; can express is 1/4096 of a pixel per frame.
 ; -----------------------------------------------------------------------------
 do_ship:
-        ldx     TIER
+        lda     TIER
+        asl     a
+        tax
         lda     TIER_SPD,x
-        sta     SPD
+        sta     SPDL
+        lda     TIER_SPD+1,x
+        sta     SPDH
 
-        lda     SPD                     ; VELX = speed * sin, in 8.8
-        jsr     sext_ma
+        lda     SPDL                    ; VELX = speed * sin. Speed is already
+        sta     MAL                     ;   8.8, so the Q0.7 multiply lands in
+        lda     SPDH                    ;   8.8 too and the old byte-wide
+        sta     MAH                     ;   smul_vel is gone.
         lda     SINV
         sta     MB
-        jsr     smul_vel
-        lda     MR0
+        jsr     smul16q7
+        lda     MAL
         sta     VELXL
-        lda     MR1
+        lda     MAH
         sta     VELXH
 
-        lda     SPD                     ; VELY = -(speed * cos), in 8.8
-        jsr     sext_ma
+        lda     SPDL                    ; VELY = -(speed * cos)
+        sta     MAL
+        lda     SPDH
+        sta     MAH
         lda     COSV
         sta     MB
-        jsr     smul_vel
+        jsr     smul16q7
         sec
         lda     #$00
-        sbc     MR0
+        sbc     MAL
         sta     VELYL
         lda     #$00
-        sbc     MR1
+        sbc     MAH
         sta     VELYH
+
+        ; The ship slides down the screen as it speeds up, and above centre in
+        ; reverse, so the player is always looking at where they are going. It
+        ; EASES toward the tier's target instead of snapping: a jump on every
+        ; tier change would be unreadable, and this shift is the camera-lag
+        ; constant the design still has to settle (open question B3).
+        ldx     TIER
+        stz     T0
+        lda     SHIP_OFF,x
+        sta     T1
+        sec
+        lda     T0
+        sbc     SHOFFL
+        sta     T0
+        lda     T1
+        sbc     SHOFFH
+        sta     T1
+        ldx     #SHOFF_LAG
+:       lda     T1
+        cmp     #$80
+        ror     T1
+        ror     T0
+        dex
+        bne     :-
+        clc
+        lda     SHOFFL
+        adc     T0
+        sta     SHOFFL
+        lda     SHOFFH
+        adc     T1
+        sta     SHOFFH
 
         ldx     #$00                    ; sign extensions for the 24-bit add
         bit     VELXH
@@ -816,10 +874,20 @@ view_xform:
 ; whether the coarse disc mask in docs/design_technical.md 5.4 is worth building.
 ; -----------------------------------------------------------------------------
 add_ship_occluder:
+        lda     SHOFFH                  ; the box rides down with the ship
+        cmp     #$80
+        ror     a                       ; offset / 2, arithmetic: half-res
+        clc
+        adc     #HCX
+        sta     T0
         ldy     OCCN
-        lda     #HCX - SPR_W2
+        lda     T0
+        sec
+        sbc     #SPR_W2
         sta     OCCX0,y
-        lda     #HCX + SPR_W2
+        lda     T0
+        clc
+        adc     #SPR_W2
         sta     OCCX1,y
         lda     #HCY - SPR_H2
         sta     OCCY0,y
@@ -922,15 +990,17 @@ do_stars:
         jsr     star_rebase
         bra     @ready
 @scroll:
-        ldy     #$00                    ; travel += speed x 2. A world unit is
-        bit     SPD                     ;   1/32 of a half-res pixel and the
-        bpl     :+                      ;   parallax is 1/4, so the step is
-        ldy     #$FF                    ;   SPD/128 pixels - which IS SPD<<1 read
-:       sty     T1                      ;   as 8.8. Nothing to compute.
-        lda     SPD
-        sta     T0
-        asl     T0
-        rol     T1
+        lda     SPDL                    ; travel += speed / 128. A world unit is
+        sta     T0                      ;   1/32 of a half-res pixel and the
+        lda     SPDH                    ;   parallax is 1/4, so the step is
+        sta     T1                      ;   speed/128 pixels - with speed in 8.8
+        ldx     #7                      ;   that is just a shift.
+:       lda     T1
+        cmp     #$80
+        ror     T1
+        ror     T0
+        dex
+        bne     :-
         clc
         lda     TRAVL
         adc     T0
@@ -1215,9 +1285,16 @@ emit_objects:
 
 emit_ship:
         stz     OS_ARG+0
-        lda     #<SHIP_SX
+        ldy     #$00                    ; fb_x = FBCX + offset - 16
+        bit     SHOFFH
+        bpl     :+
+        ldy     #$FF
+:       clc
+        lda     SHOFFH
+        adc     #<SHIP_SX
         sta     OS_ARG+1
-        lda     #>SHIP_SX
+        tya
+        adc     #>SHIP_SX
         sta     OS_ARG+2
         lda     #<SHIP_SY
         sta     OS_ARG+3
@@ -1260,23 +1337,30 @@ do_hud:
         cpy     #4
         bne     :-
 
-        lda     TSCALE                  ; "TSCALE OFF" / "TSCALE ON  x1.69"
+        lda     TSCALE                  ; "TSCALE OFF" / "TSCALE 2 MAX x1.25"
         beq     @scoff
-        lda     #'O'
+        ldx     #$00                    ; rebuild the line: it may be showing the
+:       lda     TPL_SCL2,x              ;   OFF template from a previous frame
+        sta     STR_SCL,x
+        inx
+        cpx     #24
+        bne     :-
+        lda     TSCALE
+        clc
+        adc     #'0'
         sta     STR_SCL+7
-        lda     #'N'
-        sta     STR_SCL+8
-        lda     #' '
-        sta     STR_SCL+9
-        lda     TIER
+        lda     TSCALE                  ; (strength-1) * 5 into the max table
+        dec     a
         asl     a
         asl     a
         clc
-        adc     TIER                    ; x5: the multiplier strings are 5 wide
+        adc     TSCALE
+        sec
+        sbc     #$01
         tax
         ldy     #$00
 :       lda     TSCALE_TXT,x
-        sta     STR_SCL+11,y
+        sta     STR_SCL+13,y
         inx
         iny
         cpy     #5
@@ -1476,22 +1560,6 @@ smul16q7:
         sta     MAH
 @done:  rts
 
-; (signed byte) x (signed Q0.7) x 2 -> MR0/MR1: the product expressed in 8.8.
-smul_vel:
-        jsr     smul_core
-        asl     MR0
-        rol     MR1
-        lda     MSGN
-        beq     @done
-        sec
-        lda     #$00
-        sbc     MR0
-        sta     MR0
-        lda     #$00
-        sbc     MR1
-        sta     MR1
-@done:  rts
-
 ; =============================================================================
 ; Data
 ; =============================================================================
@@ -1501,14 +1569,28 @@ smul_vel:
 ; frame is 60.317 Hz, so 16 units/frame = 60 px/s. The top tier crosses the
 ; 400-pixel screen height in about a second, which is the fastest that still
 ; leaves the player anywhere to look.
-TIER_N      = 10
-TIER_SPD:   .byte   $F0, $F8, $00, $04, $08, $10, $20, $30, $48, $68
-;                   -16   -8     0     4     8    16    32    48    72   104
-
-; The same tiers as a canned readout in pixels per second.
+; Speed tiers, signed 8.8 world units per frame. A world unit is 1/16 of a
+; full-res pixel and the frame is 60.317 Hz, so one unit per frame is 3.77 px/s
+; and the tiers below come out as exact round numbers of pixels per second -
+; which is the whole reason the speed is 8.8 and not a byte.
+TIER_N      = 11
+TIER_ZERO   = 3
+TIER_SPD:
+        .word   $D836, $E579, $F2BD, $0000, $0D43, $1A87
+        .word   $27CA, $350E, $4251, $4F94, $5CD8
+;               -150   -100    -50      0    +50   +100
+;               +150   +200   +250   +300   +350        px/s
 TIER_TXT:
-        .byte   "-060", "-030", "+000", "+015", "+030"
-        .byte   "+060", "+121", "+181", "+271", "+392"
+        .byte   "-150", "-100", "-050", "+000", "+050", "+100"
+        .byte   "+150", "+200", "+250", "+300", "+350"
+
+; How far down the screen the ship sits at each tier, in full-res pixels. At
+; rest it is centred; forward pushes it down so the player sees further ahead,
+; reverse lifts it above centre for the same reason. SHOFF_LAG is the ease: the
+; offset closes 1/(2^LAG) of the remaining gap each frame.
+SHOFF_LAG   = 4
+SHIP_OFF:
+        .byte   <-80, <-55, <-28, 0, 18, 35, 52, 69, 86, 103, 120
 
 ; Turn rates in brad per frame (256 brad = one revolution) and the resulting
 ; milliseconds per revolution. Rate 8 is the "1/32 of a turn per frame" idea:
@@ -1526,10 +1608,11 @@ TURN_TXT:
 
 ; Optional speed coupling: rate = rate * (1 + xtra/128), indexed by speed tier.
 ; Standstill is unchanged, top speed is doubled.
-TURN_XTRA:  .byte    20,  10,   0,   5,  10,  20,  39,  59,  88, 127
-TSCALE_TXT:
-        .byte   "x1.16", "x1.08", "x1.00", "x1.04", "x1.08"
-        .byte   "x1.16", "x1.30", "x1.46", "x1.69", "x1.99"
+; The speed coupling, at full strength: rate * (1 + xtra/128), so the top tier
+; turns 1.5x faster than a standstill. TSCALE 2 and 1 shift this right once and
+; twice, giving 1.25x and 1.12x.
+TURN_XTRA:  .byte    27,  18,   9,   0,   9,  18,  27,  37,  46,  55,  64
+TSCALE_TXT: .byte   "x1.12", "x1.25", "x1.50"
 
 ; Seed offsets from the ship, and constant velocities, for the drifting
 ; reference objects: dx16, dy16, vx16, vy16 — velocity is signed 8.8.
@@ -1550,6 +1633,7 @@ TPL_TRN:    .byte   "TURN 2 2122 MS/REV", 0, 0, 0, 0, 0, 0
 TPL_HDG:    .byte   "HDG $00", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 TPL_STA:    .byte   "STARS 000/110", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 TPL_SCL:    .byte   "TSCALE OFF", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+TPL_SCL2:   .byte   "TSCALE 0 MAX x1.00", 0, 0, 0, 0, 0, 0
 
 TXT_H1:     .byte   "JOY1 L/R TURN  UP/DN SPEED", 0
-TXT_H2:     .byte   "FIRE RATE  JOY2 FIRE SCALE", 0
+TXT_H2:     .byte   "FIRE RATE  JOY2 SCALE", 0

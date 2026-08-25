@@ -43,10 +43,21 @@ the geometry, reports the cycle budget, and writes `preview.png`.
 | LEFT / RIGHT | turn (held) |
 | UP / DOWN | one speed tier up / down (on press) |
 | FIRE | cycle the turn rate |
-| JOY2 FIRE | toggle speed-coupled turn rate |
+| JOY2 FIRE | step the speed-coupling strength |
 
-Speed tiers, in pixels per second: `-60, -30, 0, +15, +30, +60, +121, +181,
-+271, +392`. The top tier crosses the 400-pixel screen height in about a second.
+Speed tiers, in pixels per second: `-150, -100, -50, 0, +50, +100, +150, +200,
++250, +300, +350`. Those are exact, not approximate: a world unit is 1/16 of a
+pixel and the frame is 60.317 Hz, so one unit per frame is 3.77 px/s and no whole
+number of units lands on a round speed. The speed is therefore kept as **8.8**,
+which also removed the separate byte-wide velocity multiply — the ordinary
+16-bit one does the job.
+
+**The ship rides the speed.** It sits centred at rest, slides down the screen as
+it accelerates (up to 120 px below centre at +350) and lifts above centre in
+reverse (up to 80 px), so the player is always looking at where they are going.
+It **eases** toward each tier's target rather than snapping — a jump on every tier
+change is unreadable — and that ease is the camera-lag constant the design still
+has to settle (`SHOFF_LAG`, currently 1/16 of the gap per frame).
 
 Turn rates, in milliseconds per full revolution: `5659, 4244, 3396, 2830, 2425,
 2122, 1698, 1415`. **The default is 2122 ms.** Flying the first version showed
@@ -57,11 +68,12 @@ used for cos/sin - and only a change in *that* rebases the starfield, so a slow
 turn also rebases less often.
 
 **Speed-coupled turning** (joystick 2's button) makes the rate rise with flight
-speed: `rate x (1 + xtra/128)`, unchanged at a standstill and doubled at top
-speed. Turn radius is `v/omega`, so a constant omega makes the radius grow in
-proportion to speed; this halves that growth without making the ship spin like a
-top when it is crawling. The HUD shows the multiplier. It is off by default - the
-point is to be able to flip it back and forth and feel the difference.
+speed. Turn radius is `v/omega`, so a constant omega lets the radius grow in
+proportion to speed — at +350 the ship sweeps a circle seven times wider than at
++50. The first cut doubled the rate at top speed and rose far too fast to fly, so
+it is now a **strength dial**: OFF, then ×1.12, ×1.25 or ×1.50 at the top tier,
+scaling smoothly to ×1.00 at a standstill. The HUD shows which. Off by default —
+the point is to flip between them and feel the difference.
 
 ---
 

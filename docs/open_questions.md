@@ -43,9 +43,8 @@ live readout. **These stay open until someone flies it and says which values are
 right.**
 
 **B1. Number of speed tiers and their values (TBM).** The single most important
-unknown. The bench ships ten: `-60, -30, 0, +15, +30, +60, +121, +181, +271,
-+392` px/s, with the top tier crossing the 400-pixel screen in about a second.
-Judge in screen-heights per second, not internal units.
+unknown. The bench now ships eleven, chosen by hand while flying it: `-150, -100,
+-50, 0, +50, +100, +150, +200, +250, +300, +350` px/s. Still being felt out.
 
 **B2. Turn rate (TBM, narrowed).** Flying the bench settled the band: **1 to 3
 brad per frame is usable**, and the original "1/32 of a turn per frame" (8
@@ -54,17 +53,19 @@ band turned out to be too coarse to choose between, so the heading now carries a
 fraction and the ladder is `5659, 4244, 3396, 2830, 2425, 2122, 1698, 1415` ms per
 revolution. Still open: which one, and whether the ladder wants finer steps still.
 
-**B6. Should the turn rate follow flight speed (TBM)?** Turn radius is `v/omega`,
-so a constant omega makes the radius grow in proportion to speed - at top speed
-the ship sweeps a circle seven times wider than at a crawl. Proto 01 has a toggle
-(joystick 2's button): `rate x (1 + xtra/128)`, unchanged at a standstill and
-doubled at top speed, which halves the growth. Open: whether coupling is wanted at
-all, and if so how strong. Full proportionality (constant radius) is probably too
-much - it makes the ship almost unable to turn at low speed.
+**B6. How strongly should the turn rate follow flight speed (TBM)?** Turn radius
+is `v/omega`, so a constant omega makes the radius grow in proportion to speed -
+at +350 the ship sweeps a circle seven times wider than at +50. Doubling the rate
+at top speed (the first cut) **rose too fast to fly**, so proto 01 now has a
+strength dial on joystick 2's button: OFF / x1.12 / x1.25 / x1.50 at the top
+tier. Open: which, if any. Full proportionality (constant radius) is certainly
+too much - it leaves the ship barely able to turn at low speed.
 
-**B3. Camera lag constant (TBM).** Not in proto 01 (there is no zoom yet). How
-fast zoom and ship screen-Y follow a speed change. Too fast is nauseating; too
-slow disconnects the throttle from the view.
+**B3. Camera lag constant (TBM).** Half of it is now in proto 01: the ship's
+screen offset eases toward its tier's target by 1/16 of the gap per frame
+(`SHOFF_LAG`). The zoom half is still missing because there is no zoom yet. Too
+fast is nauseating; too slow disconnects the throttle from the view, and both
+halves should probably share one constant.
 
 **B4. Visual bank angle while turning (TBD).** How much the ship tilts, and whether
 it is a sprite swap (cheap, a handful of frames) or a real small rotation.
@@ -86,9 +87,10 @@ therefore where the sprite LOD crossover has to sit. Constrained by C2.
 readable in 1-bit at 300 x 400? This sets the hard limit on C1 and is a
 look-at-the-screen decision, not a calculation.
 
-**C3. Ship screen-Y range (TBD).** Baseline: centre (150, 200) at rest, down to
-around y = 320 at top speed, up to around y = 120 in reverse. Needs the same
-prototype as B1.
+**C3. Ship screen-Y range (TBM).** Built in proto 01: centred at rest, +120 px
+below centre at +350, -80 px above it at full reverse, eased. Needs flying to
+settle whether the range is right and whether it should be linear in speed (it is
+now) or weighted toward the fast end.
 
 **C4. Zoom quantisation (TBD).** Zoom is conceptually smooth, but if the sprite LOD
 set is small the *sprite* scale must snap to the available sizes while vector
