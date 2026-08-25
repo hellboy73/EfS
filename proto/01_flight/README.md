@@ -155,6 +155,33 @@ rebuilding 110 stars anyway. `preview.py` reads the star bases straight out of
 RAM - so stars keep their identity through a turn - and counts direction
 reversals: **2180 base steps, 32 reversals**.
 
+**10. The world has to pivot on the ship, and doing it naively costs four times
+the stars.** Turning felt like a strafe because the world rotated about the
+screen centre while the ship sat below it. Objects were a one-line fix. The star
+layer was not: it only reaches 128 units from wherever it is centred, and pivoting
+on the ship centres it on the ship, putting the top of the screen 160 units away —
+past the end of the layer.
+
+The fix costs nothing: **sample the layer at the point the screen centre looks
+at**, which is the ship plus its screen offset along the heading. The layer then
+sits centred on the screen where it is needed, and the pivot still lands on the
+ship, because that sample point swings around the ship as the heading changes.
+
+The trap inside it is that the sample is parallax-scaled, so the offset arrives a
+quarter-strength and the field pivots a quarter of the way to the ship — still a
+strafe. Rotation has no parallax, and the camera's swing is part of turning, so
+the offset is pre-multiplied to cancel it. `preview.py` runs the star transform on
+the **ship's own layer position** and checks it lands on the ship's sprite: **2 px**.
+
+**11. 250 objects, and what they cost.** Seven reference objects meant flying away
+once and never finding them again, so there are now 250, scattered over the whole
+torus — about 1.8 on screen at any moment, since the world is ~140 screens. That
+measured something worth knowing: **~290 cycles per object per frame** for
+integrate + cull, ten times the design's original estimate, because the position
+is 16.8 and the velocity 8.8 so one axis is a 24-bit add. A high-byte reject
+before the precise cull saves about 7%. The whole bench now runs at **70% of one
+CPU** in its worst frame.
+
 **9. The star layer is only just big enough, and the overflow was being folded
 onto the screen.** A few stars streaked along the top and bottom edges during
 turns, *against* the rotation, and it came and went with the heading. A star's

@@ -96,7 +96,37 @@ Storing the heading in brad rather than 0-31 means it can be handed to the OS
 tables directly, and leaves the door open to 64 or 256 headings later without a
 data change.
 
-### 4.2 The ship points up; the world turns
+### 4.2 The world turns about the SHIP, not about the screen centre
+
+The ship is drawn off-centre — down the screen at speed, up in reverse (4.3) —
+and it is the *ship* that rotates, so the world has to pivot on the ship. Pivot
+on the screen centre instead and the world slides sideways past the ship on every
+turn: it reads as a strafe, not a turn.
+
+For anything drawn from its own world position (objects, asteroids) that is one
+addition: `screen = ship_screen_position + R·(p − ship)`.
+
+For the **star layer** it is not, and the naive version is expensive. The layer
+only reaches 128 units from wherever it is centred, and the layer is centred
+wherever the transform's origin lands — which, for a pivot on the ship, is the
+ship. With the ship 60 units below centre the top of the screen is 160 units
+away, past the end of the layer, and covering that would need roughly **four
+times the stars** for the same density.
+
+Both at once, for nothing: **sample the layer at the point the screen centre
+looks at** — the ship plus its screen offset along the heading. The layer then
+sits centred on the screen, where it is needed, and the pivot still lands on the
+ship, because that sample point swings around the ship as the heading changes.
+The offset cancels out of the drawing entirely; it only moves the sample.
+
+One trap inside that: the sample is parallax-scaled, so feeding the offset
+through it shrinks the swing by the parallax factor and the field pivots a
+quarter of the way from the screen centre to the ship — still a strafe, just a
+weaker one. **Rotation has no parallax** (5.3), and the camera's swing around the
+ship is part of turning, not of travelling, so the offset has to be pre-multiplied
+to cancel the parallax out.
+
+### 4.3 The ship points up; the world turns
 
 The ship sprite is drawn essentially fixed, nose toward the top of the screen, with
 a **small visual bank/tilt while turning** (a few degrees, art only, no effect on
@@ -105,7 +135,7 @@ physics). Everything else in the scene is rendered rotated by `-heading`.
 Consequence: the rotation is a *camera* transform applied once per rendered object,
 and the ship itself needs no transform at all.
 
-### 4.3 Zoom is a function of speed
+### 4.4 Zoom is a function of speed
 
 Speed drives a **camera distance**, smoothly interpolated (the camera lags the
 speed change so a throttle tap does not snap the view):
@@ -125,7 +155,7 @@ Zoom is expressed as **world units per screen pixel**: reference zoom = 16. Zoom
 out to 3x means 48 units/px and a visible window of 900 x 1200 reference pixels.
 Exact zoom range **(TBM)**.
 
-### 4.4 The transform, and why it is affordable
+### 4.5 The transform, and why it is affordable
 
 Per rendered object:
 
@@ -159,7 +189,7 @@ cycles — roughly a fifth of the frame budget, leaving room for physics, input,
 audio and list building. Table cost is 2 x 512 bytes of RAM, built once at boot.
 **(TBM)**
 
-### 4.5 Pre-rotated shapes — considered, rejected for now
+### 4.6 Pre-rotated shapes — considered, rejected for now
 
 Storing every asteroid outline pre-rotated in all 32 orientations would remove the
 rotation multiplies, but it does not remove the **zoom** multiplies, and it
@@ -384,11 +414,24 @@ Two consequences worth planning for now:
 
 ### 6.1 Every object is tracked exactly
 
-The world is only 4096 x 4096 reference pixels and per-object integration is a
-handful of 16-bit adds (~30 cycles), so a full population of 64-96 objects costs
-about 3k cycles per frame — around 1% of the budget. **All asteroids and enemies
-are therefore simulated persistently across the whole world**, not spawned on
-approach. This keeps the physics honest: rocks that collided out of sight really
+A full population is simulated persistently across the whole world rather than
+spawned on approach — but the price is **ten times what this section first
+estimated**. Proto 01 measures **~290 cycles per object per frame** for integrate
++ cull, not the ~30 the first estimate assumed: the position is 16.8 and the
+velocity 8.8, so integrating one axis is a 24-bit add with a sign extension, not
+a 16-bit add, and the cull costs more than the arithmetic. 250 objects therefore
+cost about **70k cycles, 30% of one CPU**, before anything is drawn.
+
+That does not overturn the decision — persistent simulation is what makes the
+physics honest, and it is still affordable — but it does set the population
+budget. 250 objects is roughly the ceiling if asteroids are also to be
+transformed and drawn. Two cheap levers if it needs to go higher: reject on the
+high byte of the delta before computing anything precise (already done, worth
+about 7%), and dropping the fraction byte from positions that do not need
+sub-unit drift.
+
+**All asteroids and enemies are therefore simulated persistently across the whole
+world**, not spawned on approach. This keeps the physics honest: rocks that collided out of sight really
 did collide, and the player can return to a place and find it changed.
 
 Procedural generation is used only for **cosmetic** matter (debris sparks, the star

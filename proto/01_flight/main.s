@@ -61,7 +61,11 @@
 
 ; --- tunables ----------------------------------------------------------------
 STAR_N      = 110               ; stars in the layer; ~46% are on screen at once
-NOBJ        = 7                 ; drifting reference objects
+NOBJ        = 250               ; drifting reference objects, scattered over the
+                                ;   whole torus. The world is about 140 screens,
+                                ;   so this is ~1.8 on screen at any moment - with
+                                ;   a handful you fly away once and never find
+                                ;   them again. 250 is the ceiling for a byte index.
 SPR_W2      = 8                 ; sprite 0 is 32x26 full-res -> 16x13 half-res,
 SPR_H2      = 7                 ;   so half of that, for the occluder boxes
 
@@ -144,6 +148,9 @@ TRAVL       = $C0               ; distance flown since the last star rebase,
 TRAVH       = $C1               ;   signed 8.8, in half-res screen pixels
 TRAVI       = $C2               ;   ...its integer part, the frame's scroll offset
 BASEHEAD    = $C3               ; the heading the star bases were built for
+BASEOFF     = $DA               ; ...and the ship offset they were built for
+T2          = $DB               ; the camera point, while a rebase computes it
+T3          = $DC
 VYT         = $C4               ; per-star scrolled view-y
 HEADF       = $C5               ; heading fraction - turning is sub-brad, so the
                                 ;   rate table can have steps finer than 1/256 turn
@@ -177,25 +184,25 @@ ROTS_F      = $0700             ;   truncating twice - see star_rebase.
 STARBX      = $0800             ; STAR_N bytes: star layer X (the layer IS 0-255)
 STARBY      = $0880             ; STAR_N bytes: star layer Y
 DOTBUF      = $0900             ; 1 + 2*STAR_N: the DOT_PIXELS payload we build
-OCCX0       = $0A00             ; occluder boxes, half-res framebuffer, max 8
-OCCX1       = $0A08
-OCCY0       = $0A10
-OCCY1       = $0A18
-OBJXL       = $0A20             ; object world positions, 16.8, structure-of-arrays
-OBJXH       = $0A28
-OBJXF       = $0A30
-OBJYL       = $0A38
-OBJYH       = $0A40
-OBJYF       = $0A48
-OBJVXL      = $0A50             ; object velocities, signed 8.8
-OBJVXH      = $0A58
-OBJVYL      = $0A60
-OBJVYH      = $0A68
-OBJSXL      = $0A70             ; object screen position for this frame
-OBJSXH      = $0A78
-OBJSYL      = $0A80
-OBJSYH      = $0A88
-OBJVIS      = $0A90             ; nonzero when the object survived the cull
+OCCX0       = $0A00             ; occluder boxes, half-res framebuffer, max 16
+OCCX1       = $0A20
+OCCY0       = $0A40
+OCCY1       = $0A60
+OBJXL       = $1000             ; object world positions, 16.8, structure-of-arrays
+OBJXH       = $1100
+OBJXF       = $1200
+OBJYL       = $1300
+OBJYH       = $1400
+OBJYF       = $1500
+OBJVXL      = $1600             ; object velocities, signed 8.8
+OBJVXH      = $1700
+OBJVYL      = $1800
+OBJVYH      = $1900
+OBJSXL      = $1A00             ; object screen position for this frame
+OBJSXH      = $1B00
+OBJSYL      = $1C00
+OBJSYH      = $1D00
+OBJVIS      = $1E00             ; nonzero when the object survived the cull
 BASEX       = $0B00             ; STAR_N bytes: each star's VIEW-space position at
 BASEY       = $0B80             ;   the last rebase - see do_stars
 PARKED      = $0D00             ; STAR_N bytes: 1 = out of byte range, do not draw
@@ -340,39 +347,39 @@ prng:
 ; -----------------------------------------------------------------------------
 ; init_objects — place the reference objects relative to the ship.
 ; -----------------------------------------------------------------------------
+; Scattered over the WHOLE torus, not around the ship: a 16-bit world position
+; is uniform by construction, so two random bytes per axis is the whole job.
+; Velocities are a gentle drift, at most one world unit a frame.
 init_objects:
-        ldx     #$00
-@lp:    txa
-        asl     a                       ; Y = X*8: this object's row in OBJ_SEED
-        asl     a
-        asl     a
-        tay
-        clc
-        lda     SHXL
-        adc     OBJ_SEED+0,y
-        sta     OBJXL,x
-        lda     SHXH
-        adc     OBJ_SEED+1,y
-        sta     OBJXH,x
-        stz     OBJXF,x
-        clc
-        lda     SHYL
-        adc     OBJ_SEED+2,y
-        sta     OBJYL,x
-        lda     SHYH
-        adc     OBJ_SEED+3,y
-        sta     OBJYH,x
-        stz     OBJYF,x
-        lda     OBJ_SEED+4,y
-        sta     OBJVXL,x
-        lda     OBJ_SEED+5,y
-        sta     OBJVXH,x
-        lda     OBJ_SEED+6,y
-        sta     OBJVYL,x
-        lda     OBJ_SEED+7,y
-        sta     OBJVYH,x
-        inx
-        cpx     #NOBJ
+        ldy     #$00
+@lp:    jsr     prng
+        sta     OBJXL,y
+        jsr     prng
+        sta     OBJXH,y
+        lda     #$00                    ; (stz has no abs,y mode)
+        sta     OBJXF,y
+        jsr     prng
+        sta     OBJYL,y
+        jsr     prng
+        sta     OBJYH,y
+        lda     #$00
+        sta     OBJYF,y
+        jsr     prng
+        sta     OBJVXL,y
+        jsr     prng
+        and     #$01                    ; one bit of sign: -1 .. +1 unit/frame
+        beq     :+
+        lda     #$FF
+:       sta     OBJVXH,y
+        jsr     prng
+        sta     OBJVYL,y
+        jsr     prng
+        and     #$01
+        beq     :+
+        lda     #$FF
+:       sta     OBJVYH,y
+        iny
+        cpy     #NOBJ
         bne     @lp
         rts
 
@@ -687,6 +694,27 @@ do_objects:
         adc     OBJYH,x
         sta     OBJYH,x
 
+        ; A cheap reject first: the cull below passes only |d| <= 6400 = $1900,
+        ; so a high byte more than 26 away cannot possibly survive it. With most
+        ; of a 140-screen world off camera this is what nearly every object hits,
+        ; and it costs a fraction of the precise test.
+        lda     OBJXH,x
+        sec
+        sbc     SHXH
+        clc
+        adc     #26
+        cmp     #53
+        bcc     :+
+        jmp     @cull
+:       lda     OBJYH,x
+        sec
+        sbc     SHYH
+        clc
+        adc     #26
+        cmp     #53
+        bcc     :+
+        jmp     @cull
+:
         sec                             ; world delta — wrap-correct for free
         lda     OBJXL,x
         sbc     SHXL
@@ -720,12 +748,23 @@ do_objects:
         lda     VYH
         sta     MAH
         jsr     asr4r
-        clc
-        lda     MAL
-        adc     #<FBCX
-        sta     FXL
+        clc                             ; fb_x = FBCX + offset + vy: an object at
+        lda     MAL                     ;   the ship's own position must land ON
+        adc     #<FBCX                  ;   the ship, or the world pivots about
+        sta     FXL                     ;   the screen centre and turning strafes
         lda     MAH
         adc     #>FBCX
+        sta     FXH
+        ldy     #$00
+        bit     SHOFFH
+        bpl     :+
+        ldy     #$FF
+:       clc
+        lda     FXL
+        adc     SHOFFH
+        sta     FXL
+        tya
+        adc     FXH
         sta     FXH
         lda     VXL                     ; fb_y = FBCY - round(vx / 16)
         sta     MAL
@@ -771,6 +810,19 @@ do_objects:
 ; to do - threw away four bits of position, and the rotation turned that into one
 ; to two pixels of wander on screen: objects visibly swam at low speed. Rotating
 ; at full 1/16-pixel resolution and rounding once at the end leaves them still.
+; MA <<= 6: a full-res screen pixel is 16 world units, and then x4 to cancel the
+; star layer's 1/4 parallax. Parallax belongs to TRANSLATION only - a rotation
+; moves near and far alike - and the camera's swing around the ship is part of
+; turning, not of travelling. Leave the x4 out and the star field pivots a
+; quarter of the way from the screen centre to the ship, which still strafes.
+shl6_ma:
+        ldx     #6
+@lp:    asl     MAL
+        rol     MAH
+        dex
+        bne     @lp
+        rts
+
 asr4r:
         clc
         lda     MAL
@@ -908,7 +960,7 @@ add_ship_occluder:
 ; FX/FY hold a full-res framebuffer centre. Add its half-res box to the list.
 add_occluder:
         ldy     OCCN
-        cpy     #8
+        cpy     #16
         bcs     @skip
         lda     FXH                     ; on screen? fb_x is 0..399, so the high
         cmp     #$02                    ;   byte is 0 or 1 — anything else, incl.
@@ -1017,8 +1069,11 @@ do_stars:
                                         ;   the true position whenever it is set.
         lda     HEAD
         cmp     BASEHEAD
-        beq     @maybe
-        jsr     star_rebase_full
+        bne     @full
+        lda     SHOFFH                  ; the camera point rides the ship offset,
+        cmp     BASEOFF                 ;   so easing between speed tiers has to
+        beq     @maybe                  ;   rebuild too
+@full:  jsr     star_rebase_full
         bra     @draw
 @maybe:
         sec                             ; refresh once the field has scrolled far
@@ -1155,6 +1210,8 @@ STAR_REFRESH = 24               ; refresh after this much scroll; the margin is 
 star_rebase_full:
         lda     HEAD
         sta     BASEHEAD
+        lda     SHOFFH
+        sta     BASEOFF
         stz     RBMODE
         BUILD_ROT ROTC_I, ROTC_F, COSV, SGNC
         BUILD_ROT ROTS_I, ROTS_F, SINV, SGNS
@@ -1166,16 +1223,58 @@ srb_core:
         lda     TRAVI
         sta     REFI
 
-        lda     SHXL                    ; sample = ship_pos >> 7 at parallax 1/4,
+        ; ---- where the CAMERA is, which is not where the ship is ------------
+        ; The world has to turn about the SHIP: it is the ship that rotates, so
+        ; anything else slides past it and the turn reads as a strafe. But the
+        ; ship is drawn below centre at speed, and the star layer only reaches
+        ; 128 units - measured from wherever the layer is centred. Centre it on
+        ; the ship and the top of the screen is 160 units away, past the end of
+        ; the layer, and the field would need four times the stars to fill it.
+        ;
+        ; Both at once: sample the layer at the point the SCREEN CENTRE looks at,
+        ; which is the ship plus its screen offset along the heading. Then the
+        ; layer sits where it is needed - centred on the screen - and the pivot
+        ; still lands on the ship, because that sample point swings around the
+        ; ship as the heading changes. The offset cancels out of the drawing
+        ; entirely; it only moves the sample.
+        lda     SHOFFH                  ; camera = ship + offset * forward,
+        jsr     sext_ma                 ;   forward = (sin, -cos)
+        lda     SINV
+        sta     MB
+        jsr     smul16q7
+        jsr     shl6_ma                 ; screen pixels -> layer offset
+        clc
+        lda     SHXL
+        adc     MAL
+        sta     T0
+        lda     SHXH
+        adc     MAH
+        sta     T1
+
+        lda     SHOFFH
+        jsr     sext_ma
+        lda     COSV
+        sta     MB
+        jsr     smul16q7
+        jsr     shl6_ma
+        sec
+        lda     SHYL
+        sbc     MAL
+        sta     T2
+        lda     SHYH
+        sbc     MAH
+        sta     T3
+
+        lda     T0                      ; sample = camera >> 7 at parallax 1/4,
         asl     a                       ;   and the bit below it is the sub-unit
         sta     FRACX                   ;   fraction. Both fall out of one shift.
-        lda     SHXH
+        lda     T1
         rol     a
         sta     SAMPX
-        lda     SHYL
+        lda     T2
         asl     a
         sta     FRACY
-        lda     SHYH
+        lda     T3
         rol     a
         sta     SAMPY
 
@@ -1750,19 +1849,6 @@ TURN_TXT:
 ; twice, giving 1.25x and 1.12x.
 TURN_XTRA:  .byte    27,  18,   9,   0,   9,  18,  27,  37,  46,  55,  64
 TSCALE_TXT: .byte   "x1.12", "x1.25", "x1.50"
-
-; Seed offsets from the ship, and constant velocities, for the drifting
-; reference objects: dx16, dy16, vx16, vy16 — velocity is signed 8.8.
-; (ca65 wants .word operands unsigned, hence the mask on the negative offsets.)
-.define NEG(v) ((-(v)) & $FFFF)
-OBJ_SEED:
-        .word   1600, NEG 2400,  $0060,  $0100
-        .word   NEG 2000,  1000, $FF40,  $0040
-        .word   3000,  2600,     $0140,  $FF60
-        .word   NEG 3400, NEG 1200, $FF80, $FEC0
-        .word    800,  3400,     $0200,  $0080
-        .word   NEG 1400,  2800, $FF00,  $FFA0
-        .word   2600, NEG 3200,  $00A0,  $0180
 
 ; HUD templates. Each is exactly 24 bytes, which is what init_strings copies.
 TPL_SPD:    .byte   "SPD +000 PX/S", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0

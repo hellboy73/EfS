@@ -157,12 +157,18 @@ the mask has a number to beat. The mask resolution (8 × 8 half-res pixels per c
 
 ## E. Objects and physics
 
-**E1. Object pool size (TBM).** 64? 96? 128? Bounded by the collision broad phase,
-not by integration. Needs a worst-case measurement with everything on screen.
-Proto 01's baseline to build on: 110 stars + 7 transformed objects + a six-line
-HUD + the occlusion pass = **30% of one CPU's frame**, and **250 bytes of the
-2047-byte PPRAM list**. Whatever asteroids cost, that is what they are competing
-with.
+**E1. Object pool size (TBM, now with a real number).** Proto 01 measures
+**~290 cycles per object per frame** for integrate + cull alone — ten times this
+document's first estimate, because a 16.8 position plus an 8.8 velocity makes one
+axis a 24-bit add. So 250 objects cost about **70k cycles, 30% of one CPU**, and
+the whole bench (110 stars, 250 objects, a five-line HUD, the occlusion pass) runs
+at **70% in its worst frame** and uses 250 bytes of the 2047-byte PPRAM list.
+
+That makes ~250 the working ceiling unless the per-object cost comes down. Levers,
+cheapest first: reject on the high byte of the delta before the precise cull
+(done, ~7%); drop the fraction byte from positions that do not need sub-unit
+drift; amortise the cull across frames. The collision broad phase has not been
+measured at all yet and will add to this.
 
 **E2. Sector grid resolution (TBD).** 16 x 16 sectors of 256 px is the baseline; a
 sector must be larger than the biggest asteroid or the adjacency test misses
