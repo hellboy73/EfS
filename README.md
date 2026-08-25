@@ -40,7 +40,10 @@ EfS/
                           rendering, object model, bank map, fixed decisions
     physics.md            the physics model and its (still placeholder) parameters
     open_questions.md     everything not decided yet, and how each will be settled
-    story.md              narrative — placeholder, being written separately
+    story.md              story index + what the fiction commits the engine to
+    EFS Wstęp do gry.md   the narrative itself (PL): opening text,
+    EFS Skrócony ...md    the 5-level working script,
+    EFS Pełna historia...  and the full back story with the reveal
   src/
     mad65.inc             OS jump table + RAM/ZP equates (the cart's interface
                           to the console firmware)

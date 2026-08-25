@@ -23,9 +23,16 @@ Options: a gate object that appears at a fixed world location; an exit corridor 
 a signalled direction; simply "fly in direction D for N seconds". Affects HUD
 (needs a pointer/compass) and level scripting.
 
-**A3. Does the world differ per level (TBD)?** Same size every level, or larger
-worlds later? Larger worlds cost nothing structurally (the unit is per-level data)
-but change pacing.
+**A3. World size per level (TBD).** The script wants levels 4 and 5 to be *much*
+larger than the early ones, so the answer is already "it varies" — world size is
+per-level data. What this changes is A1: the baseline must be chosen with room to
+grow, not as a fixed constant.
+
+**A4. Does the wrap change across the campaign (TBD)?** The fiction frames the
+looping region as a Saturnium space-folding anomaly that gets stranger as the game
+goes on. Whether that ever becomes mechanical (asymmetric wrap, seams, a visible
+fold) or stays pure flavour is a design call — mechanically it would cost the free
+wrap, so the bar is high.
 
 ---
 
@@ -113,14 +120,31 @@ see [`physics.md`](physics.md).
 If E1 grows, pair testing may have to be amortised across frames (test half the
 sectors per frame). Acceptable only if it does not produce visible pass-through.
 
-**E6. Enemy roster (TBD).** Types, behaviours, whether they obey the same physics
-as rocks or fly under their own control.
+**E6. Enemy roster (TBD).** Types and behaviours. The story fixes the *shape* of
+what is needed (see `story.md`): a **cloak state** (visible/invisible while still
+simulated), and **patrol / detect / pursue / lose-track** behaviour with a detection
+radius. Still open: how many distinct alien types, whether they obey the same
+collision physics as rocks or fly under their own control, and how they are armed.
+
+**E7. Cloak semantics (TBD).** When an enemy is cloaked, is it only invisible, or
+also non-collidable and non-targetable? Different answers make level 2 either eerie
+or lethal. Also: what triggers decloaking — a timer, proximity, or the player
+shooting.
+
+**E8. Instrument deception model (TBD).** The story requires the radar/HUD to
+degrade across the campaign: missing contacts, ghost contacts, wrong bearings.
+Needs a per-level parameter set, and it must be designed together with the HUD
+(D5) rather than added afterwards.
 
 ---
 
 ## F. Content and structure
 
-**F1. Number of levels and mission types (TBD).** Waiting on the story.
+**F1. Mission types (TBD).** ~~Number of levels~~ — **settled: 5 levels**
+(MINING ZONE / SENSOR ANOMALY / CONTACT / HUNT / ESCAPE, see `story.md`). What
+remains open is the implementation of the three mission types the script needs:
+**clear the field**, **survive / traverse**, **reach the exit alive** — and what
+each shows on the HUD.
 
 **F2. Bank map (TBD).** The draft in `design_technical.md` section 10 is a guess.
 Real allocation follows real asset sizes — music is usually the surprise (in CETAS

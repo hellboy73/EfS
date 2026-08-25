@@ -309,9 +309,15 @@ continuous for everything else.
 
 ## 9. Levels
 
-A level is defined by a **mission plan**: what has to be true before the exit opens
-(clear N rocks, survive T seconds, destroy a specific target, escort, reach a
-location, ...). The level plan also sets the initial population, the size-class
+The campaign is **5 levels** — MINING ZONE, SENSOR ANOMALY, CONTACT, HUNT,
+ESCAPE — needing three mission types: **clear the field**, **survive / traverse**,
+and **reach the exit alive**. See [`story.md`](story.md) for the per-level content
+and for the engine features the fiction commits us to (cloaked-but-simulated
+enemies, detection-and-pursuit AI, deliberately unreliable instruments, per-level
+world size).
+
+A level is defined by a **mission plan**: what has to be true before the exit opens.
+The level plan also sets the world size, the initial population, the size-class
 mix, the enemy roster, physics parameter overrides and the music.
 
 Level scripts are data, read straight out of the cartridge window (the CETAS
