@@ -44,6 +44,7 @@ the geometry, reports the cycle budget, and writes `preview.png`.
 | UP / DOWN | one speed tier up / down (on press) |
 | FIRE | cycle the turn rate |
 | JOY2 FIRE | step the speed-coupling strength |
+| JOY2 LEFT/RIGHT | step how sharply the turn winds up |
 
 Speed tiers, in pixels per second: `-150, -100, -50, 0, +50, +100, +150, +200,
 +250, +300, +350`. Those are exact, not approximate: a world unit is 1/16 of a
@@ -66,6 +67,13 @@ were far too coarse, so the heading now carries a **fraction** and the ladder
 steps a quarter of a brad at a time. Only the integer part of the heading is ever
 used for cos/sin - and only a change in *that* rebases the starfield, so a slow
 turn also rebases less often.
+
+**The turn has momentum.** The stick sets a *target* angular velocity and the
+real one eases toward it, so a turn winds up and unwinds instead of switching on
+and off. Ramp 0 is the old on/off behaviour, kept so the two can be flown back to
+back; the HUD shows which. At ramp 2 the turn takes about 50 frames to stop after
+the stick is released — worth knowing, because "flying straight" starts later
+than it looks.
 
 **Speed-coupled turning** (joystick 2's button) makes the rate rise with flight
 speed. Turn radius is `v/omega`, so a constant omega lets the radius grow in
@@ -181,6 +189,22 @@ integrate + cull, ten times the design's original estimate, because the position
 is 16.8 and the velocity 8.8 so one axis is a 24-bit add. A high-byte reject
 before the precise cull saves about 7%. The whole bench now runs at **70% of one
 CPU** in its worst frame.
+
+**12. Stars wandering sideways after a speed change were the camera moving.**
+The camera point sits ahead of the ship by the ship's screen offset, and that
+offset *eases* between speed tiers — so for a few frames after every tier change
+the camera is travelling as well as the ship. That used to force a full star
+rebuild each of those frames, and a rebuild rounds every star independently: the
+scroll was smooth, the rebuilds were the twitch. The camera's motion is along the
+heading, which in view space **is** the scroll axis, so it belongs in the travel
+accumulator. Only the heading forces a rebuild now.
+
+**13. An exponential ease never lands on its target in integers.** The new turn
+ramp shifts the remaining delta right each frame — which gives 0 one way and −1
+the other, so the angular velocity stuck at a tiny nonzero value and the heading
+crept *forever*, firing a full star rebuild every few dozen frames. It snaps to
+the target when the step underflows. The same trap applies to every ease in the
+bench, including the ship's screen offset.
 
 **9. The star layer is only just big enough, and the overflow was being folded
 onto the screen.** A few stars streaked along the top and bottom edges during
