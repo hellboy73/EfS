@@ -1,13 +1,14 @@
 # Escape from Saturn — story index and technical implications
 
-The narrative is written by the author in Polish and lives in three documents in
-this folder:
+The narrative lives in three documents in this folder. They were written in Polish
+by the author and translated here; the Polish originals are in git history at
+commit `390346c` if the wording ever needs checking.
 
 | file | what it is |
 |---|---|
-| `EFS Wstęp do gry.md` | the opening text — the hook the player reads first |
-| `EFS Skrócony scenariusz – 5 poziomów.md` | the working script: per-level briefing text + what the gameplay of each level is |
-| `EFS Pełna historia gry – Escape from Saturn.md` | the full back story, level by level, plus the reveal |
+| [`story_intro.md`](story_intro.md) | the opening text — the hook the player reads first |
+| [`story_levels.md`](story_levels.md) | the working script: per-level briefing text + what the gameplay of each level is |
+| [`story_full.md`](story_full.md) | the full back story, level by level, plus the reveal |
 
 **Those three files are the source of truth for the fiction.** This file only
 records what the fiction *commits us to* technically, so the engine work and the
