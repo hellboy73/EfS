@@ -99,7 +99,7 @@ SGVY        = $96
 ACCL        = $97               ; running sum while building ROTC / ROTS
 ACCH        = $98
 CDX         = $99               ; per-star ROTC[dx], ROTS[dx], ROTC[dy], ROTS[dy]
-SDX         = $9A
+SDX         = $9A               ;   (rebase only)
 CDY         = $9B
 SDY         = $9C
 FBX         = $9D               ; per-star half-res framebuffer position
@@ -137,6 +137,11 @@ OBJI        = $BC
 SPD         = $BD               ; this frame's speed, signed
 PRNGL       = $BE               ; the bench's own LFSR state
 PRNGH       = $BF
+TRAVL       = $C0               ; distance flown since the last star rebase,
+TRAVH       = $C1               ;   signed 8.8, in half-res screen pixels
+TRAVI       = $C2               ;   ...its integer part, the frame's scroll offset
+BASEHEAD    = $C3               ; the heading the star bases were built for
+VYT         = $C4               ; per-star scrolled view-y
 
 ; --- cartridge RAM ($0400-$77FF is free game RAM) ----------------------------
 ROTC        = $0400             ; 256 B: ROTC[i] = signed(i) * cos / 128
@@ -167,6 +172,8 @@ STR_SPD     = $0900             ; HUD strings, patched in place every frame
 STR_TRN     = $0920
 STR_HDG     = $0940
 STR_STA     = $0960
+BASEX       = $0A00             ; STAR_N bytes: each star's VIEW-space position at
+BASEY       = $0A80             ;   the last rebase - see do_stars
 
 ; -----------------------------------------------------------------------------
 ; BUILD_ROT — fill a 256-byte table with signed(i) * coef / 128.
@@ -239,6 +246,11 @@ cart_init:
         lda     #$80
         sta     SHXH
         sta     SHYH
+
+        stz     TRAVL
+        stz     TRAVH
+        lda     #$80                    ; != HEAD (0), so frame 1 rebases
+        sta     BASEHEAD
 
         lda     #$A5                    ; any nonzero seed; see prng
         sta     PRNGL
@@ -441,10 +453,8 @@ do_camera:
         bpl     :+
         ldx     #$FF
 :       stx     SGNS
-
-        BUILD_ROT ROTC, COSV, SGNC
-        BUILD_ROT ROTS, SINV, SGNS
-        rts
+        rts                             ; the ROT tables are built by star_rebase,
+                                        ;   which only runs when the heading moved
 
 ; -----------------------------------------------------------------------------
 ; do_ship — velocity from the speed tier and the heading, then integrate.
@@ -795,58 +805,82 @@ add_occluder:
 @skip:  rts
 
 ; -----------------------------------------------------------------------------
-; do_stars — build the DOT_PIXELS payload and emit it.
+; do_stars — scroll the field, rebuild it only when the heading moved, emit it.
 ; -----------------------------------------------------------------------------
-; The sample point is the ship's position scaled by the 1/8 parallax factor,
-; which lands exactly on the position's HIGH BYTE — so the parallax costs one
-; load per axis, and because it is DERIVED rather than accumulated it can never
-; drift. The layer is 256 x 256, so a byte subtract gives the wrapped shortest
-; offset in a single instruction, and ROTC/ROTS turn the rotation into four
-; lookups. There is no multiply in this loop at all.
+; THE WHOLE POINT OF THIS ROUTINE'S SHAPE. A star's exact view position is
+;
+;       view_i = R(H) * (p_i - s)
+;
+; with p_i its position in the 256 x 256 layer and s the ship's (continuous)
+; sample point. Split s into the value it had at the last rebase plus the
+; distance flown since:  s = s_base + t * forward. R maps `forward` onto
+; view-up by construction — that is what "the ship always points up" MEANS — so
+;
+;       R * (t * forward) = (0, -t)
+;
+; and the entire effect of flying is **one scalar added to view-y**. No rotation,
+; no per-star work, and t can be carried at whatever precision we like.
+;
+; So: BASEX/BASEY hold R * (p_i - s_base) as plain bytes (the view-space torus:
+; a star that scrolls off one edge is a byte overflow away from the other), and
+; every frame adds the integer part of TRAV to view-y. The field translates
+; RIGIDLY and exactly. Only a change of heading rebuilds the bases.
+;
+; The version this replaced folded the travel into the sample and rotated every
+; frame, which threw the sub-unit part of s away in the table lookup. Measured
+; at heading $14: the field stood still for 3 frames and then ~100 of 110 stars
+; jumped at once, by different amounts, because each star's rounding flipped at
+; its own moment. Near an axis (heading $FC) one table is almost the identity
+; and the other almost zero, so the same lurch came out uniform and read as
+; smooth — which is exactly why it looked fine at some angles and shook at
+; others. Rigid stepping is what "smooth" looked like; this makes every heading
+; behave the way the good one did.
+;
+; TRAV is in 8.8 half-res pixels, and its per-frame increment is *exactly* the
+; speed byte: a world unit is 1/32 of a half-res pixel and the parallax is 1/8,
+; so the step is SPD/256 pixels, which is SPD in 8.8. Nothing to compute.
 ; -----------------------------------------------------------------------------
 do_stars:
-        lda     SHXH
-        sta     SAMPX
-        lda     SHYH
-        sta     SAMPY
+        lda     HEAD
+        cmp     BASEHEAD
+        beq     @scroll
+        jsr     star_rebase
+        bra     @ready
+@scroll:
+        ldy     #$00                    ; travel += speed, sign-extended
+        bit     SPD
+        bpl     :+
+        ldy     #$FF
+:       sty     T0
+        clc
+        lda     TRAVL
+        adc     SPD
+        sta     TRAVL
+        lda     TRAVH
+        adc     T0
+        sta     TRAVH
+@ready:
+        lda     TRAVH                   ; the integer part IS this frame's offset
+        sta     TRAVI
+
         stz     DIDX
         stz     STARN
         ldx     #$00
 @lp:
-        lda     STARBX,x
-        sec
-        sbc     SAMPX
-        tay
-        lda     ROTC,y
-        sta     CDX
-        lda     ROTS,y
-        sta     SDX
-        lda     STARBY,x
-        sec
-        sbc     SAMPY
-        tay
-        lda     ROTC,y
-        sta     CDY
-        lda     ROTS,y
-        sta     SDY
+        clc                             ; scrolled view-y; the byte wrap is the
+        lda     BASEY,x                 ;   view torus, so a star leaving the
+        adc     TRAVI                   ;   bottom re-enters at the top for free
+        sta     VYT
 
-        ; fb_x = HCX + vy, where vy = ROTC[dy] - ROTS[dx]
-        ldy     #$00
+        ldy     #$00                    ; fb_x = HCX + view_y, as a 9-bit value
         lda     #HCX
         clc
-        adc     CDY
+        adc     VYT
         bcc     :+
         iny
-:       bit     CDY
+:       bit     VYT
         bpl     :+
         dey
-:       sec
-        sbc     SDX
-        bcs     :+
-        dey
-:       bit     SDX
-        bpl     :+
-        iny
 :       cpy     #$00
         beq     :+
         jmp     @next
@@ -855,21 +889,13 @@ do_stars:
         jmp     @next
 :       sta     FBX
 
-        ; fb_y = HCY - vx, where vx = ROTC[dx] + ROTS[dy]
-        ldy     #$00
+        ldy     #$00                    ; fb_y = HCY - view_x
         lda     #HCY
         sec
-        sbc     CDX
+        sbc     BASEX,x
         bcs     :+
         dey
-:       bit     CDX
-        bpl     :+
-        iny
-:       sec
-        sbc     SDY
-        bcs     :+
-        dey
-:       bit     SDY
+:       bit     BASEX,x
         bpl     :+
         iny
 :       cpy     #$00
@@ -924,6 +950,63 @@ do_stars:
         sta     OS_ARG+1
         jmp     API_GPU_DOTPIXELS
 @done:  rts
+
+; -----------------------------------------------------------------------------
+; star_rebase — rebuild every star's view-space base for the current heading.
+; -----------------------------------------------------------------------------
+; Runs only on a frame where the heading actually moved, so it is a turning-time
+; cost, not a flying-time one: two 256-byte table builds plus one transform per
+; star. Straight flight pays none of it.
+;
+; The bases come from the LAYER, not from the previous bases, so nothing
+; accumulates. Rotating the stars in place each frame would have been cheaper
+; still, but the table's matrix has a determinant of about 0.987 — the field
+; would visibly implode, roughly 20% per quarter turn.
+;
+; Travel resets to zero here, which re-registers the field against the integer
+; sample and can shift a star by up to one pixel. That happens only while
+; turning, when the whole field is rotating anyway.
+; -----------------------------------------------------------------------------
+star_rebase:
+        lda     HEAD
+        sta     BASEHEAD
+        stz     TRAVL
+        stz     TRAVH
+        BUILD_ROT ROTC, COSV, SGNC
+        BUILD_ROT ROTS, SINV, SGNS
+        lda     SHXH
+        sta     SAMPX
+        lda     SHYH
+        sta     SAMPY
+        ldx     #$00
+@lp:    lda     STARBX,x
+        sec
+        sbc     SAMPX
+        tay
+        lda     ROTC,y
+        sta     CDX
+        lda     ROTS,y
+        sta     SDX
+        lda     STARBY,x
+        sec
+        sbc     SAMPY
+        tay
+        lda     ROTC,y
+        sta     CDY
+        lda     ROTS,y
+        sta     SDY
+        clc                             ; view x = ROTC[dx] + ROTS[dy]
+        lda     CDX
+        adc     SDY
+        sta     BASEX,x
+        sec                             ; view y = ROTC[dy] - ROTS[dx]
+        lda     CDY
+        sbc     SDX
+        sta     BASEY,x
+        inx
+        cpx     #STAR_N
+        bne     @lp
+        rts
 
 ; -----------------------------------------------------------------------------
 ; emit_objects / emit_ship — one SPRITE command each.

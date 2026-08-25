@@ -49,7 +49,8 @@ ROW = FB_W // 8
 ZP = {"HEAD": 0x83, "TIER": 0x84, "TURNIX": 0x85,
       "SHXL": 0x8B, "SHXH": 0x8C, "SHYL": 0x8E, "SHYH": 0x8F,
       "VELXL": 0x91, "VELXH": 0x92, "VELYL": 0x93, "VELYH": 0x94,
-      "STARN": 0xA0, "OCCN": 0xA1}
+      "STARN": 0xA0, "OCCN": 0xA1,
+      "TRAVL": 0xC0, "TRAVH": 0xC1, "TRAVI": 0xC2, "BASEHEAD": 0xC3}
 
 
 def decode(stream):
@@ -171,18 +172,21 @@ cpu_mem.subscribe_to_read(range(0x8000, 0xA000), cart_read)
 cpu = MPU(memory=cpu_mem)
 call(cpu, CART_INIT)
 
-# Joystick: hold RIGHT for the whole run so the camera is actually rotating
-# while we measure, and press UP on a few early frames to climb the speed
-# tiers. The OS's frame ISR normally maintains these; here we drive them.
+# Joystick script. The two paths through do_stars have to be exercised
+# separately, so: climb the speed tiers and turn for the first TURN_UNTIL
+# frames, then let go and fly dead straight. The straight leg is where the
+# starfield has to be smooth, and it is what the rigidity check below measures.
+# The OS's frame ISR normally maintains these bytes; here we drive them.
 JOY1, JOY1_PRESS = 0x0A, 0x0C
 JOY_UP, JOY_RIGHT = 0x01, 0x08
+TURN_UNTIL = 12                 # heading ends at $18 = 34 deg, well off-axis
 
 frames = []
 cycles = []
 trace = []
 for f in range(FRAMES):
-    cpu_mem[JOY1] = JOY_RIGHT
-    cpu_mem[JOY1_PRESS] = JOY_UP if f in (2, 6, 10, 14, 18, 22) else 0
+    cpu_mem[JOY1] = JOY_RIGHT if f < TURN_UNTIL else 0
+    cpu_mem[JOY1_PRESS] = JOY_UP if f in (0, 1, 2, 3, 4, 5) else 0
     call(cpu, API_GPU_BEGIN)
     cart_reads[0] = 0
     c = call(cpu, CART_FRAME)
@@ -328,6 +332,68 @@ ship = sum(pix(FBCX - 16 + dx, FBCY - 13 + dy)
            for dx in range(32) for dy in range(26))
 check("the ship sprite is drawn at the screen centre", ship > 50,
       f"{ship} pixels lit in the 32x26 box at ({FBCX-16},{FBCY-13})")
+
+# --- the reason do_stars is shaped the way it is -----------------------------
+# On the straight leg the field must translate RIGIDLY: every visible star moves
+# by exactly the frame's scroll step in fb_x and not at all in fb_y. The version
+# this replaced failed here — it stood still for three frames and then moved
+# ~100 of 110 stars by differing amounts, which is what "trembling" was.
+def sb(v):
+    return v - 256 if v > 127 else v
+
+
+def occluders(stream):
+    """The half-res boxes the cart suppresses stars inside, rebuilt from the
+    SPRITE commands it emitted. The objects move independently of the field, so
+    a star can vanish behind one without the field having done anything wrong —
+    those have to come out of the rigidity count or it measures occlusion."""
+    boxes = [(HCX - SPR_W2, HCX + SPR_W2, HCY - SPR_H2, HCY + SPR_H2)]
+    for op, pl in decode(stream):
+        if op != 0x50:
+            continue
+        cx = (pl[1] | (pl[2] << 8)) + 16        # top-left back to centre
+        cy = (pl[3] | (pl[4] << 8)) + 13
+        if cx & 0x8000 or cy & 0x8000:
+            continue
+        hx, hy = cx >> 1, cy >> 1
+        boxes.append((hx - SPR_W2, hx + SPR_W2, hy - SPR_H2, hy + SPR_H2))
+    return boxes
+
+
+def covered(boxes, x, y):
+    return any(x0 <= x <= x1 and y0 <= y <= y1 for x0, x1, y0, y1 in boxes)
+
+
+rigid_ok = rigid_bad = 0
+steps = []
+for n in range(TURN_UNTIL + 1, FRAMES - 1):
+    a, b = stars_of(frames[n]), stars_of(frames[n + 1])
+    if a is None or b is None:
+        continue
+    d = sb((trace[n + 1]["TRAVI"] - trace[n]["TRAVI"]) & 0xFF)
+    steps.append(d)
+    bs = set(b)
+    boxes = occluders(frames[n + 1])
+    for x, y in a:
+        nx = x + d
+        if not (0 <= nx < 200):
+            continue                            # scrolled off the edge, fine
+        if (nx, y) in bs:
+            rigid_ok += 1
+        elif covered(boxes, nx, y):
+            continue                            # an object moved over it
+        elif (x, y) not in bs:
+            rigid_bad += 1                      # moved, but not with the field
+
+moving = sum(1 for d in steps if d)
+print(f"        straight leg: scroll step per frame {steps[:24]}")
+print(f"        {moving} of {len(steps)} frames scroll; "
+      f"{rigid_ok} star-moves rigid, {rigid_bad} not")
+check("the starfield translates rigidly while flying straight",
+      rigid_bad == 0 and rigid_ok > 500,
+      f"{rigid_bad} stars moved out of step with the field")
+check("the field does scroll on the straight leg", moving > 5,
+      "TRAVI never advanced - the travel accumulator is not running")
 
 # The starfield must MOVE.
 first_dots = stars_of(frames[0])

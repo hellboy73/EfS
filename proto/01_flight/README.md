@@ -25,8 +25,8 @@ the geometry, reports the cycle budget, and writes `preview.png`.
 
 - **A starfield.** 110 stars in their own 256 × 256 wrapping layer, drawn as
   half-res `DOT_PIXELS`. They are *not* world objects: no world coordinates, no
-  zoom, no collision. They drift at **1/8** of the ship's speed and they rotate
-  with the camera.
+  zoom, no collision. They drift at **1/8** of the ship's speed. Flying scrolls
+  them along one axis; only *turning* rotates them — see finding 6.
 - **The ship.** Sprite 0 (the GPU's built-in test sprite — placeholder art),
   fixed dead centre, always nose-up.
 - **Seven drifting objects.** Also sprite 0, but with real world positions and
@@ -69,11 +69,13 @@ every read, instruction fetches included. Same frame, same work:
 `bootstrap.s` does the copy; `preview.py` prints the read count every run, so a
 regression shows up immediately.
 
-**2. The rotation tables work.** Per frame the bench builds two 256-byte tables,
-`ROTC[i] = i·cos/128` and `ROTS[i] = i·sin/128`, as a running 16-bit sum. After
-that the whole star transform is **four table lookups and two adds per star** —
-no multiply in the inner loop at all. 110 stars, 7 transformed objects, six HUD
-strings and the occlusion pass together come to **30% of one CPU's frame**.
+**2. The rotation tables work.** The bench builds two 256-byte tables,
+`ROTC[i] = i·cos/128` and `ROTS[i] = i·sin/128`, as a running 16-bit sum. The
+whole star transform is then **four table lookups and two adds per star** — no
+multiply at all. Since finding 6 the tables are only built on frames where the
+heading moved, so a straight frame is **19% of one CPU** and a turning frame
+**31%**, everything included (110 stars, 7 transformed objects, six HUD strings,
+the occlusion pass). madsim's own meter agrees: 23% CPU1, 22% GPU.
 
 **3. PPRAM is not the constraint here.** A steady frame is **250 bytes of the
 2047-byte list**, 12%. Stars cost 2 bytes each and the HUD costs about 128. That
@@ -92,9 +94,32 @@ but it is *not* what the game will do, and it would be illegal on the background
 there, only one write per frame is allowed plus a cooldown frame, so a three-line
 HUD refreshes on a 6-frame round-robin. See `design_technical.md` 5.5.
 
-**5. About a third of the star layer is on screen.** 35–48 of 110, against the
-~46% the geometry predicts; the occlusion pass eats the rest. If a denser field
-is wanted, raising `STAR_N` is nearly free on PPRAM and linear on CPU.
+**5. About 40% of the star layer is on screen.** 35–48 of 110, against the ~46%
+the geometry predicts; the occlusion pass eats the rest. If a denser field is
+wanted, raising `STAR_N` is nearly free on PPRAM and linear on CPU.
+
+**6. A rotating starfield must not be rotated every frame.** The first version
+computed every star's position from the layer each frame. It shook at most
+headings and looked fine at a few, and the dumps said why: the tables round to
+whole pixels, so the sub-unit part of the sample was being thrown away. The field
+stood still for three or four frames and then ~100 of 110 stars jumped at once by
+*differing* amounts — each star's rounding flipping at its own moment. Near an
+axis one table is almost the identity and the other almost zero, so the same
+lurch came out uniform and read as smooth.
+
+The fix drops the per-frame rotation entirely. Because the camera maps the ship's
+heading onto view-up, flying translates the field along **one axis only**, exactly,
+by a scalar that can be carried in 8.8. So each star keeps a view-space byte pair,
+every frame adds the integer part of that scalar to view-y (the byte wrap *is* the
+view torus), and the positions are rebuilt from the layer **only when the heading
+changes**. The field now translates rigidly at every heading — `preview.py`
+asserts it: 3130 star-moves in step with the field, 0 out of step.
+
+Two traps found on the way: rotating the stored positions by the frame's small
+heading delta instead of rebuilding is cheaper but the table matrix's determinant
+is ~0.987, so the field implodes about 20% per quarter turn; and a rebuild
+re-registers against the integer sample, which can shift a star a pixel — only
+while turning, when the field is rotating anyway.
 
 ---
 

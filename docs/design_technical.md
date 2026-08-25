@@ -219,6 +219,47 @@ Parallax applies to translation only — rotation has no parallax, so a star lay
 that translated slowly but did not rotate would visibly tear away from the world
 every time the player turns.
 
+**But it must not rotate every frame.** A star's exact view position is
+
+```
+view_i = R(H) · (p_i − s)
+```
+
+Split the sample into where it was at the last rebuild plus the distance flown
+since, `s = s_base + t·forward`. `R` maps `forward` onto view-up by construction —
+that is what "the ship always points up" *means* — so `R·(t·forward) = (0, −t)`,
+and **the entire effect of flying is one scalar added to view-y**. No rotation, no
+per-star work, and `t` can be carried at any precision.
+
+So the starfield keeps each star's view-space position as a plain byte pair (the
+byte wrap *is* the view torus: a star leaving one edge re-enters at the other for
+free), adds the integer part of `t` to view-y every frame, and **rebuilds the
+positions from the layer only when the heading actually changes**. Straight flight
+costs one add per star and no table build at all.
+
+Three things this got right that the obvious implementation got wrong, all
+measured in proto 01:
+
+- **Rigid beats scattered.** The first version folded the travel into the sample
+  and rotated every frame, which threw away the sub-unit part of `s` in the table
+  lookup. At heading `$14` the field stood still for three frames and then ~100 of
+  110 stars jumped at once *by different amounts*, because each star's rounding
+  flipped at its own moment. Near an axis (`$FC`) one table is almost the identity
+  and the other almost zero, so the same lurch came out uniform — which is exactly
+  why it looked fine at some headings and shook at others. The fix makes every
+  heading behave the way the good one did.
+- **Do not rotate the stars incrementally.** Applying the frame's small heading
+  delta to the stored positions would be cheaper than rebuilding from the layer,
+  but the table's matrix has a determinant of about 0.987, so the field implodes —
+  roughly 20% per quarter turn. Rebuilding from the layer accumulates nothing.
+- **The rebuild is a turning-time cost, not a flying-time one.** Two 256-byte
+  table builds plus one transform per star, only on frames where the heading moved.
+  Straight frames got about 35% cheaper than the every-frame version.
+
+The residual: a rebuild re-registers the field against the integer sample and can
+shift a star by up to a pixel. That happens only while turning, when the whole
+field is rotating anyway.
+
 ### 5.4 Star occlusion — asteroids are hollow
 
 Asteroids are drawn as **dot-line outlines**, so they have no interior. Stars
