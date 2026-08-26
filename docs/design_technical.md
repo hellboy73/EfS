@@ -316,6 +316,33 @@ The general lesson for anything else drawn from a wrapping layer: **the layer's
 radius must cover the screen's half-diagonal plus the scroll between rebuilds**,
 and a square layer only guarantees its inscribed circle.
 
+### 5.3a Two backdrop layers, and both go last in the list
+
+There are two decorative layers, on opposite sides of the action:
+
+| layer | parallax | drawn | purpose |
+|---|---|---|---|
+| **stars** | 1/4 of the ship's speed | behind everything | depth, distance |
+| **motes** | **2x** the ship's speed | **in front of everything** | speed, when nothing else is in view |
+
+The motes exist because with no enemies on screen there is nothing to judge speed
+against; a handful of specks streaking past the camera supplies it. Being in
+front is what makes them cheap — nothing can occlude them, so they skip the
+occlusion pass entirely, and at ~6 pixels a frame the per-speck rounding that
+forces the starfield's whole rebuild-and-scroll machinery is far below their own
+motion. They are simply transformed from scratch every frame.
+
+**Both layers are appended to the PPRAM list LAST — stars second to last, motes
+last.** The GPU walks the list in order, so whatever is at the end is what gets
+dropped if a frame ever runs long. The backdrop is the only thing on screen whose
+loss costs nothing: a missing star is invisible, a missing ship is not. Ordering
+also happens to work out: drawn last, the backdrop cannot be painted over by the
+sprites or the HUD, which is why the starfield no longer needs to dodge them.
+
+The rule generalises: **list order is a priority order.** Anything that must
+survive a long frame goes early — the ship, the HUD, gameplay objects — and
+anything expendable goes late.
+
 ### 5.4 Star occlusion — asteroids are hollow
 
 Asteroids are drawn as **dot-line outlines**, so they have no interior. Stars

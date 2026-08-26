@@ -129,6 +129,12 @@ refresh un-parks them before the field scrolls past the 27-pixel margin. See
 `design_technical.md` 5.3. What stays open is whether a *denser* layer is wanted
 (see D4) — that is a separate question from this one.
 
+**D10. Mote count and look (TBD).** The near layer runs 16 specks (about 7 on
+screen) at twice the ship's speed. They are single pixels, exactly like stars, and
+are told apart only by how fast they move - a short streak would read as speed
+more strongly but costs a line instead of a point. Open: how many, and whether
+they should be streaks.
+
 **D4. Star layers (TBM).** How many parallax layers, how many stars per layer, and
 their parallax factors. Cost is one `DOT_PIXELS` call per layer plus the point-list
 build. PPRAM cost is 2 bytes per *visible* star, so the star count is bounded by

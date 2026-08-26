@@ -23,13 +23,18 @@ the geometry, reports the cycle budget, and writes `preview.png`.
 
 ## What is on screen
 
-- **A starfield.** 110 stars in their own 256 × 256 wrapping layer, drawn as
+- **A starfield.** 88 stars in their own 256 × 256 wrapping layer, drawn as
   half-res `DOT_PIXELS` - single pixels, but only on even coordinates, so they
   sit on a 2-pixel lattice. They are *not* world objects: no world coordinates,
   no zoom, no collision. They drift at **1/4** of the ship's speed. Flying
   scrolls them along one axis; only *turning* rotates them - see finding 6.
+- **Motes.** A second layer, 16 specks (about 7 on screen), running at **twice**
+  the ship's speed and drawn **in front of everything**. They are there to sell
+  speed when there is nothing else in view. Being in front is what makes them
+  cheap: no occlusion pass, and at ~6 px a frame they need none of the starfield's
+  rebuild-and-scroll machinery — they are transformed from scratch every frame.
 - **The ship.** Sprite 0 (the GPU's built-in test sprite — placeholder art),
-  fixed dead centre, always nose-up.
+  always nose-up, riding up and down the screen with the speed tier.
 - **Seven drifting objects.** Also sprite 0, but with real world positions and
   velocities, so they show what the transform does to something that is actually
   out there.
@@ -205,6 +210,14 @@ the other, so the angular velocity stuck at a tiny nonzero value and the heading
 crept *forever*, firing a full star rebuild every few dozen frames. It snaps to
 the target when the step underflows. The same trap applies to every ease in the
 bench, including the ship's screen offset.
+
+**14. The backdrop is appended to the list last, on purpose.** Stars second to
+last, motes last. The GPU walks the PPRAM list in order, so whatever sits at the
+end is what gets dropped if a frame ever runs long — and the backdrop is the only
+thing on screen whose loss costs nothing. It also removed a wart: drawn last, the
+starfield cannot be painted over by the sprites or the HUD, so the "every star
+reached the framebuffer" check no longer has to excuse the rows the HUD sits on.
+`preview.py` asserts the last two commands in the list are the two `DOT_PIXELS`.
 
 **9. The star layer is only just big enough, and the overflow was being folded
 onto the screen.** A few stars streaked along the top and bottom edges during

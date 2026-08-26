@@ -60,7 +60,12 @@
         .export cart_frame
 
 ; --- tunables ----------------------------------------------------------------
-STAR_N      = 110               ; stars in the layer; ~46% are on screen at once
+STAR_N      = 88                ; stars in the layer; ~46% are on screen at once
+MOTE_N      = 16                ; motes: a second layer much CLOSER than the
+                                ;   action, so they streak past at twice the
+                                ;   ship's speed. ~7 on screen at a time - they
+                                ;   are there to sell speed when nothing else is
+                                ;   in view, not to be looked at.
 NOBJ        = 250               ; drifting reference objects, scattered over the
                                 ;   whole torus. The world is about 140 screens,
                                 ;   so this is ~1.8 on screen at any moment - with
@@ -156,6 +161,10 @@ PSHOFFH     = $DE               ;   speed tiers can be fed to the scroll
 TURNVL      = $DF               ; angular velocity, signed 8.8 brad per frame
 TURNVH      = $E0
 RAMPIX      = $E1               ; how sharply it reaches the held turn rate
+MSAMPX      = $E2               ; the mote layer's sample point
+MSAMPY      = $E3
+MOTEN       = $E4               ; motes that survived the clip
+MDIDX       = $E5
 VYT         = $C4               ; per-star scrolled view-y
 HEADF       = $C5               ; heading fraction - turning is sub-brad, so the
                                 ;   rate table can have steps finer than 1/256 turn
@@ -211,6 +220,9 @@ OBJVIS      = $1E00             ; nonzero when the object survived the cull
 BASEX       = $0B00             ; STAR_N bytes: each star's VIEW-space position at
 BASEY       = $0B80             ;   the last rebase - see do_stars
 PARKED      = $0D00             ; STAR_N bytes: 1 = out of byte range, do not draw
+MOTEBX      = $0D80             ; MOTE_N bytes: the mote layer
+MOTEBY      = $0D90
+MOTEBUF     = $0DA0             ; 1 + 2*MOTE_N: the motes' DOT_PIXELS payload
 STR_SPD     = $0C00             ; HUD strings, patched in place every frame
 STR_TRN     = $0C20
 STR_HDG     = $0C40
@@ -312,6 +324,7 @@ cart_init:
         sta     PRNGH
 
         jsr     init_stars
+        jsr     init_motes
         jsr     init_objects
         jmp     init_strings
 
@@ -334,6 +347,18 @@ init_stars:
         sta     STARBY,y
         iny
         cpy     #STAR_N
+        bne     @lp
+        rts
+
+; The mote layer, scattered the same way and for the same reason.
+init_motes:
+        ldy     #$00
+@lp:    jsr     prng
+        sta     MOTEBX,y
+        jsr     prng
+        sta     MOTEBY,y
+        iny
+        cpy     #MOTE_N
         bne     @lp
         rts
 
@@ -432,10 +457,17 @@ cart_frame:
         jsr     do_camera               ; cos/sin, then the two rotation tables
         jsr     do_ship                 ; velocity from tier + heading, integrate
         jsr     do_objects              ; move, transform, collect occluder boxes
-        jsr     do_stars                ; build and emit the starfield
+        jsr     do_stars                ; BUILD the starfield - see below
+        jsr     do_motes                ; BUILD the mote layer
         jsr     emit_objects
         jsr     emit_ship
-        jmp     do_hud
+        jsr     do_hud
+        ; The two decorative layers are appended LAST, and in this order: if the
+        ; GPU ever runs out of frame to finish the list, what it drops should be
+        ; the backdrop, not the ship or the HUD. Stars second to last, motes
+        ; last, because motes are the cheapest thing on screen to lose.
+        jsr     emit_stars
+        jmp     emit_motes
 
 ; -----------------------------------------------------------------------------
 ; do_input — joystick 1.
@@ -891,6 +923,10 @@ do_objects:
 ; quarter of the way from the screen centre to the ship, which still strafes.
 shl6_ma:
         ldx     #6
+        bra     shl_ma
+shl3_ma:
+        ldx     #3
+shl_ma:
 @lp:    asl     MAL
         rol     MAH
         dex
@@ -1273,14 +1309,184 @@ do_stars:
         jmp     @lp
 :
         lda     STARN
-        beq     @done
         sta     DOTBUF
+        rts
+
+; -----------------------------------------------------------------------------
+; emit_stars / emit_motes — the two decorative layers, appended last.
+; -----------------------------------------------------------------------------
+emit_stars:
+        lda     STARN
+        beq     @none
         lda     #<DOTBUF
         sta     OS_ARG+0
         lda     #>DOTBUF
         sta     OS_ARG+1
         jmp     API_GPU_DOTPIXELS
-@done:  rts
+@none:  rts
+
+emit_motes:
+        lda     MOTEN
+        beq     @none
+        lda     #<MOTEBUF
+        sta     OS_ARG+0
+        lda     #>MOTEBUF
+        sta     OS_ARG+1
+        jmp     API_GPU_DOTPIXELS
+@none:  rts
+
+; -----------------------------------------------------------------------------
+; do_motes — the near layer: 16 specks at TWICE the ship's speed.
+; -----------------------------------------------------------------------------
+; Everything the starfield needs machinery for, this does not. There are 16 of
+; them, so they are simply transformed from scratch every frame: no stored bases,
+; no travel accumulator, no parking, no refresh. At roughly six pixels a frame
+; the per-mote rounding that made the STARS boil is far below the motion itself.
+;
+; They are also drawn in FRONT of everything, so they need no occlusion pass -
+; which is most of what made them cheap. The rotation tables are whatever the
+; last star rebuild left, and those are always current for the camera's heading,
+; so this borrows them for free.
+;
+; The sample is the same camera point the stars use, but at parallax 2 instead of
+; 1/4: sample = camera >> 4. The camera offset is pre-multiplied by 8 rather than
+; 64 for the same reason it is pre-multiplied at all - to come out as the ship's
+; screen offset in layer units after the shift.
+; -----------------------------------------------------------------------------
+do_motes:
+        lda     SHOFFH                  ; camera = ship + offset * forward
+        jsr     sext_ma
+        lda     SINV
+        sta     MB
+        jsr     smul16q7
+        jsr     shl3_ma
+        clc
+        lda     SHXL
+        adc     MAL
+        sta     T0
+        lda     SHXH
+        adc     MAH
+        sta     T1
+
+        lda     SHOFFH
+        jsr     sext_ma
+        lda     COSV
+        sta     MB
+        jsr     smul16q7
+        jsr     shl3_ma
+        sec
+        lda     SHYL
+        sbc     MAL
+        sta     T2
+        lda     SHYH
+        sbc     MAH
+        sta     T3
+
+        lda     T1                      ; sample = camera >> 4: bits 4..11
+        asl     a
+        asl     a
+        asl     a
+        asl     a
+        sta     MSAMPX
+        lda     T0
+        lsr     a
+        lsr     a
+        lsr     a
+        lsr     a
+        ora     MSAMPX
+        sta     MSAMPX
+        lda     T3
+        asl     a
+        asl     a
+        asl     a
+        asl     a
+        sta     MSAMPY
+        lda     T2
+        lsr     a
+        lsr     a
+        lsr     a
+        lsr     a
+        ora     MSAMPY
+        sta     MSAMPY
+
+        stz     MDIDX
+        stz     MOTEN
+        ldx     #$00
+@lp:    lda     MOTEBX,x
+        sec
+        sbc     MSAMPX
+        tay
+        lda     ROTC_I,y
+        sta     CDXI
+        lda     ROTS_I,y
+        sta     SDXI
+        lda     MOTEBY,x
+        sec
+        sbc     MSAMPY
+        tay
+        lda     ROTC_I,y
+        sta     CDYI
+        lda     ROTS_I,y
+        sta     SDYI
+
+        ldy     #$00                    ; fb_x = HCX + (ROTC[dy] - ROTS[dx])
+        lda     #HCX
+        clc
+        adc     CDYI
+        bcc     :+
+        iny
+:       bit     CDYI
+        bpl     :+
+        dey
+:       sec
+        sbc     SDXI
+        bcs     :+
+        dey
+:       bit     SDXI
+        bpl     :+
+        iny
+:       cpy     #$00
+        bne     @next
+        cmp     #200
+        bcs     @next
+        sta     FBX
+
+        ldy     #$00                    ; fb_y = HCY - (ROTC[dx] + ROTS[dy])
+        lda     #HCY
+        sec
+        sbc     CDXI
+        bcs     :+
+        dey
+:       bit     CDXI
+        bpl     :+
+        iny
+:       sec
+        sbc     SDYI
+        bcs     :+
+        dey
+:       bit     SDYI
+        bpl     :+
+        iny
+:       cpy     #$00
+        bne     @next
+        cmp     #150
+        bcs     @next
+
+        ldy     MDIDX
+        sta     MOTEBUF+2,y
+        lda     FBX
+        sta     MOTEBUF+1,y
+        iny
+        iny
+        sty     MDIDX
+        inc     MOTEN
+@next:
+        inx
+        cpx     #MOTE_N
+        bne     @lp
+        lda     MOTEN
+        sta     MOTEBUF
+        rts
 
 ; -----------------------------------------------------------------------------
 ; star_rebase — rebuild the stars' view-space positions from the layer.
@@ -1731,6 +1937,12 @@ do_hud:
         sta     STR_STA+7
         lda     DEC2
         sta     STR_STA+8
+        lda     MOTEN
+        jsr     put_dec3
+        lda     DEC1
+        sta     STR_STA+15
+        lda     DEC2
+        sta     STR_STA+16
 
         lda     #<STR_SPD
         ldx     #>STR_SPD
@@ -1967,7 +2179,7 @@ TSCALE_TXT: .byte   "x1.12", "x1.25", "x1.50"
 TPL_SPD:    .byte   "SPD +000 PX/S", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 TPL_TRN:    .byte   "TURN 2 2122 MS/REV R0", 0, 0, 0
 TPL_HDG:    .byte   "HDG $00", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-TPL_STA:    .byte   "STARS 000/110", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+TPL_STA:    .byte   "STARS 000/088 M00", 0, 0, 0, 0, 0, 0, 0
 TPL_SCL:    .byte   "TSCALE OFF", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 TPL_SCL2:   .byte   "TSCALE 0 MAX x1.00", 0, 0, 0, 0, 0, 0
 

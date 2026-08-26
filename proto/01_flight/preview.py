@@ -61,6 +61,10 @@ def s16(lo, hi):
     return v - 65536 if v & 0x8000 else v
 
 
+def sb8(v):
+    return v - 256 if v > 127 else v
+
+
 def decode(stream):
     """Walk a PPRAM command list. Returns [(opcode, payload_bytes), ...].
 
@@ -94,19 +98,34 @@ def decode(stream):
     return out
 
 
-def stars_of(stream):
+def dotlists(stream):
+    """Every DOT_PIXELS command in the list, in order. The cart emits two: the
+    starfield, then the motes, both appended after everything else."""
+    out = []
     for op, payload in decode(stream):
         if op == 0x47:
             n = payload[0]
-            return [(payload[1 + 2 * k], payload[2 + 2 * k]) for k in range(n)]
-    return None
+            out.append([(payload[1 + 2 * k], payload[2 + 2 * k])
+                        for k in range(n)])
+    return out
+
+
+def stars_of(stream):
+    d = dotlists(stream)
+    return d[0] if d else None
+
+
+def motes_of(stream):
+    d = dotlists(stream)
+    return d[1] if len(d) > 1 else None
 
 # The bench's own geometry, mirrored from main.s. If these drift apart the
 # checks below stop meaning anything, so they are asserted where possible.
 HCX, HCY = 100, 74              # half-res framebuffer centre
 FBCX, FBCY = 200, 149           # full-res framebuffer centre
 SPR_W2, SPR_H2 = 8, 7           # sprite 0 half-extent, half-res
-STAR_N = 110
+STAR_N = 88
+MOTE_N = 16
 NOBJ = 250
 
 
@@ -362,13 +381,30 @@ print("\nchecks:")
 check("nothing was written at or past the register overlay (offset 16320)",
       not regs_hit)
 
+# The backdrop is appended last on purpose: if the GPU ever runs out of frame,
+# what it drops should be the starfield and the motes, not the ship or the HUD.
+ops = [op for op, _ in decode(frames[-1])]
+order_ok = len(ops) >= 2 and ops[-2] == 0x47 and ops[-1] == 0x47 and \
+    all(o != 0x47 for o in ops[:-2])
+print(f"        command order: {' '.join('%02X' % o for o in ops)}")
+check("the starfield and the motes are the last two commands in the list",
+      order_ok,
+      "the backdrop is not last, so the GPU would drop gameplay before it")
+
 # Ground truth for where the stars were asked to go, straight out of PPRAM.
 dots = stars_of(frames[-1])
 check("the frame contains a DOT_PIXELS command", dots is not None)
 
 if dots is not None:
+    motes = motes_of(frames[-1])
     print(f"        {len(dots)} stars emitted of {STAR_N} in the layer "
-          f"({100*len(dots)/STAR_N:.0f}%)")
+          f"({100*len(dots)/STAR_N:.0f}%), "
+          f"{len(motes) if motes else 0} motes of {MOTE_N}")
+    check("the mote layer is drawing", motes is not None and len(motes) >= 3,
+          f"{len(motes) if motes else 0} motes on screen")
+    check("every mote is inside the half-res screen",
+          motes is not None and all(0 <= x < 200 and 0 <= y < 150
+                                    for x, y in motes))
     check("a sane fraction of the layer is on screen",
           20 <= len(dots) <= 80,
           f"{len(dots)} visible; the rotated 150x200 view covers ~46% of a "
@@ -380,7 +416,9 @@ if dots is not None:
     # there — so a star under a HUD line is erased after the fact. Worth knowing
     # for the real game: an image-layer HUD punches black rectangles into the
     # starfield, which is one more reason to put it on the background layer.
-    HUD_LINES = (2, 4, 6, 8, 10, 45, 47)
+    # Since the reorder the backdrop is drawn LAST, so nothing paints over it -
+    # the HUD and sprite exclusions this check used to need are gone.
+    HUD_LINES = ()
     hud_rows = {r for L in HUD_LINES for r in range(4 * L, 4 * L + 4)}
     # A sprite drawn over a star also erases it. The occluder list the cart
     # keeps only holds boxes whose CENTRE is on screen, so a sprite hanging off
@@ -427,6 +465,35 @@ check("the ship offset follows the speed tier", abs(offs[-1]) > 20,
       f"ended at {offs[-1]} px from centre")
 check("the ship offset eases rather than snapping", jump <= 12,
       f"moved {jump} px in one frame")
+
+# --- the motes must actually be the FAST layer -------------------------------
+# Stars run at 1/4 of the ship's speed and motes at 2x, so on a straight leg the
+# mote field should travel about eight times as far per frame as the starfield.
+# Both are rigid translations, so the mean displacement is the measurement.
+def mean_shift(prev, cur):
+    if not prev or not cur:
+        return None
+    # match by nearest, which is unambiguous for a rigid translation
+    tot, n = 0.0, 0
+    for x, y in prev:
+        best = min(cur, key=lambda q: abs(q[0] - x) + abs(q[1] - y))
+        if abs(best[1] - y) <= 1 and abs(best[0] - x) <= 20:
+            tot += best[0] - x
+            n += 1
+    return tot / n if n else None
+
+
+mote_travel = star_travel = 0.0
+for n in range(STRAIGHT, FRAMES - 1):
+    a = mean_shift(motes_of(frames[n]), motes_of(frames[n + 1]))
+    if a is not None:
+        mote_travel += abs(a)
+    star_travel += abs(sb8((trace[n + 1]["TRAVI"] - trace[n]["TRAVI"]) & 0xFF))
+ratio = mote_travel / star_travel if star_travel else 0
+print(f"        motes travelled {mote_travel:.0f} px to the stars' "
+      f"{star_travel:.0f} - ratio {ratio:.1f} (2 / 0.25 = 8 expected)")
+check("the motes are the near, fast layer", 5.0 <= ratio <= 11.0,
+      f"ratio {ratio:.1f} - the mote parallax is not 2x the ship's speed")
 
 # --- the reason do_stars is shaped the way it is -----------------------------
 # On the straight leg the field must translate RIGIDLY: every visible star moves
@@ -480,10 +547,6 @@ check("the field does scroll on the straight leg", moving > 5,
 # base should march in one direction per axis; a reversal is the rebase rounding
 # differently from one frame to the next. This is what the 8.8 tables and the
 # sub-unit registration in star_rebase are for.
-def sb8(v):
-    return v - 256 if v > 127 else v
-
-
 rev = tot = 0
 for i in range(STAR_N):
     for axis in (0, 1):
