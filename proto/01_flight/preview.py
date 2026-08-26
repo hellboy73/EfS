@@ -125,7 +125,7 @@ HCX, HCY = 100, 74              # half-res framebuffer centre
 FBCX, FBCY = 200, 149           # full-res framebuffer centre
 SPR_W2, SPR_H2 = 8, 7           # sprite 0 half-extent, half-res
 STAR_N = 88
-MOTE_N = 16
+MOTE_N = 10
 NOBJ = 250
 
 
@@ -223,6 +223,7 @@ trace = []
 rot = []                        # ROTC_I / ROTS_I + the sample, for the pivot check
 objs = []                       # object screen positions by index, for the swim test
 occ = []                        # the cart's own occluder boxes, straight from RAM
+motepos = []                    # per-mote screen position by index, from RAM
 bases = []                      # BASEX/BASEY straight out of RAM, so stars keep
                                 #   their identity across a turn and the rebase
                                 #   can be measured directly
@@ -263,6 +264,11 @@ for f in range(FRAMES):
             vis[i] = (s16(cpu_mem[0x1A00 + i], cpu_mem[0x1B00 + i]),
                       s16(cpu_mem[0x1C00 + i], cpu_mem[0x1D00 + i]))
     objs.append(vis)
+    mvis = {}
+    for i in range(MOTE_N):
+        if cpu_mem[0x0DE0 + i]:
+            mvis[i] = (cpu_mem[0x0DC0 + i], cpu_mem[0x0DD0 + i])
+    motepos.append(mvis)
     # The occluder boxes exactly as the cart built them. Rebuilding them from
     # the emitted SPRITE commands nearly works and disagrees on about one star
     # in four thousand, which is enough to make a strict rigidity check useless.
@@ -465,6 +471,47 @@ check("the ship offset follows the speed tier", abs(offs[-1]) > 20,
       f"ended at {offs[-1]} px from centre")
 check("the ship offset eases rather than snapping", jump <= 12,
       f"moved {jump} px in one frame")
+
+# --- and they must not twitch ------------------------------------------------
+# On a straight leg a mote's path across the screen is a straight line at
+# constant speed, so any reversal is quantisation noise - the same test the
+# objects get. The first version of do_motes used only the integer rotation
+# tables and no sub-unit registration, and the specks visibly jittered a couple
+# of pixels back and forth.
+mrev = msteps = 0
+for n in range(STRAIGHT, FRAMES - 1):
+    a, b = motepos[n], motepos[n + 1]
+    for i in set(a) & set(b):
+        for axis in (0, 1):
+            d = b[i][axis] - a[i][axis]
+            if abs(d) > 40:             # wrapped round the layer, not a step
+                continue
+            if d:
+                msteps += 1
+_mtracks = {}
+for n in range(STRAIGHT, FRAMES - 1):
+    # Only frames where the ship's screen offset is STEADY. While it eases after
+    # a tier change the camera itself is moving backwards or forwards along the
+    # heading - fast enough to outrun the ship - so the motes legitimately
+    # reverse, and counting those would measure the ease, not the rounding.
+    if trace[n]["SHOFFH"] != trace[n + 1]["SHOFFH"]:
+        continue
+    a, b = motepos[n], motepos[n + 1]
+    for i in set(a) & set(b):
+        d = (b[i][0] - a[i][0], b[i][1] - a[i][1])
+        if max(abs(d[0]), abs(d[1])) > 40:
+            continue
+        _mtracks.setdefault(i, []).append(d)
+mrev = msteps = 0
+for deltas in _mtracks.values():
+    for axis in (0, 1):
+        seq = [d[axis] for d in deltas if d[axis]]
+        msteps += len(seq)
+        mrev += sum(1 for u, v in zip(seq, seq[1:]) if u * v < 0)
+print(f"        mote motion: {msteps} pixel steps, {mrev} of them reversals")
+check("the motes do not twitch", mrev <= msteps // 40,
+      f"{mrev}/{msteps} steps reversed - the mote transform is truncating twice "
+      f"or missing its sub-unit registration")
 
 # --- the motes must actually be the FAST layer -------------------------------
 # Stars run at 1/4 of the ship's speed and motes at 2x, so on a straight leg the

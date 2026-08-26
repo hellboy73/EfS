@@ -328,9 +328,23 @@ There are two decorative layers, on opposite sides of the action:
 The motes exist because with no enemies on screen there is nothing to judge speed
 against; a handful of specks streaking past the camera supplies it. Being in
 front is what makes them cheap — nothing can occlude them, so they skip the
-occlusion pass entirely, and at ~6 pixels a frame the per-speck rounding that
-forces the starfield's whole rebuild-and-scroll machinery is far below their own
-motion. They are simply transformed from scratch every frame.
+occlusion pass entirely — and being few, they are simply transformed from scratch
+every frame: no stored bases, no travel accumulator, no parking, no refresh.
+
+What they do **not** get to skip is the arithmetic quality. The first version used
+only the integer rotation tables and no sub-unit registration, on the theory that
+at six pixels a frame nobody would see the rounding. They did: the sample is
+quantised to a whole layer unit, so between steps a mote does not move at all and
+then jumps, and summing two separately-floored lookups scatters that jump by up to
+two pixels **per mote**. It reads as specks twitching back and forth — the same
+defect the starfield had, at a different scale.
+
+The rule this makes concrete, and it applies to anything drawn from a rotated
+sampled layer: **register against the sub-unit part of the sample, and floor
+once, at the end.** Sub-unit registration is what stops the field freezing between
+sample steps; the single floor is what makes each point's position a *monotone*
+function of the sample, so it cannot step backwards. Measured on the motes: 68
+direction reversals in 401 pixel steps without it, 3 in 309 with it.
 
 **Both layers are appended to the PPRAM list LAST — stars second to last, motes
 last.** The GPU walks the list in order, so whatever is at the end is what gets

@@ -61,9 +61,9 @@
 
 ; --- tunables ----------------------------------------------------------------
 STAR_N      = 88                ; stars in the layer; ~46% are on screen at once
-MOTE_N      = 16                ; motes: a second layer much CLOSER than the
+MOTE_N      = 10                ; motes: a second layer much CLOSER than the
                                 ;   action, so they streak past at twice the
-                                ;   ship's speed. ~7 on screen at a time - they
+                                ;   ship's speed. ~5 on screen at a time - they
                                 ;   are there to sell speed when nothing else is
                                 ;   in view, not to be looked at.
 NOBJ        = 250               ; drifting reference objects, scattered over the
@@ -165,6 +165,8 @@ MSAMPX      = $E2               ; the mote layer's sample point
 MSAMPY      = $E3
 MOTEN       = $E4               ; motes that survived the clip
 MDIDX       = $E5
+MFRACX      = $E6               ; the sub-unit part of the mote sample
+MFRACY      = $E7
 VYT         = $C4               ; per-star scrolled view-y
 HEADF       = $C5               ; heading fraction - turning is sub-brad, so the
                                 ;   rate table can have steps finer than 1/256 turn
@@ -223,6 +225,9 @@ PARKED      = $0D00             ; STAR_N bytes: 1 = out of byte range, do not dr
 MOTEBX      = $0D80             ; MOTE_N bytes: the mote layer
 MOTEBY      = $0D90
 MOTEBUF     = $0DA0             ; 1 + 2*MOTE_N: the motes' DOT_PIXELS payload
+MOTESX      = $0DC0             ; per-mote screen position, kept by index so the
+MOTESY      = $0DD0             ;   harness can measure a single mote's motion
+MOTEVIS     = $0DE0
 STR_SPD     = $0C00             ; HUD strings, patched in place every frame
 STR_TRN     = $0C20
 STR_HDG     = $0C40
@@ -1382,9 +1387,9 @@ do_motes:
         sbc     MAH
         sta     T3
 
-        lda     T1                      ; sample = camera >> 4: bits 4..11
-        asl     a
-        asl     a
+        lda     T1                      ; sample = camera >> 4: bits 4..11, and
+        asl     a                       ;   the four bits below it are the
+        asl     a                       ;   sub-unit fraction
         asl     a
         asl     a
         sta     MSAMPX
@@ -1395,6 +1400,12 @@ do_motes:
         lsr     a
         ora     MSAMPX
         sta     MSAMPX
+        lda     T0
+        asl     a
+        asl     a
+        asl     a
+        asl     a
+        sta     MFRACX
         lda     T3
         asl     a
         asl     a
@@ -1408,28 +1419,118 @@ do_motes:
         lsr     a
         ora     MSAMPY
         sta     MSAMPY
+        lda     T2
+        asl     a
+        asl     a
+        asl     a
+        asl     a
+        sta     MFRACY
+
+        ; U = -R * frac, exactly as a star rebuild does it. The first version of
+        ; this routine skipped it and used only the integer tables, on the theory
+        ; that at six pixels a frame nobody would see the rounding. They did: the
+        ; sample is quantised to a whole layer unit, so between steps a mote does
+        ; not move at all and then jumps, and summing two separately-floored
+        ; lookups scatters that jump by up to two pixels PER MOTE - which reads as
+        ; specks twitching back and forth. Sub-unit registration plus a single
+        ; floor makes each mote's position a monotone function of the sample, so
+        ; it cannot step backwards.
+        lda     MFRACX                  ; UX = -(fx*cos + fy*sin)
+        sta     MAL
+        stz     MAH
+        lda     COSV
+        sta     MB
+        jsr     smul16q7
+        lda     MAL
+        sta     UXL
+        lda     MAH
+        sta     UXH
+        lda     MFRACY
+        sta     MAL
+        stz     MAH
+        lda     SINV
+        sta     MB
+        jsr     smul16q7
+        clc
+        lda     UXL
+        adc     MAL
+        sta     UXL
+        lda     UXH
+        adc     MAH
+        sta     UXH
+        sec
+        lda     #$00
+        sbc     UXL
+        sta     UXL
+        lda     #$00
+        sbc     UXH
+        sta     UXH
+
+        lda     MFRACX                  ; UY = fx*sin - fy*cos
+        sta     MAL
+        stz     MAH
+        lda     SINV
+        sta     MB
+        jsr     smul16q7
+        lda     MAL
+        sta     UYL
+        lda     MAH
+        sta     UYH
+        lda     MFRACY
+        sta     MAL
+        stz     MAH
+        lda     COSV
+        sta     MB
+        jsr     smul16q7
+        sec
+        lda     UYL
+        sbc     MAL
+        sta     UYL
+        lda     UYH
+        sbc     MAH
+        sta     UYH
 
         stz     MDIDX
         stz     MOTEN
         ldx     #$00
-@lp:    lda     MOTEBX,x
+@lp:    stz     MOTEVIS,x
+        lda     MOTEBX,x
         sec
         sbc     MSAMPX
         tay
         lda     ROTC_I,y
         sta     CDXI
+        lda     ROTC_F,y
+        sta     CDXF
         lda     ROTS_I,y
         sta     SDXI
+        lda     ROTS_F,y
+        sta     SDXF
         lda     MOTEBY,x
         sec
         sbc     MSAMPY
         tay
         lda     ROTC_I,y
         sta     CDYI
+        lda     ROTC_F,y
+        sta     CDYF
         lda     ROTS_I,y
         sta     SDYI
+        lda     ROTS_F,y
+        sta     SDYF
 
-        ldy     #$00                    ; fb_x = HCX + (ROTC[dy] - ROTS[dx])
+        ; fb_x = HCX + (ROTC[dy] - ROTS[dx] + UY), summed in 8.8, floored once
+        stz     CF
+        sec
+        lda     CDYF
+        sbc     SDXF
+        bcs     :+
+        dec     CF
+:       clc
+        adc     UYL
+        bcc     :+
+        inc     CF
+:       ldy     #$00
         lda     #HCX
         clc
         adc     CDYI
@@ -1445,13 +1546,38 @@ do_motes:
 :       bit     SDXI
         bpl     :+
         iny
+:       clc
+        adc     UYH
+        bcc     :+
+        iny
+:       bit     UYH
+        bpl     :+
+        dey
+:       clc
+        adc     CF
+        bcc     :+
+        iny
+:       bit     CF
+        bpl     :+
+        dey
 :       cpy     #$00
         bne     @next
         cmp     #200
         bcs     @next
         sta     FBX
 
-        ldy     #$00                    ; fb_y = HCY - (ROTC[dx] + ROTS[dy])
+        ; fb_y = HCY - (ROTC[dx] + ROTS[dy] + UX)
+        stz     CF
+        clc
+        lda     CDXF
+        adc     SDYF
+        bcc     :+
+        inc     CF
+:       clc
+        adc     UXL
+        bcc     :+
+        inc     CF
+:       ldy     #$00
         lda     #HCY
         sec
         sbc     CDXI
@@ -1467,24 +1593,42 @@ do_motes:
 :       bit     SDYI
         bpl     :+
         iny
+:       sec
+        sbc     UXH
+        bcs     :+
+        dey
+:       bit     UXH
+        bpl     :+
+        iny
+:       sec
+        sbc     CF
+        bcs     :+
+        dey
 :       cpy     #$00
         bne     @next
         cmp     #150
         bcs     @next
+        sta     FBY
 
         ldy     MDIDX
-        sta     MOTEBUF+2,y
         lda     FBX
         sta     MOTEBUF+1,y
+        sta     MOTESX,x
+        lda     FBY
+        sta     MOTEBUF+2,y
+        sta     MOTESY,x
         iny
         iny
         sty     MDIDX
         inc     MOTEN
+        lda     #$01
+        sta     MOTEVIS,x
 @next:
         inx
         cpx     #MOTE_N
-        bne     @lp
-        lda     MOTEN
+        beq     :+
+        jmp     @lp
+:       lda     MOTEN
         sta     MOTEBUF
         rts
 

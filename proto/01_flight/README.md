@@ -28,11 +28,12 @@ the geometry, reports the cycle budget, and writes `preview.png`.
   sit on a 2-pixel lattice. They are *not* world objects: no world coordinates,
   no zoom, no collision. They drift at **1/4** of the ship's speed. Flying
   scrolls them along one axis; only *turning* rotates them - see finding 6.
-- **Motes.** A second layer, 16 specks (about 7 on screen), running at **twice**
+- **Motes.** A second layer, 10 specks (about 5 on screen), running at **twice**
   the ship's speed and drawn **in front of everything**. They are there to sell
   speed when there is nothing else in view. Being in front is what makes them
-  cheap: no occlusion pass, and at ~6 px a frame they need none of the starfield's
+  cheap: no occlusion pass, and being few they need none of the starfield's
   rebuild-and-scroll machinery — they are transformed from scratch every frame.
+  They do still need its *arithmetic* — see finding 15.
 - **The ship.** Sprite 0 (the GPU's built-in test sprite — placeholder art),
   always nose-up, riding up and down the screen with the speed tier.
 - **Seven drifting objects.** Also sprite 0, but with real world positions and
@@ -210,6 +211,21 @@ the other, so the angular velocity stuck at a tiny nonzero value and the heading
 crept *forever*, firing a full star rebuild every few dozen frames. It snaps to
 the target when the step underflows. The same trap applies to every ease in the
 bench, including the ship's screen offset.
+
+**15. Speed does not hide bad rounding.** The motes were first written with only
+the integer rotation tables and no sub-unit registration, on the theory that at
+six pixels a frame the rounding would be invisible under the motion. It was not:
+the sample is quantised to a whole layer unit, so between steps a mote does not
+move at all and then jumps, and summing two separately-floored lookups scatters
+that jump by up to two pixels *per mote*. Specks twitching back and forth — the
+starfield's defect at a different scale.
+
+Register against the sub-unit part of the sample, and **floor once, at the end**.
+The registration stops the freeze-then-jump; the single floor makes each point's
+position a monotone function of the sample, so it cannot step backwards.
+`preview.py` counts reversals on frames where the ship's screen offset is steady
+(while it eases, the camera outruns the ship and the motes reverse for real):
+**68 of 401 without it, 3 of 309 with it**.
 
 **14. The backdrop is appended to the list last, on purpose.** Stars second to
 last, motes last. The GPU walks the PPRAM list in order, so whatever sits at the
