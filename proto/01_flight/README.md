@@ -34,13 +34,42 @@ the geometry, reports the cycle budget, and writes `preview.png`.
   cheap: no occlusion pass, and being few they need none of the starfield's
   rebuild-and-scroll machinery — they are transformed from scratch every frame.
   They do still need its *arithmetic* — see finding 15.
-- **The ship.** Sprite 0 (the GPU's built-in test sprite — placeholder art),
-  always nose-up, riding up and down the screen with the speed tier.
-- **Seven drifting objects.** Also sprite 0, but with real world positions and
-  velocities, so they show what the transform does to something that is actually
-  out there.
+- **The ship.** `assets/png/ship32.png`, 32 × 32 with an overlay plane, run
+  through `tools/sprgen.py --tate` into `ship32.s` and installed into sprite
+  slot 1 at boot. Always nose-up, riding up and down the screen with the speed
+  tier. Slot 0 is deliberately left as the GPU's ROM test sprite, so an id typo
+  draws something recognisable rather than nothing.
+- **200 asteroids** with real world positions, velocities and spins, scattered
+  over the whole torus — three to six on camera at a time. Each is a **closed
+  dotted outline** at one of **five sizes: 192, 128, 64, 32 and 16** full-res
+  pixels across, rotated by (its own spin — the heading) every frame. **Stars
+  go out underneath one**, so a rock reads as a solid body and not as a wire
+  hoop. Nothing collides with anything: you fly straight through them.
 - **A HUD**: speed in px/s, turn rate in milliseconds per revolution, heading,
-  and the number of stars that survived clipping.
+  the number of stars that survived clipping, and `A` — how many rocks were
+  drawn this frame.
+
+### The rocks, and how to change them
+
+Everything about them is a hand-written table at the bottom of `main.s`, meant
+to be edited and looked at:
+
+| table | what it sets |
+|---|---|
+| `SHP192` … `SHP16` | the outlines themselves — signed byte `x,y` pairs in **half-res** pixels, origin-centred, wound in order. The 192 rock has radius 48 here, not 96. |
+| `SHAPE_N` / `SHAPE_R` | vertices and bounding radius per size (12, 10, 8, 6, 5 / 48, 32, 16, 8, 4) |
+| `SHAPE_OCC` | the radius the **stars go out under**, per size (39, 26, 13, 7, 3). Not the bounding radius — see finding 22 |
+| `SHAPE_PICK` | the size mix — eight tickets over the five classes |
+| `AST_VEL` | four drift vectors per size, **hardcoded**, picked by `index & 3`. 8 px/s for the 192s up to 50 px/s for the 16s |
+| `AST_SPIN` | one spin rate per size, 8.8 brad/frame: 45 s a revolution for the 192, 2.8 s for the 16 |
+| `AST_PHASE` | eight starting angles, so they do not all turn in step |
+
+Nothing here is random except *where* a rock is and *which size* it is. The
+velocities and spins are authored, so the field is identical every run and
+anything odd in it can be reproduced by flying the same way twice.
+
+The only hard rule on a vertex is `|x|, |y| ≤ 127`: the multiply indexes its
+table with `|x| + |cos|` and that has to stay inside a byte.
 
 ## Controls (joystick 1)
 
@@ -187,14 +216,30 @@ strafe. Rotation has no parallax, and the camera's swing is part of turning, so
 the offset is pre-multiplied to cancel it. `preview.py` runs the star transform on
 the **ship's own layer position** and checks it lands on the ship's sprite: **2 px**.
 
-**11. 250 objects, and what they cost.** Seven reference objects meant flying away
-once and never finding them again, so there are now 250, scattered over the whole
-torus — about 1.8 on screen at any moment, since the world is ~140 screens. That
-measured something worth knowing: **~290 cycles per object per frame** for
-integrate + cull, ten times the design's original estimate, because the position
-is 16.8 and the velocity 8.8 so one axis is a 24-bit add. A high-byte reject
-before the precise cull saves about 7%. The whole bench now runs at **70% of one
-CPU** in its worst frame.
+**11. A field of objects, and what one costs whether or not you can see it.**
+Seven reference objects meant flying away once and never finding them again, so
+the bench went to 250 scattered over the whole torus. That measured something
+worth knowing: **~290 cycles per object per frame** for integrate + cull, ten
+times the design's original estimate, because the position is 16.8 and the
+velocity 8.8 so one axis is a 24-bit add.
+
+The number that matters is that this cost was paid by **every** object, on every
+frame, and a 140-screen world means 99% of them are nowhere near the camera. It
+was the single largest item in the frame — larger than the outlines, larger
+than the starfield.
+
+The fix is an ordering, not an algorithm: **reject first, move second**. The
+high-byte reject against the ship now runs before the rock has been integrated
+at all, so a distant rock costs ~40 cycles instead of ~160 and simply does not
+move. Nothing in the machine can observe that: there are no off-camera
+collisions on a torus, and its outline is not being drawn. It starts moving
+again the moment you fly near it. `do_objects` went from **32,000 cycles to
+12,300** on the same frame.
+
+Reading the position one frame stale is what makes the order safe: a rock covers
+at most ~13 world units a frame, and the gap between the coarse window
+(`CULL_HI` × 256) and the precise cull (`CULL_R`) is 128 units, so nothing can
+cross both tests inside one frame.
 
 **12. Stars wandering sideways after a speed change were the camera moving.**
 The camera point sits ahead of the ship by the ship's screen offset, and that
@@ -268,6 +313,181 @@ resolution and rounded once at the end. On a straight leg with constant
 velocities every object's path is a straight line, so any reversal is pure
 quantisation noise: **463 pixel steps, 5 reversals**.
 
+**20. The rotation tables take a 16-bit operand, and nobody had noticed.**
+This is the largest single win in the file and it needed no new data at all.
+
+`BUILD_ROT` fills `ROT[i] = signed(i)*coef/128` in 8.8, exactly, for a **byte**
+index — which is why the starfield gets its multiply-free transform and why the
+object centres appeared not to qualify: a world delta is 16-bit. But the table
+is *linear*, so it splits:
+
+```
+delta = hi*256 + lo   ->   delta*coef/128 = 256*ROT[hi] + ROT[lo]
+```
+
+and `256 * ROT[hi]` needs no shifting whatever — multiplying an 8.8 value by 256
+moves its fraction byte into the integer, so **the two table bytes already are
+the 16-bit result**, fraction byte low. The one care needed is that the table
+reads its index as signed while `lo` is unsigned: for `lo >= 128` the missing
+256 is borrowed from the high index (`hi+1`), which cannot overflow because the
+delta has already passed `in_range`.
+
+**~65 cycles against `smul_core`'s ~300**, and *more* accurate — nothing is
+truncated on the way through, and the low entry's fraction byte rounds the
+result. `view_xform` went from four shift-and-add multiplies to four table pairs
+and some adds; `smul_core` fell from 16,800 cycles a frame to 2,700 (what is
+left is the ship's velocity and the star rebase).
+
+The tables moved to `do_camera` at the same time, and had to: they were built
+inside `star_rebase`, which runs *after* `do_objects`, so on a turning frame the
+objects would have transformed against last frame's heading and lagged the
+camera by a frame. Three things read them now — the starfield, the object
+centres, and the radar when it arrives — so they belong to the camera. They are
+still built only on frames where the heading actually moved; at ~15k cycles for
+the pair that is not something to do speculatively.
+
+**16. The quarter-square multiply is worth 4×, and it is worth stripping the
+signs out of it too.** Rotating an outline is 4 multiplies a vertex, and the
+bench's general `smul_core` — shift-and-add over seven bits — costs ~270 cycles.
+`design_technical.md` 4.5 called for a quarter-square table instead:
+`f(x) = x*x/4`, `a*b = f(a+b) - f(a-b)`, exact because `a+b` and `a-b` always
+have the same parity so the two floors cancel. Built at boot as a running sum
+(`f(x+1) - f(x) = floor((x+1)/2)`), so the whole page costs one add an entry.
+
+Two things the design note did not say, both measured here:
+
+- **One 256-entry table is enough, not 511.** Only *magnitudes* go in, and both
+  are — 127, so `a+b` never leaves a byte. Half the RAM the design budgeted.
+- **The sign handling was half the cost.** The first version took signed
+  operands and stripped them inside: ~130 cycles. Splitting the trig into
+  magnitude + sign once per rock, and the vertex once per vertex, and putting
+  the sign back with a `cpy` on the two flags, gets the multiply itself to
+  **~60 cycles**. The second copy of the table, holding `f(x) + 64`, does the
+  `>>7`'s rounding for free by being the minuend.
+
+Per transformed vertex: **~530 cycles**, against the design's estimate of
+250-300. Four multiplies is 240 of it; the rest is the two magnitude splits, the
+two sums, and a 16-bit add per axis to place the point.
+
+**17. Clipping an outline: never clamp, and rarely clip.** `DOT_LINES` takes
+byte coordinates, and the GPU does **not** validate them — an out-of-range
+vertex is an address computed from the formula and written to, and past fb row
+326 that address is the video register block. Clamping is not an option either:
+a clamped corner sticks to the screen edge and *bends* every segment touching
+it, so a 192-px rock half off the top comes apart into a fan.
+
+So: a rock wholly on screen is one `DOT_LINES` chain, byte coordinates, interior
+vertices shared. A rock crossing an edge is classified per segment with
+Cohen-Sutherland **outcodes**, and only the segments that actually cross an edge
+go to `gpu_dotline_clip`. That matters because the OS's clip builder measures at
+**~3,000 cycles a call** — it is a real clip with a divide per crossing — while
+a plain `gpu_dotline` for a segment with both ends on screen is a couple of
+hundred, and a segment with both ends beyond the *same* edge is free. On a rock
+that is only half off screen most segments are in the first two categories.
+
+**18. Where the frame actually goes.** Profiled per routine on the same frame
+(two rocks on camera, 200 in the world), before and after findings 20, 11 and
+21 (`prof` harness, cycles):
+
+| | before | after |
+|---|---:|---:|
+| `do_objects` — every object, integrate + cull | 32,000 | **12,300** |
+| `smul_core` — the object-centre rotations | 16,800 | **2,700** |
+| the outlines: rotate, classify, emit | 20,000 | **12,900** |
+| `do_stars` + its `DOT_PIXELS` | 15,100 | 15,100 |
+| the HUD (`gpu_vtext` × 7) | 9,900 | 9,900 |
+| motes | 3,300 | 3,300 |
+| **frame total** | **106,700** | **66,500** |
+
+The lesson is the one in finding 11: what cost was the **objects you cannot
+see**, not the ones you can.
+
+Where it lands: **median 80,800 cycles (34% of budget), worst frame 165,000
+(70%)** with the star occlusion of finding 22 in. PPRAM is a non-issue at 281 bytes of 2047, 14%.
+
+One number in that budget is set by the *biggest* rock, not the average one. The
+coarse cull has to pass anything whose rotation could still reach the screen,
+and for a 192-px rock that is screen-half-height 200 + the ship's 120 px of
+speed offset + a 96 px radius = 416 px on one axis and 246 on the other — so the
+world-space vector to admit is up to **488 px**, not the 400 the bench used
+while everything was a dot. At 400 the big rocks popped in and out at the screen
+edges, which is exactly the size this pass exists to look at.
+
+The two remaining big items are both worth knowing about. `do_stars` at 15,100
+is the price of a rigid, rebuild-free starfield and is not going down. The HUD
+at 9,900 for seven `VTEXT` lines is a bench luxury — the real game puts it on
+the background layer, where it is free (finding D5 in `open_questions.md`).
+
+**21. The visible list wants to be packed, and the reason is the zoom.** The
+per-object screen position and its visibility flag used to be five whole pages
+indexed by object id — 1,280 bytes to carry a dozen live entries, and a scan of
+two hundred flags to find them. Packed into a 64-entry list it is 320 bytes and
+the draw loop walks the dozen.
+
+The saving is real but small. The reason to do it now is that a **packed list
+can be sorted and a sparse flag array cannot**. Pulling the camera back at speed
+multiplies the number of rocks in view; `AST_MAX` stops being a theoretical
+ceiling and starts to bite; and when it does, what must be dropped is the
+furthest rock, not whichever one happens to have the highest object id.
+
+**22. A hollow rock needs a solid shadow, and the shape of it matters.** A
+dot-line outline has no interior, so the starfield shines straight through a
+rock and it reads as a wire hoop. Stars are therefore suppressed where a rock
+covers them — dropped before they reach the `DOT_PIXELS` buffer, so it costs
+nothing downstream and saves PPRAM.
+
+**A disc, not a box.** A quarter of a bounding box is corner, measured, and a
+star blinking out in open space beside a rock is a more obvious error than one
+shining through it. Each occluder therefore carries both: a clamped box, which
+is four byte compares and rejects nearly every star, and a centre plus r² for
+the round test on whatever is left. The square is free — `f(x) = x*x/4` is the
+quarter-square table already built for the rotation, and `x*x = f(2x)`.
+
+**And not the bounding radius either.** An irregular outline's vertices sit
+between about 0.66 and 1.0 of the bound, so the radius trades two errors:
+*leak* (a star inside the outline that survives) against *halo* (a star
+suppressed in open space beside it). `preview.py` rasterises the actual emitted
+polygon and measures both:
+
+| radius | leak | halo |
+|---|---:|---:|
+| bounding (1.00 R) | 0% | ~35% |
+| **mean vertex (0.82 R)** | **6%** | **10%** |
+
+`SHAPE_OCC` holds the mean vertex radius per shape and is meant to be tuned by
+eye; the harness re-measures both errors every run. It is also the number the
+**collision radius** should be, so that what looks solid and what actually hits
+you are the same circle (`design_technical.md` 5.4).
+
+**Only the centre's low byte is stored**, which is what lets a rock hanging off
+the screen edge suppress stars at all — its true centre does not fit in a byte.
+It works because the round test only ever runs on a star already inside the
+clamped box, so the offset is within ±R and R is at most 48; a difference that
+small comes back correctly from a byte subtract wherever the centre really is.
+The old box list gave up on off-screen centres entirely.
+
+**Cost: ~3,000 cycles median, ~6,000 worst** (1.3% and 2.5% of budget), at ~40
+emitted stars and up to 13 occluders. The starfield had to move after the rocks
+in the frame for this — `do_stars` now runs after `emit_asteroids`, which is
+where the discs are registered. The command list order is unchanged, because
+`do_stars` only fills a buffer; `emit_stars` still goes last.
+
+**19. Five LOAD pages on one frame is 98% of budget, and there is no reason for
+it.** Installing the ship means a `LOAD` of the 256-byte bitmap plus the four
+sprite-definition pages — and `LOAD` is the only way CPU1 can write GPU RAM, so
+setting two table entries costs four whole pages. Together that is 1,290 bytes
+of the command list and ~50,000 cycles of copying. Spread one page per frame it
+is 5% a frame and the ship appears on frame 5 (83 ms). It still has to go
+*first* in whichever frame it lands on: a definition page dropped for want of
+PPRAM would leave the slot empty for the rest of the session.
+
+The check that caught the bug in this is worth keeping in mind. The first
+version of "the ship is on screen" counted lit pixels in the sprite box — and
+passed happily while the bitmap `LOAD` was going to the **wrong page** and the
+blitter was reading the object table, which is also lit. `preview.py` now
+compares GPU RAM against `ship32.s` byte for byte, and the pixels on screen
+against the asset's two planes.
+
 ---
 
 ## Two things it deliberately gets "wrong"
@@ -279,12 +499,12 @@ can show is the smoothness of the world's rotation — so the bench runs at full
 steps (11.25° a click) would have been visibly steppy. If it would not be, 32 is
 free; if it would, the design should say 256 and stop pretending.
 
-**Star occlusion is done the naive way.** Every star is tested against every
-sprite box, because sprite 0 has no overlay plane and stars otherwise shine
-straight through the ship. Real asteroids will need this for a better reason —
-a dot-line outline is *hollow* — and at 20 rocks the naive cost becomes stars ×
-rocks. The coarse disc mask in `design_technical.md` 5.4 is the intended
-replacement; this version exists to give it a number to beat.
+**Star occlusion is the naive test, on purpose.** Every emitted star is tested
+against every occluder, which is the cost `design_technical.md` 5.4 wants a
+number for before anyone builds the coarse mask that replaces it. The number is
+~3,000 cycles on a median frame — see finding 22 — so the mask is not needed
+at this scene size and the naive version stays until zoom-out and fragments
+multiply the rocks on camera.
 
 ---
 
@@ -293,7 +513,8 @@ replacement; this version exists to give it a number to beat.
 ```
 header.s      "MAD65" signature + the two vectors, pointing at the bootstrap
 bootstrap.s   Model B: copies CODE+RODATA out of the window into RAM at $2000
-main.s        the bench itself — camera, ship, objects, starfield, HUD
+main.s        the bench itself — camera, ship, rocks, starfield, HUD
+ship32.s      GENERATED by tools/sprgen.py from assets/png/ship32.png (--tate)
 mad65.inc     the OS entry points and RAM locations this cart uses
 cart.cfg      ld65 config: one 8 KB bank, load in ROM / run in RAM
 preview.py    headless end-to-end check, cycle budget, and preview.png

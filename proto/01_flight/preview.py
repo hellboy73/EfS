@@ -82,10 +82,17 @@ def decode(stream):
         if op == 0x20:                          # CLEAR_BG
             out.append((op, b""))
             i += 1
-        elif op == 0x47:                        # DOT_PIXELS: N, then N pairs
-            n = stream[i + 1]
-            out.append((op, stream[i + 1:i + 2 + 2 * n]))
-            i += 2 + 2 * n
+        elif op in (0x45, 0x47):                # DOT_LINES / DOT_PIXELS:
+            n = stream[i + 1]                   #   N, then N (+1 for a chain)
+            k = n + 1 if op == 0x45 else n      #   coordinate pairs
+            out.append((op, stream[i + 1:i + 2 + 2 * k]))
+            i += 2 + 2 * k
+        elif op == 0x44:                        # DOT_LINE: X1,Y1,X2,Y2
+            out.append((op, stream[i + 1:i + 5]))
+            i += 5
+        elif op == 0x30:                        # LOAD: page, then a whole page
+            out.append((op, stream[i + 1:i + 2]))
+            i += 258
         elif op == 0x50:                        # SPRITE: id, X16, Y16
             out.append((op, stream[i + 1:i + 6]))
             i += 6
@@ -123,10 +130,17 @@ def motes_of(stream):
 # checks below stop meaning anything, so they are asserted where possible.
 HCX, HCY = 100, 74              # half-res framebuffer centre
 FBCX, FBCY = 200, 149           # full-res framebuffer centre
-SPR_W2, SPR_H2 = 8, 7           # sprite 0 half-extent, half-res
+SPR_W2, SPR_H2 = 8, 8           # the ship's half-extent, half-res
+SPR_SHIP = 1                    # the slot the cart installs the ship into
+SHIP_W, SHIP_H = 32, 32         # ...and the art's size, full-res
 STAR_N = 88
 MOTE_N = 10
-NOBJ = 250
+NOBJ = 200
+VIS_MAX = 64                    # the packed visible list, mirrored from main.s
+VISIDX, VSXL, VSXH = 0x1A00, 0x1A40, 0x1A80
+VSYL, VSYH = 0x1AC0, 0x1B00
+SHAPE_R = (48, 32, 16, 8, 4)    # asteroid radii by size class, half-res
+SHAPE_N = (12, 10, 8, 6, 5)     # and the vertex count of each outline
 
 
 def ship_fbx(shoffh):
@@ -223,6 +237,8 @@ trace = []
 rot = []                        # ROTC_I / ROTS_I + the sample, for the pivot check
 objs = []                       # object screen positions by index, for the swim test
 occ = []                        # the cart's own occluder boxes, straight from RAM
+nrocks = []                     # ADRAWN, the rocks the cart emitted per frame
+visn = []                       # VISN, entries in the packed visible list
 motepos = []                    # per-mote screen position by index, from RAM
 bases = []                      # BASEX/BASEY straight out of RAM, so stars keep
                                 #   their identity across a turn and the rebase
@@ -258,12 +274,15 @@ for f in range(FRAMES):
     # nearest neighbour worked with seven objects and stops working with 250:
     # one leaving the screen gets paired with another arriving, and the pairing
     # invents reversals that never happened.
+    # The packed visible list: VISN entries of VISIDX / VSX16 / VSY16. It used
+    # to be five pages of flags and positions indexed by object id.
     vis = {}
-    for i in range(NOBJ):
-        if cpu_mem[0x1E00 + i]:
-            vis[i] = (s16(cpu_mem[0x1A00 + i], cpu_mem[0x1B00 + i]),
-                      s16(cpu_mem[0x1C00 + i], cpu_mem[0x1D00 + i]))
+    for k in range(cpu_mem[0x62CF]):
+        vis[cpu_mem[VISIDX + k]] = (
+            s16(cpu_mem[VSXL + k], cpu_mem[VSXH + k]),
+            s16(cpu_mem[VSYL + k], cpu_mem[VSYH + k]))
     objs.append(vis)
+    visn.append(cpu_mem[0x62CF])
     mvis = {}
     for i in range(MOTE_N):
         if cpu_mem[0x0DE0 + i]:
@@ -272,9 +291,16 @@ for f in range(FRAMES):
     # The occluder boxes exactly as the cart built them. Rebuilding them from
     # the emitted SPRITE commands nearly works and disagrees on about one star
     # in four thousand, which is enough to make a strict rigidity check useless.
+    # Occluders, exactly as the cart built them: the clamped box for the cheap
+    # reject, then the disc inside it. The ship's entry has r2 = $FFFF, which
+    # makes it a plain box.
     nb = cpu_mem[0xA1]
     occ.append([(cpu_mem[0x0A00 + k], cpu_mem[0x0A20 + k],
-                 cpu_mem[0x0A40 + k], cpu_mem[0x0A60 + k]) for k in range(nb)])
+                 cpu_mem[0x0A40 + k], cpu_mem[0x0A60 + k],
+                 cpu_mem[0x0A80 + k], cpu_mem[0x0AA0 + k],
+                 cpu_mem[0x0AC0 + k] | (cpu_mem[0x0AE0 + k] << 8))
+                for k in range(nb)])
+    nrocks.append(cpu_mem[0xFE])                # ADRAWN: rocks emitted
 
 
 print("\nframe  head tier  ship X     ship Y     vel (8.8)        stars occl")
@@ -317,6 +343,9 @@ print(f"\nCPU1 budget, {BUDGET} cycles per frame:")
 print(f"  instruction cycles        median {med_raw:6d}  worst {max(raw):6d}")
 print(f"  + cartridge wait states   median {med_hw:6d}  worst {max(hw):6d}"
       f"  = {100*max(hw)/BUDGET:5.1f}%")
+worst5 = sorted(range(len(hw)), key=lambda i: -hw[i])[:5]
+print("  worst five frames:      " + "  ".join(
+    f"f{i} {hw[i]}" for i in worst5))
 print(f"  {med_reads} cartridge reads a frame. Model B is working when this is a")
 print("  handful (the boot_frame trampoline); it was ~35,000 running in place,")
 print("  which cost 2.5x and put the same frame at 77% of budget.")
@@ -339,7 +368,9 @@ gpu_mem.subscribe_to_read(range(0xC000, 0x10000),
 
 # The harness jumps straight into the dispatch loop, so GPU boot never runs and
 # the sprite definition table is empty. Install sprite 0 exactly as boot_main
-# does: type $14 (32 px wide, no overlay), data at $F400, 26 rows.
+# does: type $14 (32 px wide, no overlay), data at $F400, 26 rows. The cart then
+# LOADs its own four definition pages over this on its first frame, which is
+# precisely what the ship-sprite check below is testing.
 gpu_mem[0x0300] = 0x14
 gpu_mem[0x0400] = 0x00
 gpu_mem[0x0500] = 0xF4
@@ -437,7 +468,8 @@ if dots is not None:
             y = pl[3] | (pl[4] << 8)
             x = x - 65536 if x & 0x8000 else x
             y = y - 65536 if y & 0x8000 else y
-            sprite_rects.append((x >> 1, (x + 31) >> 1, y >> 1, (y + 25) >> 1))
+            sprite_rects.append((x >> 1, (x + SHIP_W - 1) >> 1,
+                                 y >> 1, (y + SHIP_H - 1) >> 1))
     missing = [(x, y) for x, y in dots
                if not pix(2 * x, 2 * y) and x not in hud_rows
                and not any(x0 <= x <= x1 and y0 <= y <= y1
@@ -454,13 +486,68 @@ if dots is not None:
           len({x >> 5 for x, _ in dots}) >= 4 and
           len({y >> 5 for _, y in dots}) >= 3)
 
+# --- the ship is the cart's own art now, not the ROM test sprite -------------
+# It arrives as five LOAD pages on the first frame: the 256-byte bitmap into GPU
+# page $10, then the four definition pages over $0300-$0600. Those pages are the
+# ONLY way CPU1 can write GPU RAM, so if any of them were dropped for want of
+# PPRAM the slot would stay empty for the whole session - which is why they go
+# first in the frame and why this checks the GPU's table after the fact.
+loads = [pl[0] for f in frames for op, pl in decode(f) if op == 0x30]
+check("the sprite arrives as five LOAD pages, one per frame",
+      loads == [0x10, 0x03, 0x04, 0x05, 0x06]
+      and all(sum(1 for op, _ in decode(f) if op == 0x30) <= 1 for f in frames),
+      f"LOAD pages {loads}")
+check("no frame is anywhere near the 2047-byte command list",
+      max(len(f) for f in frames) <= 900,
+      f"largest frame {max(len(f) for f in frames)} bytes")
+shipdef = (gpu_mem[0x0300 + SPR_SHIP], gpu_mem[0x0400 + SPR_SHIP],
+           gpu_mem[0x0500 + SPR_SHIP], gpu_mem[0x0600 + SPR_SHIP])
+# The art itself, straight out of ship32.s, so this compares the picture on
+# screen against the asset rather than against "some pixels are lit". The first
+# version of this check only counted lit pixels in the box and passed happily
+# while the LOAD of the bitmap was going to the WRONG PAGE and the blitter was
+# reading whatever was at GPU $1000 - which, being the object table, is lit.
+ART = []
+for line in open("ship32.s"):
+    if line.strip().startswith(".byte"):
+        ART += [int(v.strip().lstrip("$"), 16)
+                for v in line.split(".byte", 1)[1].split(",")]
+check("the ship art reached GPU RAM at $1000, byte for byte",
+      [gpu_mem[0x1000 + i] for i in range(len(ART))] == ART,
+      f"{sum(1 for i, b in enumerate(ART) if gpu_mem[0x1000+i] != b)} of "
+      f"{len(ART)} bytes differ")
+check("the GPU's sprite table describes a 32x32 overlay sprite at $1000",
+      shipdef == (0x04, 0x00, 0x10, 32),
+      f"type ${shipdef[0]:02X} ptr ${shipdef[2]:02X}{shipdef[1]:02X} "
+      f"height {shipdef[3]}")
+check("slot 0 was left as the ROM test sprite",
+      (gpu_mem[0x0300], gpu_mem[0x0500], gpu_mem[0x0600]) == (0x14, 0xF4, 26))
+ids = {pl[0] for op, pl in decode(frames[-1]) if op == 0x50}
+check("the ship is drawn from its own slot, and it is the only sprite left",
+      ids == {SPR_SHIP}, f"sprite ids in the list: {sorted(ids)}")
+
 # The ship rides down the screen with the speed tier now, so "is it at the
 # centre" is no longer the question - "is it where the offset says" is.
-sx = ship_fbx(trace[-1]["SHOFFH"]) - 16
-ship = sum(pix(sx + dx, FBCY - 13 + dy)
-           for dx in range(32) for dy in range(26))
-check("the ship sprite is drawn where the speed offset puts it", ship > 50,
-      f"{ship} pixels lit in the 32x26 box at ({sx},{FBCY-13})")
+sx = ship_fbx(trace[-1]["SHOFFH"]) - SHIP_W // 2
+sy = FBCY - SHIP_H // 2
+# ...and the pixels in that box must be the SILHOUETTE, not just "some pixels".
+# screen = (screen OR bitmap) AND NOT overlay, so every bitmap bit must be lit
+# and every overlay bit must be dark, wherever the two do not collide.
+W = SHIP_W // 8
+wrong = 0
+for row in range(SHIP_H):
+    for byte in range(W):
+        bm = ART[row * 2 * W + byte]
+        ov = ART[row * 2 * W + W + byte]
+        for bit in range(8):
+            m = 0x80 >> bit
+            got = pix(sx + byte * 8 + bit, sy + row)
+            if bm & m and not ov & m:
+                wrong += got != 1
+            elif ov & m:
+                wrong += got != 0
+check("the ship on screen is the ship in the asset", wrong == 0,
+      f"{wrong} of {SHIP_W*SHIP_H} pixels disagree with ship32.s at ({sx},{sy})")
 
 # ...and it must actually have moved off centre, and eased rather than snapped.
 offs = [t["SHOFFH"] - 256 if t["SHOFFH"] > 127 else t["SHOFFH"] for t in trace]
@@ -551,8 +638,22 @@ def sb(v):
     return v - 256 if v > 127 else v
 
 
-def covered(boxes, x, y):
-    return any(x0 <= x <= x1 and y0 <= y <= y1 for x0, x1, y0, y1 in boxes)
+def covered(occs, x, y):
+    """The cart's own suppression test: inside the box AND inside the disc.
+
+    The centre is stored as a low byte only, which is exact for any point that
+    reaches the disc test because such a point is inside the box and therefore
+    within +/-R of the centre - so the byte difference, read as signed, is the
+    true one. This mirrors that.
+    """
+    for x0, x1, y0, y1, cx, cy, r2 in occs:
+        if not (x0 <= x <= x1 and y0 <= y <= y1):
+            continue
+        dx = sb((x - cx) & 0xFF)
+        dy = sb((y - cy) & 0xFF)
+        if dx * dx + dy * dy <= r2:
+            return True
+    return False
 
 
 print(f"        heading changes after the turn stopped: {drift}")
@@ -748,6 +849,178 @@ check("objects do not swim while flying straight",
       reversals <= steps // 20,
       f"{reversals}/{steps} steps reversed direction - the transform is "
       f"quantising position before the rotation instead of after")
+
+# =============================================================================
+# The asteroids
+# =============================================================================
+# Everything here is a safety property first and an aesthetic one second. The GPU
+# does not validate coordinates: a DOT_LINES vertex outside 0-199 / 0-149 is not
+# clipped, it is an address computed from the formula and written to - and past
+# fb row 326 that address is the video register block. So "every chain is inside
+# the field" is not a tidiness check, it is the check.
+def chains(stream):
+    '''Closed outlines emitted as DOT_LINES, as point lists.'''
+    out = []
+    for op, pl in decode(stream):
+        if op == 0x45:
+            n = pl[0]
+            out.append([(pl[1 + 2 * k], pl[2 + 2 * k]) for k in range(n + 1)])
+    return out
+
+
+def clipped(stream):
+    '''Segments emitted one at a time by gpu_dotline_clip.'''
+    return [tuple(pl) for op, pl in decode(stream) if op == 0x44]
+
+
+all_chains = [c for f in frames for c in chains(f)]
+all_clip = [seg for f in frames for seg in clipped(f)]
+print(f"\n        {sum(nrocks)} rocks drawn over {FRAMES} frames "
+      f"(max {max(nrocks)} in one, cap is 12); "
+      f"{len(all_chains)} whole outlines, {len(all_clip)} clipped segments")
+# --- the rocks are solid, and the disc is the right shape for that -----------
+# A dotted outline is hollow, so without suppression a rock reads as a wire hoop
+# with the field shining straight through it. Two separate things to check.
+#
+# FIRST, that the cart's own arithmetic agrees with the model: no emitted star
+# may be inside any occluder the cart built. This is what catches the low-byte
+# centre trick going wrong for a rock whose centre is off screen.
+inside = suppressed = 0
+for f in range(FRAMES):
+    d = stars_of(frames[f])
+    if d is None:
+        continue
+    inside += sum(1 for x, y in d if covered(occ[f], x, y))
+    for x0, x1, y0, y1, cx, cy, r2 in occ[f]:
+        if r2 == 0xFFFF:
+            continue
+        suppressed += sum(1 for x in range(x0, x1 + 1)
+                          for y in range(y0, y1 + 1)
+                          if sb((x - cx) & 0xFF) ** 2 + sb((y - cy) & 0xFF) ** 2
+                          <= r2)
+print(f"        rock discs covered {suppressed} half-res cells over {FRAMES} "
+      f"frames; {inside} stars survived inside an occluder")
+check("no star survives inside an occluder", inside == 0,
+      f"{inside} stars came through - the cart's disc test disagrees with the "
+      f"list it built")
+check("the rock discs are actually covering ground", suppressed > 20000,
+      f"only {suppressed} cells - the discs are not where the rocks are")
+
+
+# SECOND, and this is the real question: how well does a circle stand in for the
+# rock? The emitted DOT_LINES chain IS the rock's silhouette, so rasterise it and
+# compare. Two errors, and they trade against each other through SHAPE_OCC:
+#   LEAK  - inside the outline, not suppressed: a star shining through the rock
+#   HALO  - suppressed, outside the outline: a star missing from open space
+# A bounding radius drives leak to zero and makes the halo enormous (a quarter
+# of a bounding BOX is corner); the smallest vertex radius does the reverse.
+def poly_hit(poly, x, y):
+    n = len(poly)
+    hit = False
+    for i in range(n):
+        x0, y0 = poly[i]
+        x1, y1 = poly[(i + 1) % n]
+        if (y0 > y) != (y1 > y) and \
+                x < x0 + (y - y0) * (x1 - x0) / (y1 - y0):
+            hit = not hit
+    return hit
+
+
+area = leak = halo = 0
+for f in range(FRAMES):
+    rocks = [o for o in occ[f] if o[6] != 0xFFFF]
+    for c in chains(frames[f]):
+        poly = c[:-1]
+        xs = [q[0] for q in poly]
+        ys = [q[1] for q in poly]
+        # match the chain to its occluder by centroid - the disc list is built
+        # in the same pass and the same order, but centroid is unambiguous here
+        ccx, ccy = sum(xs) / len(xs), sum(ys) / len(ys)
+        best = min(rocks, key=lambda o: (o[4] - ccx) ** 2 + (o[5] - ccy) ** 2,
+                   default=None)
+        if best is None:
+            continue
+        _, _, _, _, cx, cy, r2 = best
+        if (cx - ccx) ** 2 + (cy - ccy) ** 2 > 25:
+            continue                            # not this rock's disc
+        for x in range(min(xs), max(xs) + 1):
+            for y in range(min(ys), max(ys) + 1):
+                pin = poly_hit(poly, x, y)
+                din = sb((x - cx) & 0xFF) ** 2 + sb((y - cy) & 0xFF) ** 2 <= r2
+                area += pin
+                leak += pin and not din
+                halo += din and not pin
+print(f"        disc vs outline over {FRAMES} frames: {area} cells of rock, "
+      f"{leak} leak ({100*leak/max(1,area):.0f}%), "
+      f"{halo} halo ({100*halo/max(1,area):.0f}%)")
+check("the suppression disc is a fair stand-in for the outline",
+      area > 5000 and leak < area // 4 and halo < area // 4,
+      f"leak {leak} / halo {halo} of {area} - retune SHAPE_OCC in main.s")
+
+print(f"        visible list: {max(visn)} entries at its fullest, of "
+      f"{VIS_MAX}")
+check("the visible list never overflowed", max(visn) < VIS_MAX,
+      f"{max(visn)} of {VIS_MAX} - objects past the end are silently not drawn")
+check("asteroids are being drawn at all", len(all_chains) > 20,
+      f"{len(all_chains)} DOT_LINES chains in {FRAMES} frames")
+check("the clipped path is exercised too", len(all_clip) > 0,
+      "no rock ever straddled a screen edge, so that path is untested")
+
+bad = [c[0] for c in all_chains
+       if not all(0 <= x < 200 and 0 <= y < 150 for x, y in c)]
+check("every DOT_LINES vertex is inside the half-res field", not bad,
+      f"{len(bad)} chains out of range, first at {bad[:1]}")
+badclip = [g for g in all_clip
+           if not all(0 <= v < (200 if i % 2 == 0 else 150)
+                      for i, v in enumerate(g))]
+check("every clipped segment came back inside the field too", not badclip,
+      f"{len(badclip)} bad, first {badclip[:1]}")
+check("every outline is closed", all(c[0] == c[-1] for c in all_chains))
+sizes = sorted({len(c) - 1 for c in all_chains})
+check("every chain has one of the five authored vertex counts",
+      set(sizes) <= set(SHAPE_N), f"segment counts seen: {sizes}")
+print(f"        outline sizes on screen: "
+      f"{ {n: sum(1 for c in all_chains if len(c) - 1 == n) for n in sizes} }")
+
+# The span of a drawn outline must match the size class it claims to be: this is
+# what catches a rotation that has quietly lost or gained a factor.
+spans = {}
+for c in all_chains:
+    xs = [x for x, _ in c[:-1]]
+    ys = [y for _, y in c[:-1]]
+    spans.setdefault(len(c) - 1, []).append(max(max(xs) - min(xs),
+                                                max(ys) - min(ys)))
+ok = True
+for n, sp in spans.items():
+    R = SHAPE_R[SHAPE_N.index(n)]
+    lo, hi = min(sp), max(sp)
+    print(f"        {n:2d}-gon: span {lo}-{hi} half-res px, "
+          f"authored radius {R} (so 2R = {2*R})")
+    if not (R <= hi <= 2 * R + 2):
+        ok = False
+check("each outline spans about twice its authored radius, in every rotation",
+      ok, "a span that drifts with the angle means the rotation is not one")
+
+# ...and they must actually TURN. A rock's outline changes shape on screen from
+# frame to frame for two reasons at once - its own spin and the camera's - so a
+# chain that is byte-identical for a long run is a transform that never ran.
+sig = [tuple(sorted(chains(f)[0])) if chains(f) else None for f in frames]
+run = best = 0
+for a, b in zip(sig, sig[1:]):
+    run = run + 1 if (a is not None and a == b) else 0
+    best = max(best, run)
+check("the outlines rotate rather than sitting still", best < 8,
+      f"the first chain repeated identically for {best} frames")
+
+# The picture has to contain them, not just the command list.
+lit = 0
+for c in chains(frames[-1]):
+    for x, y in c[:-1]:
+        lit += any(pix(2 * x + dx, 2 * y + dy)
+                   for dx in (-2, 0, 2) for dy in (-2, 0, 2))
+total = sum(len(c) - 1 for c in chains(frames[-1]))
+check("the outlines reached the framebuffer", total == 0 or lit >= total * 3 // 4,
+      f"{lit} of {total} vertices have a dot within a pixel or two")
 
 # The starfield must MOVE.
 first_dots = stars_of(frames[0])

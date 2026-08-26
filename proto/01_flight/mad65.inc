@@ -6,9 +6,16 @@
 ; =============================================================================
 
 ; --- OS jump table ($FF00, ABI v1) -------------------------------------------
+API_GPU_DOTLINE     = $FF1B     ; OS_ARG+0..3 = X1,Y1,X2,Y2, half-res bytes
+API_GPU_DOTLINES    = $FF1E     ; OS_ARG+0..1 = ptr -> { N, x0,y0, ... }  half-res
+                                ;        a chain of N connected dotted segments
 API_GPU_DOTPIXELS   = $FF24     ; OS_ARG+0..1 = ptr -> { N, x0,y0, ... }  half-res
 API_GPU_SPRITE      = $FF2A     ; OS_ARG+0 = SPR_ID, +1..2 = X16, +3..4 = Y16
+API_GPU_LOAD        = $FF39     ; OS_ARG+0 = GPU page MSB, +1..2 = ptr -> 256 bytes
 API_GPU_CLEARBG     = $FF3C     ; (no args) clear the VRAM background
+API_GPU_DOTLINE_CLIP= $FF93     ; OS_ARG+0..7 = X1,Y1,X2,Y2, signed 16 half-res.
+                                ;        Cohen-Sutherland: emits nothing when the
+                                ;        segment misses the screen entirely
 API_RNG             = $FF78     ; next pseudo-random byte -> A
 API_SIN             = $FF7B     ; sin(A brad) -> A, signed Q0.7 (-127..127)
 API_COS             = $FF7E     ; cos(A brad) -> A, signed Q0.7

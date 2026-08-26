@@ -2,9 +2,9 @@
 ; EfS proto 01 — flight model bench
 ; =============================================================================
 ; PURPOSE: measure what is playable, nothing else. There is no gameplay here,
-; no collision, no zoom and no asteroid — just the camera, the speed tiers and
-; the starfield, so we can look at the screen and decide what the ship should
-; feel like. Every number this thing shows is meant to be argued with.
+; no collision and no zoom — just the camera, the speed tiers, the starfield and
+; the rocks, so we can look at the screen and decide what the ship should feel
+; like. Every number this thing shows is meant to be argued with.
 ;
 ; TATE: turn the monitor 90 deg CLOCKWISE (madsim: --tate, or F12).
 ;
@@ -15,20 +15,24 @@
 ;     at 1/8 of the ship's speed, and they ROTATE with the camera — parallax
 ;     applies to translation only, so a layer that slid but did not turn would
 ;     tear away from the world on every turn.
-;   * the ship: sprite 0, fixed dead centre, always nose-up.
-;   * 7 drifting objects: also sprite 0, with real world positions and velocities.
-;   * a HUD reading out speed, turn rate and the visible star count.
+;   * the ship: a 32x32 sprite installed into slot 1 at boot, always nose-up,
+;     riding up and down the screen with the speed tier.
+;   * 250 drifting asteroids with real world positions, velocities and spins,
+;     drawn as dotted outlines at one of five sizes: 192, 128, 64, 32 and 16
+;     full-res pixels across. Nothing collides with anything.
+;   * a HUD reading out speed, turn rate, the visible star count and how many
+;     rocks were drawn.
 ;
 ; TWO THINGS THIS BENCH DELIBERATELY GETS "WRONG", SO WE CAN JUDGE THEM
 ;   1. Heading is a full 8-bit brad angle (256 steps), not the 32 directions the
 ;      design assumes. Since the ship is always drawn nose-up, the only place 32
 ;      vs 256 can show up is the smoothness of the world's rotation — so run it
 ;      at 256 first and see whether 32 would have been visibly steppy.
-;   2. Stars are suppressed inside the sprite boxes of the ship and the objects.
-;      Sprite 0 has no overlay plane, so without that the stars shine straight
-;      through it. This is the deliberately naive version of the occlusion
-;      problem real asteroids will have for a much better reason (a dot-line
-;      outline is hollow) — it is here to be MEASURED, not to be kept.
+;   2. Stars are suppressed inside the SHIP's sprite box only. The ship's art
+;      has an overlay plane and would hide them anyway, but the box is what the
+;      real game needs for opaque objects, so it stays here to be measured. The
+;      asteroids get no box on purpose: a dotted outline is HOLLOW, and stars
+;      showing through one is the correct picture, not a bug.
 ;
 ; CONTROLS (joystick 1)
 ;   LEFT / RIGHT   turn (held)
@@ -45,6 +49,11 @@
 ;                  fb_x = portrait_y   and   fb_y = 299 - portrait_x
 ;                so the full-res centre is fb (200, 149) and the half-res centre
 ;                is fb (100, 74).
+;
+;   asteroid    a vertex list in half-res pixels, signed bytes, origin-centred.
+;                It is rotated by (spin - heading) and added to the rock's
+;                half-res screen centre: one rotation, not two, because the
+;                camera's rotation and the object's spin compose into one angle.
 ;
 ;   ship forward in world = (sin H, -cos H)
 ;   view of a world delta d:   vx =  dx*cos + dy*sin
@@ -66,21 +75,34 @@ MOTE_N      = 10                ; motes: a second layer much CLOSER than the
                                 ;   ship's speed. ~5 on screen at a time - they
                                 ;   are there to sell speed when nothing else is
                                 ;   in view, not to be looked at.
-NOBJ        = 250               ; drifting reference objects, scattered over the
-                                ;   whole torus. The world is about 140 screens,
-                                ;   so this is ~1.8 on screen at any moment - with
-                                ;   a handful you fly away once and never find
-                                ;   them again. 250 is the ceiling for a byte index.
-SPR_W2      = 8                 ; sprite 0 is 32x26 full-res -> 16x13 half-res,
-SPR_H2      = 7                 ;   so half of that, for the occluder boxes
+NOBJ        = 200               ; asteroids, scattered over the whole torus. The
+                                ;   world is about 140 screens, so a bit over one
+                                ;   rock per screen by centre - and because they
+                                ;   are up to 192 px across, that comes out as 3
+                                ;   to 6 actually on camera. It was 250 while
+                                ;   these were dots; every one of them costs the
+                                ;   position integrate and the coarse reject
+                                ;   whether or not it is anywhere near, which is
+                                ;   the single largest item in the frame - see
+                                ;   the budget note in README.md.
+SPR_W2      = 8                 ; the ship is 32x32 full-res -> 16x16 half-res,
+SPR_H2      = 8                 ;   so half of that, for the occluder box
+SPR_SHIP    = 1                 ; the slot the ship art is installed into. Slot 0
+                                ;   is left as the ROM test sprite so that a
+                                ;   forgotten id draws something recognisable
+SHIP_PAGE   = $10               ; ...and the GPU RAM page its 256 bytes land on
+AST_MAX     = 12                ; asteroids transformed and drawn per frame. The
+                                ;   world holds NOBJ of them and about two are on
+                                ;   camera at a time; this is the ceiling that
+                                ;   stops a chance cluster eating the frame.
 
 FBCX        = 200               ; full-res framebuffer centre
 FBCY        = 149
 HCX         = 100               ; half-res framebuffer centre
 HCY         = 74
 
-SHIP_SX     = FBCX - 16         ; sprite 0 top-left, so its centre is the screen's
-SHIP_SY     = FBCY - 13
+SHIP_SX     = FBCX - 16         ; ship top-left, so its centre is the screen's
+SHIP_SY     = FBCY - 16
 
 ; --- cartridge zero page ($80-$FF belongs to the game) -----------------------
 FRAME       = $80               ; $80-$81 16-bit frame counter
@@ -191,6 +213,34 @@ SDYI        = $D6
 SDYF        = $D7
 CF          = $D8               ; carry out of a fractional sum, -1..2
 PKX         = $D9               ; nonzero if this star must be parked
+; --- the asteroids ($E8-$EF and $F5-$FF; $F0-$F4 belong to the bootstrap, which
+;     is dead by the first frame but not worth reusing for eight bytes) --------
+MQA         = $E8               ; quarter-square multiply: the two MAGNITUDES in,
+MQB         = $E9               ;   0..127 each
+MQR         = $EA               ; ...and its scratch, $EA-$EB
+SPRSTEP     = $EC               ; which page of the sprite upload is next, 0-5
+ACOSV       = $ED               ; |cos| and |sin| of THIS rock's screen angle,
+ASINV       = $EE               ;   which is (its spin - the heading)
+ARAD        = $EF               ; its bounding radius, half-res pixels
+SHPL        = $F5               ; pointer to the shape's vertex list
+SHPH        = $F6
+AVN         = $F7               ; vertices in that list
+AVI         = $F8               ; the vertex loop's own index
+CX2L        = $F9               ; the rock's centre in HALF-res framebuffer
+CX2H        = $FA               ;   coordinates, signed 16
+CY2L        = $FB
+CY2H        = $FC
+ACLIP       = $FD               ; 0 = wholly on screen, so the cheap path
+ADRAWN      = $FE               ; rocks drawn so far this frame
+SGMY        = $FF               ; sign of the vertex's y, $FF when negative
+; The bootstrap's own scratch, $F0-$F4, is dead the moment the copy finishes and
+; cart_init is entered, so the vertex loop - the hottest code in the file - gets
+; the last of the zero page rather than paying a cycle a byte for absolute RAM.
+SGC         = $F0               ; sign of cos / sin for this rock
+SGS         = $F1
+AMXM        = $F2               ; |mx| and |my| for the vertex being transformed
+AMYM        = $F3
+SGMX        = $F4
 
 ; --- cartridge RAM ($0400-$77FF is free game RAM) ----------------------------
 ROTC_I      = $0400             ; the rotation tables, 8.8: ROT[i] = signed(i) *
@@ -200,10 +250,17 @@ ROTS_F      = $0700             ;   truncating twice - see star_rebase.
 STARBX      = $0800             ; STAR_N bytes: star layer X (the layer IS 0-255)
 STARBY      = $0880             ; STAR_N bytes: star layer Y
 DOTBUF      = $0900             ; 1 + 2*STAR_N: the DOT_PIXELS payload we build
-OCCX0       = $0A00             ; occluder boxes, half-res framebuffer, max 16
-OCCX1       = $0A20
+OCCX0       = $0A00             ; occluders: the clamped BOX, half-res, max 16
+OCCX1       = $0A20             ;   - the cheap per-star reject
 OCCY0       = $0A40
 OCCY1       = $0A60
+OCCCX       = $0A80             ; ...and the DISC inside it: centre (low byte
+OCCCY       = $0AA0             ;   only - see disc_hit) and the radius squared.
+OCCR2L      = $0AC0             ;   r2 = $FFFF makes the entry a plain box, which
+OCCR2H      = $0AE0             ;   is what the ship's is
+DSQL        = $62D1             ; disc_hit's own 16-bit scratch
+DSQH        = $62D2
+AOCR        = $62D3             ; this rock's star-suppression radius
 OBJXL       = $1000             ; object world positions, 16.8, structure-of-arrays
 OBJXH       = $1100
 OBJXF       = $1200
@@ -214,11 +271,20 @@ OBJVXL      = $1600             ; object velocities, signed 8.8
 OBJVXH      = $1700
 OBJVYL      = $1800
 OBJVYH      = $1900
-OBJSXL      = $1A00             ; object screen position for this frame
-OBJSXH      = $1B00
-OBJSYL      = $1C00
-OBJSYH      = $1D00
-OBJVIS      = $1E00             ; nonzero when the object survived the cull
+; The VISIBLE LIST: what came through do_objects' cull this frame, packed.
+; This used to be five whole pages indexed by object id — a screen position and
+; a flag for all NOBJ, of which a dozen were ever set. Packed, it is 320 bytes
+; instead of 1280, and emit_asteroids walks the dozen instead of scanning two
+; hundred flags. The reason it matters beyond that is the zoom: pulling the
+; camera back multiplies the number of rocks in view, AST_MAX starts to bite,
+; and a packed list can be SORTED so the ones that get dropped are the furthest
+; away. A sparse flag array can only ever drop by object id, which is random.
+VIS_MAX     = 64                ; entries; anything past this is simply not drawn
+VISIDX      = $1A00             ; which object each entry is
+VSXL        = $1A40             ; ...and its full-res screen centre, signed 16
+VSXH        = $1A80
+VSYL        = $1AC0
+VSYH        = $1B00
 BASEX       = $0B00             ; STAR_N bytes: each star's VIEW-space position at
 BASEY       = $0B80             ;   the last rebase - see do_stars
 PARKED      = $0D00             ; STAR_N bytes: 1 = out of byte range, do not draw
@@ -233,6 +299,39 @@ STR_TRN     = $0C20
 STR_HDG     = $0C40
 STR_STA     = $0C60
 STR_SCL     = $0C80
+QSL         = $0E00             ; the quarter-square multiply table, f(x) = x*x/4
+QSH         = $0F00             ;   for x = 0..255, low byte and high byte
+QRL         = $6400             ; ...and the same table plus 64. Subtracting the
+QRH         = $6500             ;   plain one from THIS one is the rounding: the
+                                ;   +64 that a >>7 needs, for no cycles at all
+OBJSHP      = $1F00             ; NOBJ bytes: which of the five sizes each rock is
+OBJANG      = $6000             ; NOBJ bytes: its spin angle, brad (integer part)
+OBJANGF     = $6100             ; ...and the fraction, so a spin can be far slower
+                                ;   than one brad a frame
+AVXL        = $6200             ; the transformed outline, signed 16 half-res, one
+AVXH        = $6220             ;   entry per vertex
+AVYL        = $6240
+AVYH        = $6260
+AOC         = $62A0             ; ...and its Cohen-Sutherland outcode, built only
+                                ;   when the rock straddles an edge
+DLBUF       = $6280             ; the DOT_LINES payload: 1 + 2*(AVN+1) bytes
+DEFPG       = $6300             ; one page of the GPU sprite definition table,
+                                ;   staged here and shipped with LOAD
+APX         = $62C2             ; the vertex being transformed, rotated
+APY         = $62C3
+ATMP        = $62C4
+ASHY        = $62C5             ; the shape cursor, parked over the multiplies
+AFAR        = $62CD             ; the far end of the segment being emitted
+ROTHEAD     = $62CE             ; the heading the ROT tables were built for
+VISN        = $62CF             ; entries in the visible list this frame
+VISI        = $62D0             ; ...and the draw loop's cursor into it
+SPL         = $62C6             ; span_test's own scratch
+SPH         = $62C7
+SPLIM       = $62C8
+SPLOL       = $62C9
+SPLOH       = $62CA
+SPHIL       = $62CB
+SPHIH       = $62CC
 
 ; -----------------------------------------------------------------------------
 ; BUILD_ROT — fill a 256-byte table with signed(i) * coef / 128.
@@ -282,6 +381,56 @@ neg:    sec
         bne     neg
 .endmacro
 
+; -----------------------------------------------------------------------------
+; RPROD — one product of the view transform, straight out of the ROT tables.
+; -----------------------------------------------------------------------------
+;     (srcL, srcH) signed 16 world units  x  coef/128  ->  T0/T1, signed 16
+;
+; The tables the starfield already builds are `ROT[i] = signed(i)*coef/128`, in
+; 8.8 and EXACT. They are linear, so they work on a 16-bit operand too:
+;
+;     delta = hi*256 + lo    ->    delta*coef/128 = 256*ROT[hi] + ROT[lo]
+;
+; and `256 * ROT[hi]` needs no shifting at all — multiplying an 8.8 by 256 moves
+; the fraction byte into the integer, so the two table bytes ARE the 16-bit
+; value, fraction byte low. The only care needed is that the table reads its
+; index as SIGNED while `lo` is the unsigned low byte of the delta: for lo >= 128
+; the table returns (lo-256)*coef/128, so the missing 256 is borrowed from the
+; high index instead. `hi+1` cannot overflow because this only ever runs on a
+; delta that has already passed in_range.
+;
+; ~65 cycles against smul_core's ~300, and more accurate: nothing is truncated
+; on the way through, and the low entry's fraction byte rounds the result.
+; Clobbers A, X, Y.
+; -----------------------------------------------------------------------------
+.macro  RPROD tblI, tblF, srcL, srcH
+        .local  nohi, pos, norm, done
+        ldx     srcL
+        ldy     srcH
+        cpx     #$80                    ; lo >= 128: the table will read it as
+        bcc     nohi                    ;   negative, so borrow the 256 back
+        iny
+nohi:   lda     tblF,y                  ; 256 * ROT[hi], as one 16-bit value
+        sta     T0
+        lda     tblI,y
+        sta     T1
+        lda     tblI,x                  ; + ROT[lo], sign-extended
+        bpl     pos
+        dec     T1
+pos:    clc
+        adc     T0
+        sta     T0
+        bcc     norm
+        inc     T1
+norm:   lda     tblF,x                  ; ...and rounded by its own fraction
+        cmp     #$80
+        bcc     done
+        inc     T0
+        bne     done
+        inc     T1
+done:
+.endmacro
+
         .segment "CODE"
 
 ; =============================================================================
@@ -309,6 +458,7 @@ cart_init:
         stz     PSHOFFH
         stz     HEADF
         stz     TSCALE
+        stz     SPRSTEP
 
         stz     SHXL                    ; the middle of the torus, which means
         stz     SHYL                    ;   nothing on a torus but keeps a
@@ -320,18 +470,96 @@ cart_init:
 
         stz     TRAVL
         stz     TRAVH
-        lda     #$80                    ; != HEAD (0), so frame 1 rebases
-        sta     BASEHEAD
+        lda     #$80                    ; != HEAD (0), so frame 1 builds the
+        sta     BASEHEAD                ;   tables and rebases the star bases
+        sta     ROTHEAD
 
         lda     #$A5                    ; any nonzero seed; see prng
         sta     PRNGL
         lda     #$3C
         sta     PRNGH
 
+        jsr     init_qs
         jsr     init_stars
         jsr     init_motes
         jsr     init_objects
         jmp     init_strings
+
+; -----------------------------------------------------------------------------
+; init_qs — the quarter-square multiply table, f(x) = x*x/4 for x = 0..255.
+; -----------------------------------------------------------------------------
+; a*b = f(a+b) - f(a-b), EXACTLY: (a+b) and (a-b) always have the same parity,
+; so the two floors cancel. Both operands here are MAGNITUDES of at most 127 —
+; the callers strip the signs — so a+b never leaves a byte and a 256-entry table
+; covers every index the rotation can ask for. The design's 2 x 512 bytes is what
+; a full signed 8x8 would need.
+;
+; The second copy is the same table plus 64. A >>7 has to round, and rounding is
+; "add 64 before the shift"; taking the MINUEND from the +64 table and the
+; subtrahend from the plain one does that add for nothing. It is 512 bytes of RAM
+; for ~15 cycles on every one of the four multiplies a vertex costs.
+;
+; Built by running sum, not by multiplying: f(x+1) - f(x) = floor((x+1)/2), so
+; the whole page costs one add per entry.
+; -----------------------------------------------------------------------------
+init_qs:
+        stz     T0
+        stz     T1
+        ldx     #$00
+@lp:    lda     T0
+        sta     QSL,x
+        clc
+        adc     #$40
+        sta     QRL,x
+        lda     T1
+        sta     QSH,x
+        adc     #$00
+        sta     QRH,x
+        inx
+        beq     @done                   ; wrapped past 255: the page is written
+        txa                             ; delta for the entry just past x is
+        lsr     a                       ;   floor((x+1)/2), and X is already x+1
+        clc
+        adc     T0
+        sta     T0
+        bcc     @lp
+        inc     T1
+        bra     @lp
+@done:  rts
+
+; -----------------------------------------------------------------------------
+; qmul — MQA * MQB, both MAGNITUDES 0..127, rounded >>7 -> A. Clobbers X, Y.
+; -----------------------------------------------------------------------------
+; No signs anywhere: the caller strips them once per rock (the trig) and once per
+; vertex (the coordinate) instead of four times per vertex inside here, and puts
+; the sign back on the product with a compare. That is the difference between a
+; ~130-cycle multiply and a ~60-cycle one, which on a 12-vertex rock — 48 of
+; these — is most of what the outline costs.
+;
+; MQA + MQB has to stay inside a byte for the table index, which is why both are
+; capped at 127. The largest authored vertex is 48 and |cos| tops out at 127.
+; -----------------------------------------------------------------------------
+qmul:
+        clc
+        lda     MQA
+        adc     MQB
+        tax                             ; a + b, at most 254
+        sec
+        lda     MQA
+        sbc     MQB
+        bcs     :+
+        eor     #$FF                    ; carry is clear here, so this +1 is the
+        adc     #$01                    ;   two's complement negate
+:       tay                             ; |a - b|
+        sec                             ; f(a+b) + 64 - f(|a-b|): the product with
+        lda     QRL,x                   ;   its rounding term already in it
+        sbc     QSL,y
+        sta     MQR
+        lda     QRH,x
+        sbc     QSH,y
+        asl     MQR                     ; >>7 is <<1 read as the high byte, and
+        rol     a                       ;   the byte is already in A
+        rts
 
 ; -----------------------------------------------------------------------------
 ; init_stars — scatter the layer with the OS RNG.
@@ -386,11 +614,19 @@ prng:
         rts
 
 ; -----------------------------------------------------------------------------
-; init_objects — place the reference objects relative to the ship.
+; init_objects — scatter the asteroid field.
 ; -----------------------------------------------------------------------------
 ; Scattered over the WHOLE torus, not around the ship: a 16-bit world position
-; is uniform by construction, so two random bytes per axis is the whole job.
-; Velocities are a gentle drift, at most one world unit a frame.
+; is uniform by construction, so two random bytes per axis is the whole job. The
+; SIZE is drawn the same way, through SHAPE_PICK, which is where the size mix is
+; tuned.
+;
+; Velocity and spin are NOT random. Each is read out of a hand-written table:
+; one of four drift vectors per size class (index & 3) and one spin rate per
+; size class, so the field is completely reproducible and every number in it can
+; be argued with by editing AST_VEL / AST_SPIN rather than by reseeding. Big
+; rocks drift slowly and turn slowly; the small ones are quick and busy, which
+; is the Asteroids convention and the thing worth checking on screen.
 init_objects:
         ldy     #$00
 @lp:    jsr     prng
@@ -405,20 +641,42 @@ init_objects:
         sta     OBJYH,y
         lda     #$00
         sta     OBJYF,y
-        jsr     prng
+
+        jsr     prng                    ; the size class
+        and     #$07
+        tax
+        lda     SHAPE_PICK,x
+        sta     OBJSHP,y
+
+        asl     a                       ; velocity: AST_VEL[class][index & 3],
+        asl     a                       ;   four bytes per variant, four variants
+        asl     a                       ;   per class -> class * 16
+        asl     a
+        sta     T0
+        tya
+        and     #$03
+        asl     a
+        asl     a
+        clc
+        adc     T0
+        tax
+        lda     AST_VEL+0,x
         sta     OBJVXL,y
-        jsr     prng
-        and     #$01                    ; one bit of sign: -1 .. +1 unit/frame
-        beq     :+
-        lda     #$FF
-:       sta     OBJVXH,y
-        jsr     prng
+        lda     AST_VEL+1,x
+        sta     OBJVXH,y
+        lda     AST_VEL+2,x
         sta     OBJVYL,y
-        jsr     prng
-        and     #$01
-        beq     :+
-        lda     #$FF
-:       sta     OBJVYH,y
+        lda     AST_VEL+3,x
+        sta     OBJVYH,y
+
+        tya                             ; a spread of starting spin phases, also
+        and     #$07                    ;   from a table rather than the LFSR
+        tax
+        lda     AST_PHASE,x
+        sta     OBJANG,y
+        lda     #$00
+        sta     OBJANGF,y
+
         iny
         cpy     #NOBJ
         bne     @lp
@@ -452,6 +710,11 @@ cart_frame:
         bne     :+
         inc     FRAME+1
 :
+        lda     SPRSTEP                 ; the sprite upload, one LOAD page per
+        cmp     #$05                    ;   frame, and FIRST in the frame it
+        bcs     :+                      ;   happens on - see upload_step
+        jsr     upload_step
+:
         lda     BGDONE                  ; one-shot: wipe the boot screen off the
         bne     :+                      ;   background. The OS replays background
         jsr     API_GPU_CLEARBG         ;   commands on the next frame for us, so
@@ -461,10 +724,10 @@ cart_frame:
         jsr     do_input
         jsr     do_camera               ; cos/sin, then the two rotation tables
         jsr     do_ship                 ; velocity from tier + heading, integrate
-        jsr     do_objects              ; move, transform, collect occluder boxes
-        jsr     do_stars                ; BUILD the starfield - see below
-        jsr     do_motes                ; BUILD the mote layer
-        jsr     emit_objects
+        jsr     do_objects              ; move and spin the rocks, transform them
+        jsr     emit_asteroids          ; ...which also registers their occluder
+        jsr     do_stars                ;   discs, which do_stars needs: it is the
+        jsr     do_motes                ;   one pass that has to run after them
         jsr     emit_ship
         jsr     do_hud
         ; The two decorative layers are appended LAST, and in this order: if the
@@ -473,6 +736,58 @@ cart_frame:
         ; last, because motes are the cheapest thing on screen to lose.
         jsr     emit_stars
         jmp     emit_motes
+
+; -----------------------------------------------------------------------------
+; upload_step — install the ship sprite, ONE LOAD page per frame for five frames.
+; -----------------------------------------------------------------------------
+; LOAD is the only way CPU1 can write GPU RAM, and it writes a whole 256-byte
+; page at a time — including the sprite definition table, which is four pages of
+; one parameter each ($03 type, $04 ptr lo, $05 ptr hi, $06 height). So each of
+; the four is staged blank in DEFPG, patched with the two slots this cartridge
+; uses, and shipped. Slot 0 keeps the ROM test sprite's own numbers, which costs
+; nothing and means an id typo still draws something.
+;
+; ONE PAGE A FRAME because five is too many at once: a LOAD is 258 bytes of the
+; 2047-byte list and about 10,000 cycles of copying, and all five on the first
+; frame put that frame at 98% of budget for no reason. Spread out it is 5% a
+; frame, and the ship appears on frame 5 — 83 ms, which nobody sees. It still
+; goes FIRST in whichever frame it lands on: a def page dropped for want of
+; PPRAM would leave the slot empty for the rest of the session.
+; -----------------------------------------------------------------------------
+upload_step:
+        ldx     SPRSTEP
+        inc     SPRSTEP
+        txa                             ; the OLD step, not the incremented one
+        bne     @def
+        lda     #SHIP_PAGE              ; step 0: the art itself
+        sta     OS_ARG+0
+        lda     #<ship32_data
+        sta     OS_ARG+1
+        lda     #>ship32_data
+        sta     OS_ARG+2
+        jmp     API_GPU_LOAD
+@def:   dex                             ; steps 1-4: definition page X-1
+        lda     #$00                    ; a blank page...
+        ldy     #$00
+:       sta     DEFPG,y
+        iny
+        bne     :-
+        txa                             ; ...with the two live slots patched in
+        asl     a
+        tay
+        lda     SPRDEF,y
+        sta     DEFPG+0
+        lda     SPRDEF+1,y
+        sta     DEFPG+SPR_SHIP
+        txa
+        clc
+        adc     #$03                    ; GPU pages $03 / $04 / $05 / $06
+        sta     OS_ARG+0
+        lda     #<DEFPG
+        sta     OS_ARG+1
+        lda     #>DEFPG
+        sta     OS_ARG+2
+        jmp     API_GPU_LOAD
 
 ; -----------------------------------------------------------------------------
 ; do_input — joystick 1.
@@ -655,8 +970,22 @@ do_camera:
         bpl     :+
         ldx     #$FF
 :       stx     SGNS
-        rts                             ; the ROT tables are built by star_rebase,
-                                        ;   which only runs when the heading moved
+
+        ; The rotation tables are built HERE, and only on a frame where the
+        ; heading actually moved — they are ~15k cycles and nothing else can
+        ; change them. They used to be built inside star_rebase, which runs
+        ; after do_objects: on a turning frame the objects would then transform
+        ; against last frame's heading and lag the camera by a frame. Three
+        ; things read them now — the starfield, the object centres, and (soon)
+        ; the radar — so they belong to the camera, not to the stars.
+        lda     HEAD
+        cmp     ROTHEAD
+        bne     :+                      ; (branching the other way is out of
+        rts                             ;  range - two BUILD_ROTs is 147 bytes)
+:       sta     ROTHEAD
+        BUILD_ROT ROTC_I, ROTC_F, COSV, SGNC
+        BUILD_ROT ROTS_I, ROTS_F, SINV, SGNS
+        rts
 
 ; -----------------------------------------------------------------------------
 ; do_ship — velocity from the speed tier and the heading, then integrate.
@@ -767,14 +1096,57 @@ do_ship:
         rts
 
 ; -----------------------------------------------------------------------------
-; do_objects — integrate, transform to the screen, collect occluder boxes.
+; do_objects — reject, then move, then transform the centre to the screen.
+; -----------------------------------------------------------------------------
+; Three gates, and the whole cost of the field is decided by the first one:
+;
+;   all NOBJ           a high-byte reject against the ship. Nothing else.
+;   ~14 that pass      integrate position and spin, precise cull, rotate the
+;                      CENTRE into screen coordinates
+;   3-6 on camera      rotate the OUTLINE - and that happens in emit_asteroids,
+;                      not here
+;
+; The first gate used to run second, after every rock in the world had been
+; integrated. That was the largest single item in the frame.
 ; -----------------------------------------------------------------------------
 do_objects:
         stz     OCCN
+        stz     VISN
         jsr     add_ship_occluder
         stz     OBJI
 @lp:
         ldx     OBJI
+        ; The coarse reject comes FIRST, before the rock has even moved. Any
+        ; object whose high byte is more than CULL_HI from the ship's cannot
+        ; survive the precise cull below, and an object that is not drawn does
+        ; not need to have moved: on a torus with no off-camera collisions,
+        ; nothing in the machine can observe where a distant rock has drifted
+        ; to. So a far rock costs this test and nothing else - about 40 cycles
+        ; instead of 160 - and starts moving again the moment you fly near it.
+        ;
+        ; Reading the position one frame stale is what makes this safe to do in
+        ; this order: a rock moves at most ~13 world units a frame and the gap
+        ; between this window (CULL_HI * 256) and the precise cull (CULL_R) is
+        ; 128 units, so nothing can cross both tests inside one frame.
+        lda     OBJXH,x
+        sec
+        sbc     SHXH
+        clc
+        adc     #CULL_HI
+        cmp     #CULL_HI * 2 + 1
+        bcc     :+
+        jmp     @cull
+:       lda     OBJYH,x
+        sec
+        sbc     SHYH
+        clc
+        adc     #CULL_HI
+        cmp     #CULL_HI * 2 + 1
+        bcc     :+
+        jmp     @cull
+:
+        ; Past the coarse reject, so this rock is near enough to matter. Only
+        ; now does it move: position, then spin.
         ldy     #$00                    ; integrate X: 16.8 += signed 8.8
         bit     OBJVXH,x
         bpl     :+
@@ -805,27 +1177,18 @@ do_objects:
         adc     OBJYH,x
         sta     OBJYH,x
 
-        ; A cheap reject first: the cull below passes only |d| <= 6400 = $1900,
-        ; so a high byte more than 26 away cannot possibly survive it. With most
-        ; of a 140-screen world off camera this is what nearly every object hits,
-        ; and it costs a fraction of the precise test.
-        lda     OBJXH,x
-        sec
-        sbc     SHXH
+        ldy     OBJSHP,x                ; angle += the class's rate, 8.8 brad per
+        tya                             ;   frame. The integer part is a brad and
+        asl     a                       ;   wraps by itself, which is the whole
+        tay                             ;   of "mod one turn"
         clc
-        adc     #26
-        cmp     #53
-        bcc     :+
-        jmp     @cull
-:       lda     OBJYH,x
-        sec
-        sbc     SHYH
-        clc
-        adc     #26
-        cmp     #53
-        bcc     :+
-        jmp     @cull
-:
+        lda     OBJANGF,x
+        adc     AST_SPIN,y
+        sta     OBJANGF,x
+        lda     OBJANG,x
+        adc     AST_SPIN+1,y
+        sta     OBJANG,x
+
         sec                             ; world delta — wrap-correct for free
         lda     OBJXL,x
         sbc     SHXL
@@ -890,22 +1253,21 @@ do_objects:
         sbc     MAH
         sta     FYH
 
-        ldx     OBJI
+        ldy     VISN                    ; it survived: append it to the list
+        cpy     #VIS_MAX
+        bcs     @next                   ; ...unless the list is full
+        lda     OBJI
+        sta     VISIDX,y
         lda     FXL
-        sta     OBJSXL,x
+        sta     VSXL,y
         lda     FXH
-        sta     OBJSXH,x
+        sta     VSXH,y
         lda     FYL
-        sta     OBJSYL,x
+        sta     VSYL,y
         lda     FYH
-        sta     OBJSYH,x
-        lda     #$01
-        sta     OBJVIS,x
-        jsr     add_occluder
-        bra     @next
-@cull:
-        ldx     OBJI
-        stz     OBJVIS,x
+        sta     VSYH,y
+        inc     VISN
+@cull:                                  ; (culled needs no store at all now)
 @next:
         inc     OBJI
         lda     OBJI
@@ -955,20 +1317,36 @@ asr4r:
         bne     @lp
         rts
 
-; A/Y = signed 16 world units. Carry CLEAR inside +/-6400 (= 400 px), SET outside.
+; -----------------------------------------------------------------------------
+; in_range — A/Y = signed 16 world units. Carry CLEAR inside +/-CULL_R.
+; -----------------------------------------------------------------------------
+; CULL_R is not "a bit more than the screen": it is what the WORST CASE needs.
+; A rock is on camera when its rotated offset lands inside the screen grown by
+; its own radius, and the cull runs on the UNROTATED world delta, so it has to
+; pass anything whose rotation could still get there. Screen half-height 200 px
+; + the ship's 120 px of speed offset + a 96 px rock radius is 416; the other
+; axis needs 150 + 96 = 246; the vector that has to survive is therefore up to
+; sqrt(416^2 + 246^2) = 483 px long, and a single world axis can carry all of
+; it. At the old 400 px the biggest rocks popped in and out at the screen edges,
+; which is precisely the size this bench exists to look at.
+; -----------------------------------------------------------------------------
+CULL_R      = 7808              ; 488 full-res px, in world units (16 per px)
+CULL_HI     = 31                ; ...and CULL_R / 256, rounded up, for the cheap
+                                ;   high-byte reject above
+
 in_range:
         clc
-        adc     #<6400
+        adc     #<CULL_R
         sta     T0
         tya
-        adc     #>6400
+        adc     #>CULL_R
         tay
         bmi     @out
-        cpy     #>12801
+        cpy     #>(CULL_R * 2 + 1)
         bcc     @in
         bne     @out
         lda     T0
-        cmp     #<12801
+        cmp     #<(CULL_R * 2 + 1)
         bcc     @in
 @out:   sec
         rts
@@ -979,75 +1357,58 @@ in_range:
 ; view_xform — rotate a WORLD-unit offset (PX, PY) into view coords.
 ; -----------------------------------------------------------------------------
 ;   vx =  px*cos + py*sin        vy = -px*sin + py*cos
-; Four 16x8 multiplies, at the full 1/16-pixel resolution of a world coordinate -
-; the caller rounds to a pixel afterwards, not before. Objects are few, so this
-; is the honest path; the stars take the table shortcut instead, because there
-; are a hundred of them and they do not need it.
+;
+; Four products, and they used to be four smul_core multiplies at ~300 cycles
+; each because a world delta is 16-bit and neither the quarter-square table
+; (8-bit operands) nor the ROT tables (a byte index) appeared to fit it. The ROT
+; tables DO fit it — see RPROD — so this is now four table pairs and some adds,
+; at the full 1/16-pixel resolution of a world coordinate. The caller rounds to
+; a whole pixel afterwards, never before: rounding first is what used to make
+; objects swim, and RPROD's own rounding is monotone so it cannot bring that
+; back.
+;
+; The stars have always taken this shortcut. The only reason the objects did not
+; was that nobody had noticed a 16-bit operand splits into two byte lookups.
 ; -----------------------------------------------------------------------------
 view_xform:
-        lda     PXL                     ; px * cos
-        sta     MAL
-        lda     PXH
-        sta     MAH
-        lda     COSV
-        sta     MB
-        jsr     smul16q7
-        lda     MAL
+        RPROD   ROTC_I, ROTC_F, PXL, PXH        ; vx = px*cos ...
+        lda     T0
         sta     VXL
-        lda     MAH
+        lda     T1
         sta     VXH
-
-        lda     PYL                     ; + py * sin
-        sta     MAL
-        lda     PYH
-        sta     MAH
-        lda     SINV
-        sta     MB
-        jsr     smul16q7
+        RPROD   ROTS_I, ROTS_F, PYL, PYH        ;      ... + py*sin
         clc
         lda     VXL
-        adc     MAL
+        adc     T0
         sta     VXL
         lda     VXH
-        adc     MAH
+        adc     T1
         sta     VXH
 
-        lda     PYL                     ; py * cos
-        sta     MAL
-        lda     PYH
-        sta     MAH
-        lda     COSV
-        sta     MB
-        jsr     smul16q7
-        lda     MAL
+        RPROD   ROTC_I, ROTC_F, PYL, PYH        ; vy = py*cos ...
+        lda     T0
         sta     VYL
-        lda     MAH
+        lda     T1
         sta     VYH
-
-        lda     PXL                     ; - px * sin
-        sta     MAL
-        lda     PXH
-        sta     MAH
-        lda     SINV
-        sta     MB
-        jsr     smul16q7
+        RPROD   ROTS_I, ROTS_F, PXL, PXH        ;      ... - px*sin
         sec
         lda     VYL
-        sbc     MAL
+        sbc     T0
         sta     VYL
         lda     VYH
-        sbc     MAH
+        sbc     T1
         sta     VYH
         rts
 
 ; -----------------------------------------------------------------------------
-; add_ship_occluder / add_occluder — the naive star-suppression list.
+; add_ship_occluder — the star-suppression list, which is now one box.
 ; -----------------------------------------------------------------------------
-; Sprite 0 has no overlay plane, so anything drawn under it shows through its
-; black pixels. Real asteroids will be dot-line OUTLINES and have the same
-; problem for a much better reason — they are hollow. This box list is the
-; deliberately naive version: cost is stars x boxes. Measure it, then decide
-; whether the coarse disc mask in docs/design_technical.md 5.4 is worth building.
+; The backdrop is drawn LAST, so a star inside the ship's silhouette would land
+; on top of it. One box stops that. The asteroids deliberately get no box: their
+; outlines are hollow, and a star seen through one is the right picture — which
+; is also why the general box list this file used to keep is gone. When rocks
+; need to be opaque it will be the coarse disc mask of design_technical 5.4, not
+; a bounding box.
 ; -----------------------------------------------------------------------------
 add_ship_occluder:
         lda     SHOFFH                  ; the box rides down with the ship
@@ -1069,59 +1430,147 @@ add_ship_occluder:
         sta     OCCY0,y
         lda     #HCY + SPR_H2
         sta     OCCY1,y
+        lda     T0                      ; the ship is opaque to its box corners,
+        sta     OCCCX,y                 ;   so r2 = $FFFF: every star that gets
+        lda     #HCY                    ;   inside the box is inside the "disc"
+        sta     OCCCY,y
+        lda     #$FF
+        sta     OCCR2L,y
+        sta     OCCR2H,y
         inc     OCCN
         rts
 
-; FX/FY hold a full-res framebuffer centre. Add its half-res box to the list.
-add_occluder:
+; -----------------------------------------------------------------------------
+; add_disc — this rock's suppression disc. CX2/CY2 and AOCR are already set.
+; -----------------------------------------------------------------------------
+; A dotted outline is hollow, so without this a rock reads as a wire hoop with
+; the starfield shining straight through it. A bounding BOX would be wrong for
+; the same reason it is wrong for the cull: the corners of a 96-px box are a
+; long way outside a 96-px rock, and stars would blink out in mid-space.
+;
+; The entry is therefore both: a clamped box for the cheap per-star reject, and
+; the centre plus r^2 for the round test inside it. r^2 comes out of the
+; quarter-square table for nothing - f(x) = x*x/4, so x*x = f(2x), and 2*48 is
+; well inside a byte of index.
+;
+; Only the centre's LOW byte is kept, and that is exact: the round test only
+; ever runs on a star already inside the clamped box, so its true offset from
+; the centre is within +/-R, R is at most 48, and a value that small is read
+; back correctly from a byte subtract no matter where the centre really is.
+; That is what lets a rock hanging off the screen edge still suppress stars -
+; the old box list gave up on those entirely.
+; -----------------------------------------------------------------------------
+add_disc:
         ldy     OCCN
         cpy     #16
-        bcs     @skip
-        lda     FXH                     ; on screen? fb_x is 0..399, so the high
-        cmp     #$02                    ;   byte is 0 or 1 — anything else, incl.
-        bcs     @skip                   ;   $FF for negative, is off screen
-        lsr     a                       ; hx = fb_x >> 1, carry = bit 0 of FXH
-        lda     FXL
-        ror     a
-        cmp     #200
-        bcs     @skip
-        sta     T0
-        lda     FYH
-        cmp     #$02
-        bcs     @skip
-        lsr     a
-        lda     FYL
-        ror     a
-        cmp     #150
-        bcs     @skip
-        sta     T1
+        bcs     @full
+        lda     CX2L
+        sta     OCCCX,y
+        lda     CY2L
+        sta     OCCCY,y
 
-        lda     T0
-        sec
-        sbc     #SPR_W2
-        bcs     :+
-        lda     #$00
-:       sta     OCCX0,y
-        lda     T0
+        sec                             ; box x0 = cx - R, clamped at 0
+        lda     CX2L
+        sbc     AOCR
+        tax
+        lda     CX2H
+        sbc     #$00
+        bpl     @x0ok
+        ldx     #$00
+@x0ok:  txa
+        sta     OCCX0,y
+        clc                             ; box x1 = cx + R, clamped at 199
+        lda     CX2L
+        adc     AOCR
+        tax
+        lda     CX2H
+        adc     #$00
+        bne     @x1hi                   ; past 255, so past the right edge
+        cpx     #200
+        bcc     @x1ok
+@x1hi:  ldx     #199
+@x1ok:  txa
+        sta     OCCX1,y
+
+        sec                             ; the same for y, against 149
+        lda     CY2L
+        sbc     AOCR
+        tax
+        lda     CY2H
+        sbc     #$00
+        bpl     @y0ok
+        ldx     #$00
+@y0ok:  txa
+        sta     OCCY0,y
         clc
-        adc     #SPR_W2
-        bcc     :+
-        lda     #199
-:       sta     OCCX1,y
-        lda     T1
-        sec
-        sbc     #SPR_H2
-        bcs     :+
-        lda     #$00
-:       sta     OCCY0,y
-        lda     T1
-        clc
-        adc     #SPR_H2
-        bcc     :+
-        lda     #149
-:       sta     OCCY1,y
+        lda     CY2L
+        adc     AOCR
+        tax
+        lda     CY2H
+        adc     #$00
+        bne     @y1hi
+        cpx     #150
+        bcc     @y1ok
+@y1hi:  ldx     #149
+@y1ok:  txa
+        sta     OCCY1,y
+
+        lda     AOCR                    ; r^2 = f(2R)
+        asl     a
+        tax
+        lda     QSL,x
+        sta     OCCR2L,y
+        lda     QSH,x
+        sta     OCCR2H,y
         inc     OCCN
-@skip:  rts
+@full:  rts
+
+; -----------------------------------------------------------------------------
+; disc_hit — is (FBX, FBY) inside occluder Y's disc? Carry SET = yes.
+; -----------------------------------------------------------------------------
+; Called only for a star already inside that occluder's box. Two table reads,
+; an add and a 16-bit compare. Preserves X (the star loop's index) and Y.
+; -----------------------------------------------------------------------------
+disc_hit:
+        phx
+        sec
+        lda     FBX
+        sbc     OCCCX,y
+        bpl     :+
+        eor     #$FF
+        inc     a
+:       asl     a                       ; index 2*|dx|, at most 96
+        tax
+        lda     QSL,x
+        sta     DSQL
+        lda     QSH,x
+        sta     DSQH
+        sec
+        lda     FBY
+        sbc     OCCCY,y
+        bpl     :+
+        eor     #$FF
+        inc     a
+:       asl     a
+        tax
+        clc
+        lda     QSL,x
+        adc     DSQL
+        sta     DSQL
+        lda     QSH,x
+        adc     DSQH
+        plx                             ; (pull does not touch the carry, and
+        cmp     OCCR2H,y                ;  the compare below sets it anyway)
+        bcc     @in
+        bne     @out
+        lda     DSQL
+        cmp     OCCR2L,y
+        bcc     @in
+        beq     @in
+@out:   clc
+        rts
+@in:    sec
+        rts
 
 ; -----------------------------------------------------------------------------
 ; do_stars — scroll the field, rebuild it only when the heading moved, emit it.
@@ -1293,7 +1742,8 @@ do_stars:
         lda     OCCY1,y
         cmp     FBY
         bcc     @occn
-        bra     @next
+        jsr     disc_hit                ; inside the box - inside the disc?
+        bcs     @next
 @occn:  cpy     #$00
         bne     @occ
 
@@ -1663,11 +2113,9 @@ do_motes:
 STAR_REFRESH = 24               ; refresh after this much scroll; the margin is 27
 
 star_rebase_full:
-        lda     HEAD
-        sta     BASEHEAD
-        stz     RBMODE
-        BUILD_ROT ROTC_I, ROTC_F, COSV, SGNC
-        BUILD_ROT ROTS_I, ROTS_F, SINV, SGNS
+        lda     HEAD                    ; (the ROT tables this uses were built by
+        sta     BASEHEAD                ;   do_camera on the same frame, for the
+        stz     RBMODE                  ;   same reason: the heading moved)
         bra     srb_core
 star_rebase_refresh:
         lda     #$01
@@ -1945,35 +2393,398 @@ srb_next:
 ; edges itself and rejects a fully off-screen sprite, so an object hanging over
 ; an edge is the hardware's problem, not ours.
 ; -----------------------------------------------------------------------------
-emit_objects:
-        stz     OBJI
-@lp:    ldx     OBJI
-        lda     OBJVIS,x
-        beq     @next
-        stz     OS_ARG+0                ; sprite 0
+; -----------------------------------------------------------------------------
+; emit_asteroids - draw the outline of every rock that is actually on camera.
+; -----------------------------------------------------------------------------
+; do_objects has already put a full-res screen centre in OBJSX/OBJSY for every
+; rock inside the coarse cull, which is a band 400 px wide around the ship - far
+; more than the screen. This is the precise pass: it halves the centre into the
+; line ops' half-res space, tests the rock's bounding square against the field,
+; and only then pays for the rotation.
+;
+; Two draw paths, and the difference matters:
+;   * wholly on screen -> ONE DOT_LINES chain. Byte coordinates, one dispatch,
+;     interior vertices shared. This is the cheap case and the common one.
+;   * crossing an edge -> one gpu_dotline_clip per segment. That builder carries
+;     true signed-16 coordinates and runs Cohen-Sutherland against the field, so
+;     the EDGE is trimmed rather than the coordinate clamped. DOT_LINES cannot be
+;     used here at any price: its coordinates are bytes, and clamping a vertex
+;     bends every edge that touches it - a 192-px rock half off the top would
+;     come apart into a fan.
+; -----------------------------------------------------------------------------
+emit_asteroids:
+        stz     ADRAWN
+        stz     VISI
+@lp:    lda     VISI
+        cmp     VISN
+        beq     @done
+        lda     ADRAWN
+        cmp     #AST_MAX
+        bcs     @done
+        jsr     one_asteroid
+        inc     VISI
+        bra     @lp
+@done:  rts
+
+one_asteroid:
+        ldy     VISI                    ; the list entry names its object
+        lda     VISIDX,y
+        sta     OBJI
+        tax
+        ldy     OBJSHP,x
+        lda     SHAPE_R,y
+        sta     ARAD
+        lda     SHAPE_OCC,y
+        sta     AOCR
+        lda     SHAPE_N,y
+        sta     AVN
+        lda     SHAPE_LO,y
+        sta     SHPL
+        lda     SHAPE_HI,y
+        sta     SHPH
+
+        ldy     VISI                    ; half-res centre = the full-res screen
+        lda     VSXH,y                  ;   position >> 1, arithmetic (cmp #$80
+        cmp     #$80                    ;   puts the sign bit into carry)
+        ror     a
+        sta     CX2H
+        lda     VSXL,y
+        ror     a
+        sta     CX2L
+        lda     VSYH,y
+        cmp     #$80
+        ror     a
+        sta     CY2H
+        lda     VSYL,y
+        ror     a
+        sta     CY2L
+
+        lda     CX2L                    ; the precise cull, one axis at a time
+        ldy     CX2H
+        ldx     #199
+        jsr     span_test
+        cmp     #$02
+        bne     :+
+        rts                             ; wholly off this axis: nothing to draw
+:       sta     ACLIP
+        lda     CY2L
+        ldy     CY2H
+        ldx     #149
+        jsr     span_test
+        cmp     #$02
+        bne     :+
+        rts
+:       ora     ACLIP
+        sta     ACLIP
+
+        jsr     add_disc                ; the stars go out under this rock
+
+        ldx     OBJI                    ; ONE angle: the spin and the camera's
+        sec                             ;   rotation compose, so a spinning rock
+        lda     OBJANG,x                ;   still costs one pair of trig calls
+        sbc     HEAD                    ;   and not two transforms
+        pha
+        jsr     API_COS                 ; ...split into magnitude and sign HERE,
+        ldx     #$00                    ;   once per rock, because qmul wants
+        cmp     #$00                    ;   magnitudes and the sign of a product
+        bpl     :+                      ;   is just "do the two operands agree"
+        eor     #$FF
+        inc     a
+        ldx     #$FF
+:       sta     ACOSV
+        stx     SGC
+        pla
+        jsr     API_SIN
+        ldx     #$00
+        cmp     #$00
+        bpl     :+
+        eor     #$FF
+        inc     a
+        ldx     #$FF
+:       sta     ASINV
+        stx     SGS
+
+        stz     AVI
+        ldy     #$00                    ; Y walks the shape, 2 bytes a vertex
+@vlp:   lda     (SHPL),y                ; mx, split the same way - once per
+        ldx     #$00                    ;   vertex, not once per multiply
+        cmp     #$00
+        bpl     :+
+        eor     #$FF
+        inc     a
+        ldx     #$FF
+:       sta     AMXM
+        stx     SGMX
+        iny
+        lda     (SHPL),y                ; my
+        ldx     #$00
+        cmp     #$00
+        bpl     :+
+        eor     #$FF
+        inc     a
+        ldx     #$FF
+:       sta     AMYM
+        stx     SGMY
+        iny
+        sty     ASHY
+
+        lda     AMXM                    ; px = mx*cos - my*sin
+        sta     MQA
+        lda     ACOSV
+        sta     MQB
+        jsr     qmul
+        ldy     SGMX                    ; negative exactly when the two operands
+        cpy     SGC                     ;   disagreed about their sign
+        beq     :+
+        eor     #$FF
+        inc     a
+:       sta     APX
+        lda     AMYM
+        sta     MQA
+        lda     ASINV
+        sta     MQB
+        jsr     qmul
+        ldy     SGMY
+        cpy     SGS
+        beq     :+
+        eor     #$FF
+        inc     a
+:       sta     ATMP
         sec
-        lda     OBJSXL,x
-        sbc     #16
+        lda     APX
+        sbc     ATMP
+        sta     APX
+
+        lda     AMXM                    ; py = mx*sin + my*cos
+        sta     MQA
+        lda     ASINV
+        sta     MQB
+        jsr     qmul
+        ldy     SGMX
+        cpy     SGS
+        beq     :+
+        eor     #$FF
+        inc     a
+:       sta     APY
+        lda     AMYM
+        sta     MQA
+        lda     ACOSV
+        sta     MQB
+        jsr     qmul
+        ldy     SGMY
+        cpy     SGC
+        beq     :+
+        eor     #$FF
+        inc     a
+:       clc
+        adc     APY
+        sta     APY
+
+        ldx     AVI                     ; screen = centre + the rotated offset,
+        ldy     #$00                    ;   sign-extended into 16 bits
+        bit     APX
+        bpl     :+
+        ldy     #$FF
+:       clc
+        lda     CX2L
+        adc     APX
+        sta     AVXL,x
+        tya
+        adc     CX2H
+        sta     AVXH,x
+        ldy     #$00
+        bit     APY
+        bpl     :+
+        ldy     #$FF
+:       clc
+        lda     CY2L
+        adc     APY
+        sta     AVYL,x
+        tya
+        adc     CY2H
+        sta     AVYH,x
+
+        inc     AVI
+        ldy     ASHY
+        lda     AVI
+        cmp     AVN
+        beq     :+
+        jmp     @vlp                    ; (out of branch range - 12 vertices of
+:                                       ;  transform is a long loop body)
+
+        inc     ADRAWN
+        lda     ACLIP
+        bne     @clipped
+
+        lda     AVN                     ; the cheap path: one closed chain, so
+        sta     DLBUF                   ;   AVN segments over AVN+1 points
+        ldx     #$00
+        ldy     #$01
+@bl:    lda     AVXL,x
+        sta     DLBUF,y
+        iny
+        lda     AVYL,x
+        sta     DLBUF,y
+        iny
+        inx
+        cpx     AVN
+        bne     @bl
+        lda     AVXL                    ; ...closing back onto vertex 0
+        sta     DLBUF,y
+        iny
+        lda     AVYL
+        sta     DLBUF,y
+        lda     #<DLBUF
+        sta     OS_ARG+0
+        lda     #>DLBUF
         sta     OS_ARG+1
-        lda     OBJSXH,x
-        sbc     #$00
+        jmp     API_GPU_DOTLINES
+
+; The rock straddles an edge, so every segment has to be classified. This is
+; worth the trouble: gpu_dotline_clip measures at ~3,000 cycles a call - it is a
+; full Cohen-Sutherland with a divide per crossing - and on a rock that is only
+; half off screen most segments never touch an edge at all. So build an outcode
+; per vertex first (which edges it is outside of), and then per segment:
+;   both codes zero        -> plain gpu_dotline, byte coordinates, ~200 cycles
+;   codes share a bit      -> both ends beyond the SAME edge, so the whole
+;                             segment is: emit nothing, and pay nothing
+;   anything else          -> the real clip, which is now a handful of segments
+;                             a frame instead of every segment of every rock
+@clipped:
+        ldx     #$00
+@oc:    stz     ATMP
+        lda     AVXH,x
+        bmi     @oxlo
+        beq     @oxin
+@oxhi:  lda     #$02                    ; x > 199
+        sta     ATMP
+        bra     @ocy
+@oxlo:  lda     #$01                    ; x < 0
+        sta     ATMP
+        bra     @ocy
+@oxin:  lda     AVXL,x
+        cmp     #200
+        bcs     @oxhi
+@ocy:   lda     AVYH,x
+        bmi     @oylo
+        beq     @oyin
+@oyhi:  lda     ATMP                    ; y > 149
+        ora     #$08
+        sta     ATMP
+        bra     @ocst
+@oylo:  lda     ATMP                    ; y < 0
+        ora     #$04
+        sta     ATMP
+        bra     @ocst
+@oyin:  lda     AVYL,x
+        cmp     #150
+        bcs     @oyhi
+@ocst:  lda     ATMP
+        sta     AOC,x
+        inx
+        cpx     AVN
+        bne     @oc
+
+        stz     AVI
+@cl:    ldx     AVI
+        lda     AOC,x
+        sta     ATMP
+        inx                             ; ...and the far end, wrapping round
+        cpx     AVN
+        bne     :+
+        ldx     #$00
+:       stx     AFAR
+        lda     AOC,x
+        bit     ATMP
+        bne     @clnext                 ; the two share an edge they are outside
+        ora     ATMP
+        bne     @clip1
+        ldx     AVI                     ; both ends on screen: the cheap builder
+        lda     AVXL,x
+        sta     OS_ARG+0
+        lda     AVYL,x
+        sta     OS_ARG+1
+        ldx     AFAR
+        lda     AVXL,x
         sta     OS_ARG+2
-        sec
-        lda     OBJSYL,x
-        sbc     #13
+        lda     AVYL,x
         sta     OS_ARG+3
-        lda     OBJSYH,x
-        sbc     #$00
+        jsr     API_GPU_DOTLINE
+        bra     @clnext
+@clip1: ldx     AVI
+        lda     AVXL,x
+        sta     OS_ARG+0
+        lda     AVXH,x
+        sta     OS_ARG+1
+        lda     AVYL,x
+        sta     OS_ARG+2
+        lda     AVYH,x
+        sta     OS_ARG+3
+        ldx     AFAR
+        lda     AVXL,x
         sta     OS_ARG+4
-        jsr     API_GPU_SPRITE
-@next:  inc     OBJI
-        lda     OBJI
-        cmp     #NOBJ
-        bne     @lp
+        lda     AVXH,x
+        sta     OS_ARG+5
+        lda     AVYL,x
+        sta     OS_ARG+6
+        lda     AVYH,x
+        sta     OS_ARG+7
+        jsr     API_GPU_DOTLINE_CLIP
+@clnext:
+        inc     AVI
+        lda     AVI
+        cmp     AVN
+        bne     @cl
+        rts
+
+; -----------------------------------------------------------------------------
+; span_test - where does [C-R, C+R] sit against the field 0..LIM?
+; -----------------------------------------------------------------------------
+;   in:  A / Y = C (signed 16), ARAD = R, X = LIM
+;   out: A = 0 wholly inside, 1 crosses an edge, 2 misses the field entirely
+; -----------------------------------------------------------------------------
+span_test:
+        sta     SPL
+        sty     SPH
+        stx     SPLIM
+        clc                             ; hi = C + R
+        lda     SPL
+        adc     ARAD
+        sta     SPHIL
+        lda     SPH
+        adc     #$00
+        sta     SPHIH
+        bmi     @miss                   ; the whole span is off the low edge
+        sec                             ; lo = C - R
+        lda     SPL
+        sbc     ARAD
+        sta     SPLOL
+        lda     SPH
+        sbc     #$00
+        sta     SPLOH
+        bmi     @cross                  ; lo < 0 <= hi: it straddles that edge
+        bne     @miss                   ; lo >= 256, and LIM is at most 199
+        lda     SPLOL
+        cmp     SPLIM
+        beq     :+
+        bcs     @miss                   ; lo > LIM: off the high edge
+:       lda     SPHIH
+        bne     @cross
+        lda     SPHIL
+        cmp     SPLIM
+        beq     @inside
+        bcs     @cross
+@inside:
+        lda     #$00
+        rts
+@cross: lda     #$01
+        rts
+@miss:  lda     #$02
         rts
 
 emit_ship:
-        stz     OS_ARG+0
+        lda     #SPR_SHIP
+        sta     OS_ARG+0
         ldy     #$00                    ; fb_x = FBCX + offset - 16
         bit     SHOFFH
         bpl     :+
@@ -2087,6 +2898,12 @@ do_hud:
         sta     STR_STA+15
         lda     DEC2
         sta     STR_STA+16
+        lda     ADRAWN
+        jsr     put_dec3
+        lda     DEC1
+        sta     STR_STA+19
+        lda     DEC2
+        sta     STR_STA+20
 
         lda     #<STR_SPD
         ldx     #>STR_SPD
@@ -2264,6 +3081,140 @@ smul16q7:
 ; =============================================================================
         .segment "RODATA"
 
+; --- the ship -----------------------------------------------------------------
+; Generated from assets/png/ship32.png:
+;     python tools/sprgen.py assets/png/ship32.png proto/01_flight/ship32.s \
+;            ship32 --tate
+; --tate pre-rotates the art a quarter turn, because the monitor is on its side
+; and a sprite's width axis runs DOWN the player's screen. Nothing rotates it at
+; runtime; the asset is simply stored turned. It is 32x32 with an overlay plane,
+; which is 256 bytes - exactly one LOAD page, which is why it is 32 and not 30.
+        .include "ship32.s"
+
+; The two sprite slots this cartridge defines, as the four GPU definition pages
+; want them: [slot 0, slot SPR_SHIP] per page. Slot 0 keeps the ROM test sprite
+; ($F400, 32x26, no overlay) so that a wrong id draws something recognisable
+; instead of nothing at all.
+SPRDEF:
+        .byte   $14, SHIP32_TYPE        ; $0300 SPR_TYPE
+        .byte   $00, $00                ; $0400 SPR_PTR_LSB
+        .byte   $F4, SHIP_PAGE          ; $0500 SPR_PTR_MSB
+        .byte   26,  SHIP32_HEIGHT      ; $0600 SPR_HEIGHT
+
+; =============================================================================
+; Asteroids
+; =============================================================================
+; FIVE SIZES, one authored outline each, at 192, 128, 64, 32 and 16 full-res
+; pixels across. The whole point of this pass is to see which of those sizes
+; actually read on a 400x300 screen through a dotted line.
+;
+; Vertices are SIGNED BYTES in HALF-RES pixels, origin-centred, wound in order
+; and closed by the drawing code - so the radius of the 192 rock is 48 here, not
+; 96. That is the space the line ops work in, so the outline needs no scaling at
+; draw time: the transform is one rotation and one add.
+;
+; The vertex COUNT falls with the size - 12, 10, 8, 6, 5 - because a rock 16 px
+; across cannot show more than about five corners anyway, and the small classes
+; are the ones that multiply when rocks start breaking. Five is the floor: four
+; reads as a diamond, which the eye recognises as a shape rather than as a rock.
+; At ~530 cycles a vertex this is also the cheapest LOD knob in the file.
+;
+; They are deliberately hand-editable: change a number, rebuild, look. The only
+; rule is |vertex| <= 127, because qmul indexes its table with |mx| + |cos| and
+; that has to stay inside a byte. At 48 there is room to spare.
+;
+; Shapes are near-circular but irregular - a regular polygon reads as a machined
+; part, and the eye picks the repetition out immediately even while it tumbles.
+SHAPE_N:    .byte   12, 10, 8, 6, 5         ; vertices in each
+SHAPE_R:    .byte   48, 32, 16, 8, 4        ; and the radius that bounds it
+
+; The radius the STARS go out under, which is NOT the bounding one. A rock is
+; irregular, so its vertices sit anywhere between about 0.66 and 1.0 of the
+; bound: suppress out to the bound and there is a starless halo in every bay of
+; the outline; suppress to the smallest vertex and stars shine through every
+; point of it. These are the MEAN vertex radius of each shape, ~0.82 of the
+; bound, which splits the error - a little leak at the points, a little halo in
+; the bays, neither of them large. Tune by eye; preview.py measures both errors
+; against the real polygon on every run.
+SHAPE_OCC:  .byte   39, 26, 13, 7, 3
+SHAPE_LO:   .byte   <SHP192, <SHP128, <SHP64, <SHP32, <SHP16
+SHAPE_HI:   .byte   >SHP192, >SHP128, >SHP64, >SHP32, >SHP16
+
+; 192 x 192 full-res -> radius 48 half-res, 12 vertices
+SHP192: .byte      44,     2,    35,    20,    25,    41,     2,    34
+        .byte    <-16,    32,  <-30,    20,  <-37,     4,  <-37,  <-18
+        .byte    <-19,  <-27,   <-4,  <-40,    21,  <-38,    35,  <-16
+
+; 128 x 128 -> radius 32, 10 vertices
+SHP128: .byte      29,   <-4,    19,    17,     6,    24,  <-13,    27
+        .byte    <-27,    16,  <-27,     3,  <-23,  <-19,   <-8,  <-21
+        .byte       8,  <-21,    18,  <-11
+
+; 64 x 64 -> radius 16, 8 vertices
+SHP64:  .byte      13,     0,    11,     8,     0,    13,  <-13,     9
+        .byte    <-12,   <-2,  <-11,   <-7,   <-2,  <-14,     7,   <-9
+
+; 32 x 32 -> radius 8, 6 vertices
+SHP32:  .byte       6,   <-1,     2,     6,   <-3,     7,   <-6,     2
+        .byte     <-3,   <-7,     2,   <-5
+
+; 16 x 16 -> radius 4, 5 vertices. At this size a half-res pixel is a quarter of
+; the whole rock, so the outline is a lumpy pentagon and its rotation is visibly
+; quantised. That is the measurement, not a defect - and five points is the floor:
+; four would read as a diamond, which the eye picks out as a shape rather than as
+; a rock.
+SHP16:  .byte       4,     0,     2,     3,   <-2,     2,   <-3,   <-1
+        .byte       1,   <-3
+
+; The size mix, drawn with three bits of the LFSR: eight tickets over five
+; classes, weighted away from the two biggest. Edit this to change how the field
+; feels without touching any code.
+SHAPE_PICK: .byte  0, 1, 2, 3, 4, 2, 3, 4
+
+; Drift velocities, signed 8.8 world units per frame. 16 units = 1 full-res pixel
+; and the frame is 60.317 Hz, so 1.0 here is 3.77 px/s. FOUR hand-written vectors
+; per size class, picked by (index & 3): hardcoded, not random, so the field is
+; the same every run and any oddity in it can be reproduced. Big rocks are slow;
+; the 16-px chips are the fastest thing in the world that is not the ship.
+;                 vx        vy            class / px/s
+AST_VEL:
+        .word    $0220,  $0090           ; 192:  8.0 / 1.3
+        .word   $FF20,   $01C0           ;      -3.4 / 6.6
+        .word    $0100,  $FE60           ;       3.8 / -6.1
+        .word   $FEB0,   $FF60           ;      -5.0 / -2.4
+        .word    $03B0,  $FF40           ; 128: 14.0 / -2.8
+        .word   $FD60,   $0180           ;     -10.0 / 5.7
+        .word    $0140,  $0340           ;       4.7 / 12.3
+        .word   $FE80,   $FD90           ;      -5.6 / -9.3
+        .word    $0000,  $05D0           ;  64:  0.0 / 22.0
+        .word   $FA80,   $0100           ;     -20.6 / 3.8
+        .word    $0480,  $FBC0           ;      17.0 / -15.9
+        .word    $0300,  $0500           ;      11.3 / 18.9
+        .word    $0900,  $0180           ;  32: 34.0 / 5.7
+        .word   $F800,   $FE00           ;     -30.2 / -7.5
+        .word    $0200,  $F780           ;       7.5 / -32.1
+        .word   $FC40,   $0740           ;     -14.2 / 27.4
+        .word    $0D50,  $FE00           ;  16: 50.0 / -7.5
+        .word   $F480,   $0400           ;     -43.4 / 15.1
+        .word    $0500,  $0C00           ;      18.9 / 45.3
+        .word   $FA00,   $F600           ;     -22.6 / -37.7
+
+; Spin rates, signed 8.8 BRAD per frame, one per size class. A full turn is 256
+; brad, so 1.00 here is 256 frames = 4.2 s per revolution. The sign is the
+; direction, and it alternates on purpose so a screen with several sizes on it
+; reads as a tumbling field rather than a carousel.
+;                    brad/frame   seconds per revolution
+AST_SPIN:
+        .word   $0018           ;   0.09    45 s   - the 192 barely turns
+        .word   $FFB0           ;  -0.31    13.6 s
+        .word   $0090           ;   0.56     7.5 s
+        .word   $FF00           ;  -1.00     4.2 s
+        .word   $0180           ;   1.50     2.8 s - the chips are frantic
+
+; Starting spin phases, spread over the circle by (index & 7). Hardcoded for the
+; same reason the velocities are: a reproducible field.
+AST_PHASE:  .byte   0, 32, 64, 96, 128, 160, 192, 224
+
 ; Speed tiers, in world units per frame. 16 units = 1 full-res pixel and the
 ; frame is 60.317 Hz, so 16 units/frame = 60 px/s. The top tier crosses the
 ; 400-pixel screen height in about a second, which is the fastest that still
@@ -2323,7 +3274,7 @@ TSCALE_TXT: .byte   "x1.12", "x1.25", "x1.50"
 TPL_SPD:    .byte   "SPD +000 PX/S", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 TPL_TRN:    .byte   "TURN 2 2122 MS/REV R0", 0, 0, 0
 TPL_HDG:    .byte   "HDG $00", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-TPL_STA:    .byte   "STARS 000/088 M00", 0, 0, 0, 0, 0, 0, 0
+TPL_STA:    .byte   "STARS 000/088 M00 A00", 0, 0, 0
 TPL_SCL:    .byte   "TSCALE OFF", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 TPL_SCL2:   .byte   "TSCALE 0 MAX x1.00", 0, 0, 0, 0, 0, 0
 

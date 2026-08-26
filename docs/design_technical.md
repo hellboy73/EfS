@@ -180,14 +180,99 @@ camera angle before the matrix is built, so a spinning asteroid still costs one
 matrix, not two transforms.
 
 Per vertex that is 4 multiplies. `mul16` at `$FF72` is a few hundred cycles, which
-would cap the scene well under 100 vertices/frame. **The engine will therefore use
-a quarter-square multiply table** — `f(x) = x*x/4`, `a*b = f(a+b) - f(a-b)` — which
-turns a signed 8x8 -> 16 multiply into two table lookups and a subtract, on the
-order of 50-70 cycles. Cost per vertex drops to roughly 250-300 cycles, so a scene
-of ~160 transformed vertices (say 20 asteroids of 8 points) lands around 45k
-cycles — roughly a fifth of the frame budget, leaving room for physics, input,
-audio and list building. Table cost is 2 x 512 bytes of RAM, built once at boot.
-**(TBM)**
+would cap the scene well under 100 vertices/frame. **The engine therefore uses a
+quarter-square multiply table** — `f(x) = x*x/4`, `a*b = f(a+b) - f(a-b)`, exact
+because `a+b` and `a-b` always have the same parity so the two floors cancel —
+which turns the multiply into two table lookups and a subtract.
+
+**MEASURED** in `proto/01_flight` (see its README, finding 16):
+
+| | |
+|---|---|
+| the multiply | **~60 cycles**, magnitudes in and out |
+| per transformed vertex | **~530 cycles** (4 multiplies = 240; the rest is 2 magnitude splits, 2 sums, and a 16-bit add per axis) |
+| a 12-vertex rock, all in | **~8,000 cycles** including classification and emission |
+| table cost | **2 × 256 bytes**, not 2 × 512 |
+
+Two things the original estimate got wrong, both in the same direction:
+
+- **One 256-entry table is enough.** Only *magnitudes* are indexed, and both are
+  — 127, so `a+b` never leaves a byte. The second copy of the table holds
+  `f(x) + 64` and does the `>>7`'s rounding for free by being the minuend — so
+  the 512 bytes saved get spent again, on speed rather than on range.
+- **Signs must be stripped OUTSIDE the multiply.** A version that took signed
+  operands and normalised them internally cost ~130 cycles, more than twice the
+  estimate. Split the trig once per object and the coordinate once per vertex,
+  and put the sign back on the product with a compare of the two flags.
+
+So 250-300 cycles a vertex was optimistic by about 2×; ~160 transformed
+vertices is ~85k cycles, over a third of the budget rather than a fifth. The
+practical ceiling is nearer **10 rocks of 10 points** than 20 of 8.
+
+### 4.5a The object CENTRE needs no multiply at all
+
+The four multiplies above are the price of a **vertex**, whose coordinates are
+signed bytes. An object's *centre* is a different problem: the delta is a 16-bit
+world coordinate, so neither the quarter-square table (8-bit operands) nor the
+starfield's `ROT` tables (a byte index) appear to fit it, and the proto paid
+`smul_core` at ~300 cycles a product for it.
+
+They do fit it. `ROT[i] = signed(i)*coef/128` is **linear**, so it splits:
+
+```
+delta = hi*256 + lo   ->   delta*coef/128 = 256*ROT[hi] + ROT[lo]
+```
+
+and because the entries are 8.8, `256 * ROT[hi]` is not a shift — the two table
+bytes **are** the 16-bit result, fraction byte low. `lo` is unsigned where the
+table index is signed, so `lo >= 128` borrows the missing 256 from `hi+1`.
+
+| | |
+|---|---|
+| per product | **~65 cycles**, against ~300 for `smul_core` |
+| accuracy | *better* — nothing truncates on the way through, and the low entry's fraction byte rounds the result |
+| extra cost | none. The tables already exist for the starfield |
+
+This is what makes the **camera transform of a whole object field affordable**,
+and it applies to anything positioned in world coordinates: object centres, the
+radar's blips, and any effect that lives out in the world rather than on a
+sprite. Measured in `proto/01_flight`: `smul_core` fell from 16,800 cycles a
+frame to 2,700, and the frame from 106,700 to 66,500.
+
+**The tables belong to the camera, not to the starfield.** The proto built them
+inside its star rebase, which runs after the object pass, so on a turning frame
+the objects transformed against the previous frame's heading. They are built in
+`do_camera` now, still only on frames where the heading moved — ~15k cycles for
+the pair, which is not something to spend speculatively.
+
+**Consequence for zoom (4.4):** the tables carry rotation only, at scale 1. Zoom
+must therefore be applied *after* them, per object, and NOT folded into the
+table coefficients: a smooth zoom moves the scale every frame, and rebuilding
+four 256-byte tables every frame costs more than the multiplies it saves at any
+plausible object count. For a rock's **outline** the scale folds into the
+per-rock `cos`/`sin` instead — two multiplies per rock, none per vertex — and
+that stays inside the quarter-square table's 127 limit only as long as zoom
+never magnifies (`s <= 1`).
+
+### 4.5b The real cost is the objects you cannot see
+
+The larger lesson from the proto is that neither of the above was the dominant
+term. A field of N objects pays a position integrate and a cull for **every**
+one of them, every frame, and a world of ~140 screens means 99% are nowhere near
+the camera. At 200 objects that was 32,000 cycles a frame against ~20,000 for
+every visible outline put together.
+
+The fix is an ordering, not an algorithm: **reject first, move second.** A
+coarse high-byte reject against the ship, before the object has been integrated
+at all, cuts a distant object to ~40 cycles and leaves it stationary. Nothing
+can observe that — there are no off-camera collisions and no outline is drawn —
+and it starts moving again when the camera comes near. Measured: 32,000 -> 12,300.
+
+Beyond ~250 objects (a byte index) even 40 cycles each stops being free, and the
+answer is spatial bucketing: with 16-bit wrapping coordinates the cell index is
+the top nibble of each high byte, so a 16 × 16 grid of 256-pixel cells costs
+nothing to compute and the wrap is free. **(TBM — not needed until asteroids
+break into fragments.)**
 
 ### 4.6 Pre-rotated shapes — considered, rejected for now
 
@@ -375,8 +460,38 @@ nothing downstream and even saves PPRAM. Two ways to decide it:
   then each star is **one bit test**. Cost becomes *rocks + stars* instead of
   *rocks × stars*, and it stays flat as the star count grows.
 
-The mask is almost certainly the right structure, but the naive version is worth
-measuring first so the mask has a number to beat. **(TBM)**
+**MEASURED** in `proto/01_flight`: the naive version costs **~3,000 cycles on a
+median frame and ~6,000 on the worst**, with ~40 emitted stars and up to 13
+occluders (one ship + twelve rocks). That is 1.3% and 2.5% of the frame — so
+the mask has a very low number to beat, and **the naive test is good enough for
+a scene this size**. Two things make it cheap:
+
+- Each occluder carries a **clamped bounding box as well as its disc**. The box
+  is four byte compares and rejects nearly every star; the round test only runs
+  on what is inside the box.
+- The square comes out of the **quarter-square table** already built for the
+  rotation: `f(x) = x*x/4`, so `x*x = f(2x)`, and `2 * 48` is well inside a byte
+  of index. Two lookups, an add and a 16-bit compare.
+
+The mask becomes the right structure when *rocks* × *stars* grows — zoom-out
+puts more rocks on camera, and fragments multiply them. Revisit then. **(TBM at
+20+ rocks.)**
+
+**The suppression radius is not the bounding radius.** An irregular outline's
+vertices sit between roughly 0.66 and 1.0 of the bound, so the choice trades two
+errors against each other: *leak* (a star inside the outline that survives) and
+*halo* (a star suppressed in open space beside it). Measured against the drawn
+polygon, per rock area:
+
+| radius used | leak | halo |
+|---|---:|---:|
+| bounding (1.00 R) | 0% | ~35% |
+| **mean vertex (0.82 R)** | **6%** | **10%** |
+
+A bounding **box** is worse than either: a quarter of it is corner. The mean
+vertex radius is what the proto ships, authored per shape in a `SHAPE_OCC`
+table — which is also where the **collision radius** should come from, so that
+what looks solid and what actually hits you are the same circle.
 
 Two details that follow:
 
@@ -384,14 +499,13 @@ Two details that follow:
   starfield around a round rock reads as a rectangle and is worse than the
   see-through problem it fixes. Rasterise per cell-row with an x-span.
 
-  A disc is still only an approximation: the drawn outline is deliberately
-  irregular, so a star sitting in a concave notch survives when it should not,
-  and one just outside a lobe dies when it should not. Both errors are a few
-  pixels at the rim of a moving object and neither reads on screen. What matters
-  more is that the occlusion disc uses the **same radius as the collision
-  circle** (7.3), so what looks solid and what actually hits you are the same
-  shape — a rock that visibly swallows a star but lets a bullet through would be
-  a real complaint.
+  A disc is still only an approximation, and the measured size of that
+  approximation is in the table above: with the mean vertex radius, 6% of the
+  rock leaks and 10% of its area is halo. Both errors are a few pixels at the rim
+  of a moving object and neither reads on screen. What matters more is that the
+  occlusion disc uses the **same radius as the collision circle** (7.3), so what
+  looks solid and what actually hits you are the same shape — a rock that
+  visibly swallows a star but lets a bullet through would be a real complaint.
 - **Sprites do not need this.** A sprite can carry an overlay (black) plane that
   masks whatever is under it, so sprite-based objects occlude for free. Only the
   vector layer needs the mask — which is another quiet argument for the sprite LOD

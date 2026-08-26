@@ -82,11 +82,15 @@ redone once assets have real sizes. The bank register reaches 1 MB, so growing t
 ## Prototypes
 
 Before the game there are benches. [`proto/01_flight`](proto/01_flight/) is the
-first: the camera, the speed tiers and the starfield on a joystick, with a live
-readout, so the handling can be decided by flying it rather than by guessing.
-It already settled two things — Model B is worth 2.5x on this workload, and the
-text opcodes erase what is under them — and it leaves the handling numbers open
-for exactly the reason it exists.
+first: the camera, the speed tiers, the starfield and a field of 200 drifting,
+spinning asteroids on a joystick, with a live readout, so the handling can be
+decided by flying it rather than by guessing. Nothing collides with anything
+yet — the point is to look at it.
+
+It has already settled several things — Model B is worth 2.5x on this workload,
+the text opcodes erase what is under them, and the quarter-square multiply the
+design assumed costs about twice what the design assumed — and it leaves the
+handling numbers open for exactly the reason it exists.
 
 ## Building
 

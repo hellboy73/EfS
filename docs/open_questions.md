@@ -108,11 +108,26 @@ measured cost of both paths.
 **D2. Number of pre-scaled sprite steps (TBD).** How many sizes per object type,
 which multiplies sprite ROM.
 
-**D3. Clipped polyline GPU opcode (TBD).** Whether to add an `N`-point clipped
-polyline to the MAD-65 GPU firmware. Would roughly halve PPRAM traffic for asteroid
-outlines versus per-edge `gpu_dotline_clip`. This is a **firmware** change in the
-MAD-65 repo (new opcode + builder + jump-table entry + py65 test), so it needs to
-be worth it — measure the per-edge path first.
+**D3. Clipped polyline GPU opcode (TBD — now with numbers).** Whether to add an
+`N`-point clipped polyline to the MAD-65 GPU firmware. This is a **firmware**
+change in the MAD-65 repo (new opcode + builder + jump-table entry + py65 test),
+so it needs to be worth it. Proto 01 measured the per-edge path:
+
+- **PPRAM is not the argument.** A whole frame of the bench is 281 bytes of the
+  2047-byte list, 14%. Halving the outline traffic buys nothing that is scarce.
+- **CPU1 cycles are.** `gpu_dotline_clip` costs **~3,000 cycles a call** — it is
+  a real Cohen-Sutherland with a divide per crossing. Sending every edge of
+  every rock through it put a 7-rock frame ~15% over budget on its own.
+- **Most of that is avoidable in the cartridge.** Proto 01 emits a rock wholly
+  on screen as one unclipped `DOT_LINES` chain, and for a rock that straddles an
+  edge computes per-vertex outcodes and sends only the segments that actually
+  cross to the clip builder — both-ends-inside goes to plain `gpu_dotline`
+  (~200 cycles), both-ends-past-the-same-edge is dropped for free.
+
+So the question is no longer "would a clipped polyline save PPRAM" (it would,
+and it does not matter) but **"can it clip a chain for less than ~3,000 cycles a
+crossing edge"**. If the answer is no, the outcode pre-pass in the cartridge is
+the cheaper fix and the firmware stays as it is.
 
 **D8. Star size and lattice (TBD).** `DOT_PIXELS` draws single pixels but takes
 half-res coordinates, so stars land only on even framebuffer pixels - a 2-pixel
@@ -152,12 +167,22 @@ What is still open: **how many lines** (each one added slows every other line
 down — a fourth makes it 8 frames), and **where** they go, since 300 x 400 is
 tall and narrow and the HUD competes with look-ahead.
 
-**D6. Star occlusion behind asteroids (TBM).** Rocks are dot-line outlines and are
-therefore hollow; stars must be suppressed where a rock covers them or the rock
-reads as a wire hoop. Naive per-star × per-rock testing vs a coarse disc-rasterised
-occlusion mask — see `design_technical.md` 5.4. Measure the naive version first so
-the mask has a number to beat. The mask resolution (8 × 8 half-res pixels per cell
-= 60 bytes) is itself a **(TBD)**.
+**D6. Star occlusion behind asteroids (SETTLED for now — naive disc test).**
+Rocks are dot-line outlines and are therefore hollow; stars must be suppressed
+where a rock covers them or the rock reads as a wire hoop. Proto 01 does the
+naive per-star × per-rock test, with a clamped bounding box as the cheap reject
+and the quarter-square table doing the squares, and it costs **~3,000 cycles on
+a median frame, ~6,000 on the worst** — 1.3% and 2.5% of budget at 40 stars and
+up to 13 occluders. Good enough; folded into `design_technical.md` 5.4 along
+with the leak/halo measurement that sets the suppression radius at the shape's
+**mean vertex radius**, not its bound.
+
+What stays open: the **coarse occlusion mask** (rocks + stars instead of rocks
+× stars, 60 bytes at 8 × 8 half-res pixels per cell). It only starts to pay
+when the product grows — zoom-out puts more rocks on camera and fragments
+multiply them — so it is a **(TBM at 20+ rocks)**, and its resolution is a
+**(TBD)**. Also open: whether the suppression radius and the **collision radius**
+are literally the same number (5.4 argues they should be).
 
 ---
 

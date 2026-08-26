@@ -9,7 +9,7 @@ ROOT = ../..
 
 all: proto01.bin
 
-proto01.bin: header.s bootstrap.s main.s mad65.inc cart.cfg
+proto01.bin: header.s bootstrap.s main.s ship32.s mad65.inc cart.cfg
 	cl65 -t none -C cart.cfg -o $@ header.s bootstrap.s main.s
 
 run: proto01.bin
