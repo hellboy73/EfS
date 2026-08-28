@@ -79,18 +79,32 @@ is not visibly steppy it is free; if it is, the design should say 256.
 
 ## C. Camera and zoom
 
-**C1. Zoom range (TBM).** Reference zoom is 16 units/px at standstill. Top-speed
-zoom of 32 (2x out) vs 48 (3x out) vs 64 (4x out) changes how small objects get and
-therefore where the sprite LOD crossover has to sit. Constrained by C2.
+**C1. Zoom range (TBM — 2x is in and flying).** Reference zoom is 16 units/px
+at standstill. Proto 01 now ramps to **2x out at the top tier**, per speed tier
+and eased, and the whole curve is one line (`ZOOM_RZ` in `main.s`), so 3x or a
+step at +150 is an edit and not a rewrite. What that costs is measured: the
+visible-object count scales as the **square** of the zoom, so 2x out means ~4x
+the objects through the cull, and it took `NOBJ` from 200 down to 120 to keep the
+worst frame under budget (218,200 cycles, 92%). 3x would be ~9x and needs the
+spatial bucketing of E1 first. Constrained by C2.
 
 **C2. Legibility floor (TBM).** At maximum zoom-out, is a small asteroid still
 readable in 1-bit at 300 x 400? This sets the hard limit on C1 and is a
 look-at-the-screen decision, not a calculation.
 
-**C3. Ship screen-Y range (TBM).** Built in proto 01: centred at rest, +120 px
-below centre at +350, -80 px above it at full reverse, eased. Needs flying to
-settle whether the range is right and whether it should be linear in speed (it is
-now) or weighted toward the fast end.
+**C3. Ship screen-Y range (TBM).** Built in proto 01: **40 px below centre at
+rest** (20% of the half-height — dead centre gives as much screen behind as
+ahead, and ahead is where you are going), +126 at +350, -40 at full reverse,
+eased. Needs flying to settle whether the range is right and whether it should be
+linear in speed (it is now) or weighted toward the fast end.
+
+Two things the proto pinned down. **127 is a hard ceiling**, not a taste
+judgement: the offset is a signed byte and the first cut ran to 140, wrapped, and
+threw the ship to the top of the screen. And the offset is not free — the star
+and mote camera point rides `SHOFF` ahead of the ship, so lowering the ship pushes
+that sample nearer the star layer's 128-unit reach and measurably increases the
+churn at the park boundary (wrong-way star sweeps went from 8 to 13 in 1,900).
+Small, but it is the reason a bigger rest offset is not simply better.
 
 **C4. Zoom quantisation (TBD).** Zoom is conceptually smooth, but if the sprite LOD
 set is small the *sprite* scale must snap to the available sizes while vector

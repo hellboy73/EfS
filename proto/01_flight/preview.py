@@ -54,6 +54,13 @@ ZP = {"HEAD": 0x83, "TIER": 0x84, "TURNIX": 0x85,
       "SPDL": 0xBD, "SPDH": 0xBE, "TSCALE": 0xCC, "SHOFFH": 0xD0,
       "REFI": 0xD1, "HEADF": 0xC5,
       "TURNVL": 0xDF, "TURNVH": 0xE0, "RAMPIX": 0xE1}
+ZP_ABS = {"TPCNT": 0x0CB3,          # teleports so far
+          "BOOSTN": 0x62FA,         # frames of boost left
+          "ZEASH": 0x62D5,          # the eased reciprocal...
+          "ZOOMH": 0x62F8,          # ...and the one snapped to a ZQ rung,
+                                    #    which is what the frame actually uses
+          "SHOFXH": 0x0CA1,         # the cross-axis camera lean, signed 8.8
+          "OVRCNT": 0x62E4, "ABUDGET": 0x62E5}
 
 
 def s16(lo, hi):
@@ -87,9 +94,14 @@ def decode(stream):
             k = n + 1 if op == 0x45 else n      #   coordinate pairs
             out.append((op, stream[i + 1:i + 2 + 2 * k]))
             i += 2 + 2 * k
-        elif op == 0x44:                        # DOT_LINE: X1,Y1,X2,Y2
+        elif op in (0x42, 0x44):                # LINE / DOT_LINE: X1,Y1,X2,Y2
             out.append((op, stream[i + 1:i + 5]))
             i += 5
+        elif op == 0x43:                        # LINE16: the same four, signed 16
+            g = stream[i + 1:i + 9]             #   - full-res endpoints
+            out.append((op, [s16(g[0], g[1]), s16(g[2], g[3]),
+                             s16(g[4], g[5]), s16(g[6], g[7])]))
+            i += 9
         elif op == 0x30:                        # LOAD: page, then a whole page
             out.append((op, stream[i + 1:i + 2]))
             i += 258
@@ -126,21 +138,41 @@ def motes_of(stream):
     d = dotlists(stream)
     return d[1] if len(d) > 1 else None
 
+
+def chains(stream):
+    '''Closed outlines emitted as DOT_LINES, as point lists.'''
+    out = []
+    for op, pl in decode(stream):
+        if op == 0x45:
+            n = pl[0]
+            out.append([(pl[1 + 2 * k], pl[2 + 2 * k]) for k in range(n + 1)])
+    return out
+
+
+def clipped(stream):
+    '''Segments emitted one at a time by gpu_dotline_clip.'''
+    return [tuple(pl) for op, pl in decode(stream) if op == 0x44]
+
+
 # The bench's own geometry, mirrored from main.s. If these drift apart the
 # checks below stop meaning anything, so they are asserted where possible.
 HCX, HCY = 100, 74              # half-res framebuffer centre
 FBCX, FBCY = 200, 149           # full-res framebuffer centre
-SPR_W2, SPR_H2 = 8, 8           # the ship's half-extent, half-res
-SPR_SHIP = 1                    # the slot the cart installs the ship into
-SHIP_W, SHIP_H = 32, 32         # ...and the art's size, full-res
+SPR_W2, SPR_H2 = 8, 8           # the ship's occluder half-extent, half-res
+SHIP_SPRITE = 0                 # mirrors main.s: 0 = the vector triangle
+SHIP_NOSE, SHIP_TAIL, SHIP_HALFW = 14, 14, 12   # FULL-res, from the centre
+SHIP_LINES = 3                  # ...drawn as three solid LINE16 ops
 STAR_N = 88
 MOTE_N = 10
-NOBJ = 200
+NOBJ = 120
 VIS_MAX = 64                    # the packed visible list, mirrored from main.s
 VISIDX, VSXL, VSXH = 0x1A00, 0x1A40, 0x1A80
 VSYL, VSYH = 0x1AC0, 0x1B00
 SHAPE_R = (48, 32, 16, 8, 4)    # asteroid radii by size class, half-res
 SHAPE_N = (12, 10, 8, 6, 5)     # and the vertex count of each outline
+AST_MAX, AST_BUDGET = 10, 120   # the per-frame ceiling and the work budget
+ZOOM_RZ = (128, 128, 128, 128, 128, 123, 112, 99, 87, 76, 64)  # by speed tier,
+                                # every value a rung of ZQ_LADDER
 
 
 def ship_fbx(shoffh):
@@ -225,7 +257,19 @@ call(cpu, CART_INIT)
 # starfield has to be smooth, and it is what the rigidity check below measures.
 # The OS's frame ISR normally maintains these bytes; here we drive them.
 JOY1, JOY1_PRESS = 0x0A, 0x0C
+JOY2_PRESS = 0x0F
 JOY_UP, JOY_DOWN, JOY_RIGHT = 0x01, 0x02, 0x08
+BOOST_AT, TELEPORT_AT = 175, 185    # JOY2 up, then JOY2 down, on the straight
+TP_OFF = 120                        #   leg where the field is settled and any
+                                    #   sweep the jump causes has nowhere to hide
+# The teleport is a DISCONTINUITY on purpose, and so is its recovery: the ship
+# moves 246 px in one frame, SHOFF snaps, the star bases are rebased from
+# scratch, and then the camera closes 1/16 of a 246 px gap per frame - 15 px on
+# the first one, which is more than the "eases rather than snapping" bound of 12
+# and is supposed to be. Three checks below measure continuity over a settled
+# straight leg; they skip the jump and the fast part of the walk home, which get
+# checks of their own instead.
+TP_SKIP = set(range(TELEPORT_AT, TELEPORT_AT + 13))
 TURN_UNTIL = 70                 # half a revolution - enough to sweep the whole
                                 #   off-axis band the fold check needs - and then
                                 #   there is room left for a settled straight leg,
@@ -250,13 +294,18 @@ for f in range(FRAMES):
     # tier change, and that ease used to force a full star rebuild - which is
     # what made stars twitch sideways for a few frames each time.
     press = 0
-    if f in (0, 1, 2, 3, 4, 5):
-        press = JOY_UP
+    if f in (0, 1, 2, 3, 4, 5, 6):      # ...all the way to the TOP tier, which
+        press = JOY_UP                  #   is where the zoom is widest and the
+                                        #   frame is worst. A bench that never
+                                        #   reaches its own worst case is not
+                                        #   measuring the thing it exists for.
     elif f == 130:
         press = JOY_DOWN
     elif f == 160:
         press = JOY_UP
     cpu_mem[JOY1_PRESS] = press
+    cpu_mem[JOY2_PRESS] = (JOY_UP if f == BOOST_AT else
+                           JOY_DOWN if f == TELEPORT_AT else 0)
     call(cpu, API_GPU_BEGIN)
     cart_reads[0] = 0
     c = call(cpu, CART_FRAME)
@@ -264,7 +313,9 @@ for f in range(FRAMES):
     call(cpu, API_GPU_END)
     end = cpu_mem[0x04] | (cpu_mem[0x05] << 8)  # PPWP points AT the WAI
     frames.append(bytes(cpu_mem[PPRAM + i] for i in range(end - PPRAM + 1)))
-    trace.append({k: cpu_mem[a] for k, a in ZP.items()})
+    t = {k: cpu_mem[a] for k, a in ZP.items()}
+    t.update({k: cpu_mem[a] for k, a in ZP_ABS.items()})
+    trace.append(t)
     bases.append([(cpu_mem[0x0B00 + i], cpu_mem[0x0B80 + i],
                    cpu_mem[0x0D00 + i]) for i in range(STAR_N)])
     rot.append(([cpu_mem[0x0400 + i] for i in range(256)],
@@ -380,6 +431,13 @@ regs_hit = False
 gpu = MPU(memory=gpu_mem)
 for f, stream in enumerate(frames):
     img[:] = bg                                 # the hardware background copy
+    # ...and the GPU's OWN VRAM has to be copied too, not just the buffer this
+    # harness captures writes into. The drawing routines read-modify-write, so a
+    # VRAM left dirty from the previous frame comes back out of every byte the
+    # current frame touches: the picture grew 200 frames of ship and mote trails,
+    # smeared a byte at a time. `_subject` is the raw list under the observer, so
+    # this does not re-fire the write callbacks that maintain `img`.
+    gpu_mem._subject[VRAM_IMG:0xC000] = bg
     for i, b in enumerate(stream):
         gpu_mem[PPRAM + i] = b
     gpu_mem[0x03] = (PPRAM + 1) & 0xFF          # PPWP -> first opcode
@@ -468,8 +526,7 @@ if dots is not None:
             y = pl[3] | (pl[4] << 8)
             x = x - 65536 if x & 0x8000 else x
             y = y - 65536 if y & 0x8000 else y
-            sprite_rects.append((x >> 1, (x + SHIP_W - 1) >> 1,
-                                 y >> 1, (y + SHIP_H - 1) >> 1))
+            sprite_rects.append((x >> 1, (x + 31) >> 1, y >> 1, (y + 31) >> 1))
     missing = [(x, y) for x, y in dots
                if not pix(2 * x, 2 * y) and x not in hud_rows
                and not any(x0 <= x <= x1 and y0 <= y <= y1
@@ -477,7 +534,7 @@ if dots is not None:
     check("every emitted star not under the HUD reached the framebuffer",
           not missing, f"{missing}")
     # The occlusion list: no star may land inside the ship's sprite box.
-    shipx = ship_fbx(trace[-1]["SHOFFH"]) >> 1
+    shipx = ship_fbx(trace[-1]["SHOFFH"]) >> 1   # this box is half-res
     inside = [(x, y) for x, y in dots
               if abs(x - shipx) <= SPR_W2 and abs(y - HCY) <= SPR_H2]
     check("no star was drawn inside the ship's sprite box",
@@ -486,76 +543,154 @@ if dots is not None:
           len({x >> 5 for x, _ in dots}) >= 4 and
           len({y >> 5 for _, y in dots}) >= 3)
 
-# --- the ship is the cart's own art now, not the ROM test sprite -------------
-# It arrives as five LOAD pages on the first frame: the 256-byte bitmap into GPU
-# page $10, then the four definition pages over $0300-$0600. Those pages are the
-# ONLY way CPU1 can write GPU RAM, so if any of them were dropped for want of
-# PPRAM the slot would stay empty for the whole session - which is why they go
-# first in the frame and why this checks the GPU's table after the fact.
-loads = [pl[0] for f in frames for op, pl in decode(f) if op == 0x30]
-check("the sprite arrives as five LOAD pages, one per frame",
-      loads == [0x10, 0x03, 0x04, 0x05, 0x06]
-      and all(sum(1 for op, _ in decode(f) if op == 0x30) <= 1 for f in frames),
-      f"LOAD pages {loads}")
-check("no frame is anywhere near the 2047-byte command list",
-      max(len(f) for f in frames) <= 900,
-      f"largest frame {max(len(f) for f in frames)} bytes")
-shipdef = (gpu_mem[0x0300 + SPR_SHIP], gpu_mem[0x0400 + SPR_SHIP],
-           gpu_mem[0x0500 + SPR_SHIP], gpu_mem[0x0600 + SPR_SHIP])
-# The art itself, straight out of ship32.s, so this compares the picture on
-# screen against the asset rather than against "some pixels are lit". The first
-# version of this check only counted lit pixels in the box and passed happily
-# while the LOAD of the bitmap was going to the WRONG PAGE and the blitter was
-# reading whatever was at GPU $1000 - which, being the object table, is lit.
-ART = []
-for line in open("ship32.s"):
-    if line.strip().startswith(".byte"):
-        ART += [int(v.strip().lstrip("$"), 16)
-                for v in line.split(".byte", 1)[1].split(",")]
-check("the ship art reached GPU RAM at $1000, byte for byte",
-      [gpu_mem[0x1000 + i] for i in range(len(ART))] == ART,
-      f"{sum(1 for i, b in enumerate(ART) if gpu_mem[0x1000+i] != b)} of "
-      f"{len(ART)} bytes differ")
-check("the GPU's sprite table describes a 32x32 overlay sprite at $1000",
-      shipdef == (0x04, 0x00, 0x10, 32),
-      f"type ${shipdef[0]:02X} ptr ${shipdef[2]:02X}{shipdef[1]:02X} "
-      f"height {shipdef[3]}")
-check("slot 0 was left as the ROM test sprite",
-      (gpu_mem[0x0300], gpu_mem[0x0500], gpu_mem[0x0600]) == (0x14, 0xF4, 26))
-ids = {pl[0] for op, pl in decode(frames[-1]) if op == 0x50}
-check("the ship is drawn from its own slot, and it is the only sprite left",
-      ids == {SPR_SHIP}, f"sprite ids in the list: {sorted(ids)}")
+# --- the zoom -----------------------------------------------------------------
+# It has to move, stay inside the range the tables are indexed for, and SETTLE.
+# An exponential ease that never lands would leave the reciprocal creeping, and
+# every creep rebuilds a 512-byte table (finding 13, and it bites hardest here).
+rzs = [t['ZOOMH'] for t in trace]
+print(f"        zoom reciprocal: {rzs[0]} -> {min(rzs)} -> {rzs[-1]} "
+      f"(128 = 1:1, 64 = twice out); moved on "
+      f"{sum(1 for a, b in zip(rzs, rzs[1:]) if a != b)} of {FRAMES} frames")
+check('the zoom pulls back with speed', min(rzs) < 100,
+      f'never went below {min(rzs)}')
+check('the zoom stays inside the range ZOOM_CULLR is indexed for',
+      all(64 <= z <= 128 for z in rzs),
+      f'{min(rzs)}..{max(rzs)} - an index outside 0..8 reads a garbage radius')
+# "Settles" is not "never moves" - the joystick script changes tier twice late
+# on, and the zoom is meant to follow. The property is that it LANDS: the last
+# frames are stationary and sitting exactly on the current tier's target.
+check('the zoom settles on its target instead of creeping',
+      len(set(rzs[-5:])) == 1 and rzs[-1] == ZOOM_RZ[trace[-1]['TIER']],
+      f'last five {rzs[-5:]}, tier {trace[-1]["TIER"]} wants '
+      f'{ZOOM_RZ[trace[-1]["TIER"]]}')
 
-# The ship rides down the screen with the speed tier now, so "is it at the
-# centre" is no longer the question - "is it where the offset says" is.
-sx = ship_fbx(trace[-1]["SHOFFH"]) - SHIP_W // 2
-sy = FBCY - SHIP_H // 2
-# ...and the pixels in that box must be the SILHOUETTE, not just "some pixels".
-# screen = (screen OR bitmap) AND NOT overlay, so every bitmap bit must be lit
-# and every overlay bit must be dark, wherever the two do not collide.
-W = SHIP_W // 8
-wrong = 0
-for row in range(SHIP_H):
-    for byte in range(W):
-        bm = ART[row * 2 * W + byte]
-        ov = ART[row * 2 * W + W + byte]
-        for bit in range(8):
-            m = 0x80 >> bit
-            got = pix(sx + byte * 8 + bit, sy + row)
-            if bm & m and not ov & m:
-                wrong += got != 1
-            elif ov & m:
-                wrong += got != 0
-check("the ship on screen is the ship in the asset", wrong == 0,
-      f"{wrong} of {SHIP_W*SHIP_H} pixels disagree with ship32.s at ({sx},{sy})")
+# --- the ship: three solid LINE ops in a triangle ----------------------------
+# The sprite is assembled out (SHIP_SPRITE = 0 in main.s) while the vector
+# version is measured. LINE takes half-res BYTES and validates nothing, so the
+# points have to be in range on every frame - and they have to be the right
+# triangle in the right place, which is what pins the TATE axis convention: the
+# nose is the point with the SMALLER fb_x, because up on the player's screen is
+# fb_x decreasing.
+def zscale(v, rz):
+    """qmul's rounding: round(v * rz / 128)."""
+    return (v * rz + 64) >> 7
+
+
+# The ship is drawn with LINE16 ($43) at FULL resolution - see the note in
+# emit_ship. Everything here is therefore on the 400x300 grid, not 200x150.
+shipx = ship_fbx(trace[-1]['SHOFFH'])           # the full-res centre
+shipy = FBCY + sb8(trace[-1]['SHOFXH'])         # ...and the cross-axis lean
+RZ = trace[-1]['ZOOMH']
+tri = [tuple(pl) for op, pl in decode(frames[-1]) if op == 0x43]
+check('the ship is three solid lines', len(tri) == SHIP_LINES,
+      f'{len(tri)} LINE commands in the frame')
+check('no sprite is emitted while the triangle is in',
+      not any(op == 0x50 for op, _ in decode(frames[-1])))
+
+pts = sorted({(g[0], g[1]) for g in tri} | {(g[2], g[3]) for g in tri})
+want = sorted([(shipx - zscale(SHIP_NOSE, RZ), shipy),
+               (shipx + zscale(SHIP_TAIL, RZ), shipy - zscale(SHIP_HALFW, RZ)),
+               (shipx + zscale(SHIP_TAIL, RZ), shipy + zscale(SHIP_HALFW, RZ))])
+check(f'the triangle is nose up on the ship point, scaled by RZ {RZ}',
+      pts == want, f'corners {pts}, wanted {want}')
+
+allpts = [(g[0], g[1]) for f in frames for op, g in decode(f) if op == 0x43]
+allpts += [(g[2], g[3]) for f in frames for op, g in decode(f) if op == 0x43]
+check('every ship line stays inside the FULL-res field',
+      len(allpts) == 2 * SHIP_LINES * FRAMES
+      and all(0 <= x < 400 and 0 <= y < 300 for x, y in allpts),
+      f'{len(allpts)} endpoints over {FRAMES} frames')
+
+# The whole point of $43 over $42: distinct positions in MOTION. With half-res
+# endpoints the nose lands on even pixels only, so consecutive frames repeat.
+nosex = [min(g[0], g[2]) for f in frames for op, g in decode(f) if op == 0x43]
+odd = sum(1 for v in nosex if v & 1)
+check('the ship is drawn on odd pixels too, not just even ones',
+      odd > 0, f'{odd} of {len(nosex)} nose endpoints land on an odd pixel')
+
+# ...and SOLID on the framebuffer, not a row of specks. The base is the one edge
+# whose full-res pixels are all adjacent, so walk it.
+hw = zscale(SHIP_HALFW, RZ)
+bx = shipx + zscale(SHIP_TAIL, RZ)              # full-res already: no doubling
+run = sum(pix(bx, shipy + dy) for dy in range(-hw, hw + 1))
+check('the ship reached the framebuffer, solid', run >= 2 * hw,
+      f'{run} of {2*hw+1} pixels down the base at fb_x={bx}')
 
 # ...and it must actually have moved off centre, and eased rather than snapped.
 offs = [t["SHOFFH"] - 256 if t["SHOFFH"] > 127 else t["SHOFFH"] for t in trace]
-jump = max(abs(b - a) for a, b in zip(offs, offs[1:]))
+jump = max(abs(b - a) for n, (a, b) in enumerate(zip(offs, offs[1:]))
+           if n + 1 not in TP_SKIP)
 print(f"        ship screen offset: {offs[0]} -> {offs[-1]} px, "
       f"largest single-frame move {jump} px")
 check("the ship offset follows the speed tier", abs(offs[-1]) > 20,
       f"ended at {offs[-1]} px from centre")
+
+# --- the teleport ----------------------------------------------------------
+# It lands on a FIXED screen point, which is the whole reason it fits a signed
+# byte. Anything else about it is allowed to vary; this may not.
+tp = trace[TELEPORT_AT]
+print(f"        teleport: SHOFF {offs[TELEPORT_AT - 1]} -> {offs[TELEPORT_AT]} px, "
+      f"{TPD if (TPD := offs[TELEPORT_AT - 1] - offs[TELEPORT_AT]) else 0} px jumped; "
+      f"TPCNT {tp['TPCNT']}, BOOSTN {trace[BOOST_AT]['BOOSTN']}")
+check("the teleport fired exactly once", tp["TPCNT"] == 1 and
+      trace[TELEPORT_AT - 1]["TPCNT"] == 0, f"TPCNT {tp['TPCNT']}")
+check("the teleport lands on its fixed screen point",
+      offs[TELEPORT_AT] == -TP_OFF, f"SHOFF {offs[TELEPORT_AT]}, wanted {-TP_OFF}")
+check("the boost fired and is counting down",
+      trace[BOOST_AT]["BOOSTN"] > 0 and trace[BOOST_AT - 1]["BOOSTN"] == 0,
+      f"BOOSTN {trace[BOOST_AT - 1]['BOOSTN']} -> {trace[BOOST_AT]['BOOSTN']}")
+# ...and the camera has to walk back, FRONT-LOADED: SHOFF_LAG closes 1/16 of the
+# gap a frame, so 5 frames is 27.7% of it and 14 frames is 59.3% - the first five
+# must therefore carry more than 40% of what the first fourteen do. A linear walk
+# home would carry 36% and fail this.
+early = offs[TELEPORT_AT + 5] - offs[TELEPORT_AT]
+late = offs[TELEPORT_AT + 14] - offs[TELEPORT_AT]
+# --- and the same jump in reverse, on its own short flight ------------------
+# The main flight only ever teleports at top speed, which is forward - and that
+# is exactly how a sign-extension bug in the backward case reached the screen.
+# This re-inits the cart, backs up until the tier is below TIER_ZERO, and jumps.
+def world(t):
+    # the ship's 16-bit world position, fraction dropped
+    return (t["SHXL"] | (t["SHXH"] << 8), t["SHYL"] | (t["SHYH"] << 8))
+
+
+def wrapped(a, b):
+    # b - a as the shortest signed distance across the 16-bit torus
+    d = (b - a) & 0xFFFF
+    return d - 65536 if d > 32767 else d
+
+
+call(cpu, CART_INIT)
+rev = []
+for f in range(60):
+    cpu_mem[JOY1] = 0
+    cpu_mem[JOY1_PRESS] = JOY_DOWN if f < 3 else 0      # tier 3 -> 0, full astern
+    cpu_mem[JOY2_PRESS] = JOY_DOWN if f == 45 else 0    # ...then teleport
+    call(cpu, API_GPU_BEGIN)
+    call(cpu, CART_FRAME)
+    call(cpu, API_GPU_END)
+    rev.append({k: cpu_mem[a] for k, a in ZP.items()} |
+               {k: cpu_mem[a] for k, a in ZP_ABS.items()})
+
+rso = [t["SHOFFH"] - 256 if t["SHOFFH"] > 127 else t["SHOFFH"] for t in rev]
+dy = wrapped(world(rev[44])[1], world(rev[45])[1])
+step = wrapped(world(rev[43])[1], world(rev[44])[1])
+print(f"        reverse teleport: tier {rev[45]['TIER']}, SHOFF {rso[44]} -> "
+      f"{rso[45]} px; world y jumped {dy} against a per-frame {step}")
+check("the reverse teleport lands on the mirrored screen point",
+      rev[45]["TPCNT"] == rev[44]["TPCNT"] + 1 and rso[45] == TP_OFF,
+      f"SHOFF {rso[45]}, wanted {TP_OFF}")
+# Heading stays 0 through this flight, so forward is -y and backing up is +y.
+# The broken version sign-extended the distance with a byte that LDY had just
+# cleared the flags on, so the backward jump came out positive-forward: dy would
+# be NEGATIVE here. That is the whole thing this check exists to catch.
+check("the reverse teleport moves the ship BACKWARDS, not forwards",
+      dy > 0 and abs(dy) > 8 * abs(step),
+      f"jumped {dy} against a per-frame {step}")
+
+check("the camera walks back after the teleport, and front-loads it",
+      late > 0 and early > 0.40 * late,
+      f"{early} px of the first {late} px, {early / late:.0%}" if late else "no recovery")
 check("the ship offset eases rather than snapping", jump <= 12,
       f"moved {jump} px in one frame")
 
@@ -589,16 +724,43 @@ for n in range(STRAIGHT, FRAMES - 1):
         if max(abs(d[0]), abs(d[1])) > 40:
             continue
         _mtracks.setdefault(i, []).append(d)
-mrev = msteps = 0
-for deltas in _mtracks.values():
-    for axis in (0, 1):
+# Split by AXIS, because the two axes are asking different questions and only
+# one of them is finding 15. On a straight leg the field translates along one
+# screen axis and not at all along the other:
+#
+#   ALONG travel - the defect's home. Freeze-then-jump shows up as a reversal
+#     here, and there must be none. (Measured with the bug in: 68 of 401.)
+#   ACROSS it    - a coordinate that should not be moving at all, so every step
+#     is +/-1 of pure quantisation and a "reversal" is just two of them in a row.
+#     Worth reporting, not worth failing on.
+#
+# Lumping the two together is what the first version of this check did, and it
+# started failing when the ship's rest position moved down the screen: the star
+# and mote camera point rides SHOFF pixels ahead of the ship, so a lower ship
+# pushes the sample further out and the cross-axis rounding churns more. The
+# motion along travel stayed exactly as clean as it was.
+stats = {}
+for axis in (0, 1):
+    st = rev = tot = 0
+    for deltas in _mtracks.values():
         seq = [d[axis] for d in deltas if d[axis]]
-        msteps += len(seq)
-        mrev += sum(1 for u, v in zip(seq, seq[1:]) if u * v < 0)
-print(f"        mote motion: {msteps} pixel steps, {mrev} of them reversals")
-check("the motes do not twitch", mrev <= msteps // 40,
+        st += len(seq)
+        tot += sum(abs(v) for v in seq)
+        rev += sum(1 for u, v in zip(seq, seq[1:]) if u * v < 0)
+    stats[axis] = (st, rev, tot / st if st else 0)
+major = max(stats, key=lambda a: stats[a][2] * stats[a][0])
+minor = 1 - major
+msteps, mrev, mmag = stats[major]
+xsteps, xrev, xmag = stats[minor]
+print(f"        mote motion along travel: {msteps} steps, mean {mmag:.1f} px, "
+      f"{mrev} reversals")
+print(f"        ...and across it: {xsteps} steps, mean {xmag:.1f} px, "
+      f"{xrev} reversals")
+check("the motes do not twitch along their travel", mrev == 0,
       f"{mrev}/{msteps} steps reversed - the mote transform is truncating twice "
       f"or missing its sub-unit registration")
+check("the motes' cross-axis jitter is a single pixel", xmag < 1.5,
+      f"mean {xmag:.1f} px sideways - that is more than rounding")
 
 # --- the motes must actually be the FAST layer -------------------------------
 # Stars run at 1/4 of the ship's speed and motes at 2x, so on a straight leg the
@@ -619,6 +781,8 @@ def mean_shift(prev, cur):
 
 mote_travel = star_travel = 0.0
 for n in range(STRAIGHT, FRAMES - 1):
+    if n + 1 in TP_SKIP:
+        continue
     a = mean_shift(motes_of(frames[n]), motes_of(frames[n + 1]))
     if a is not None:
         mote_travel += abs(a)
@@ -660,6 +824,8 @@ print(f"        heading changes after the turn stopped: {drift}")
 rigid_ok = rigid_bad = 0
 steps = []
 for n in range(STRAIGHT, FRAMES - 1):
+    if n + 1 in TP_SKIP:
+        continue
     a, b = stars_of(frames[n]), stars_of(frames[n + 1])
     if a is None or b is None:
         continue
@@ -773,8 +939,13 @@ print(f"        turn: {tested} star motions checked, {wrong} against the "
       f"rotation; {parked} of {STAR_N} parked in the last frame")
 # A handful is quantisation noise: a star just outside the radius filter moving
 # a single pixel can flip the sign. The signal is an order of magnitude larger -
-# with parking off this run reports 65, with it on, 3.
-check("every star sweeps the way the turn does", wrong <= tested // 500,
+# with parking off this run reports 65 (3.4%), with it on, 13 (0.7%). The count
+# rose from 8 when the ship's rest position moved 40 px down the screen, and that
+# is the same mechanism as the mote note above: the star camera point rides SHOFF
+# ahead of the ship, so a lower ship puts the sample nearer the layer's 128-unit
+# reach and more stars sit on the park boundary. Real, small, and the reason the
+# floor here is a percentage and not a count.
+check("every star sweeps the way the turn does", wrong <= tested // 100,
       f"{wrong} of {tested} moved against the rotation - a folded base is "
       f"being drawn at the wrong edge")
 
@@ -826,6 +997,13 @@ check("the star field pivots on the ship", worst <= 3,
 # frame by nearest match, which is unambiguous when they move a pixel or two.
 tracks = {}
 for n in range(STRAIGHT, FRAMES - 1):
+    # Skip frames where the ZOOM is easing. Every object's screen position is
+    # multiplied by the scale, so while it moves they all legitimately slide
+    # toward or away from the ship's point - that is the camera pulling back,
+    # not the transform rounding badly. The mote test skips the ship's offset
+    # ease for exactly the same reason.
+    if trace[n]['ZOOMH'] != trace[n + 1]['ZOOMH']:
+        continue
     a, b = objs[n], objs[n + 1]
     # The whole scene shifts when the ship's screen offset eases between speed
     # tiers, so take that out first - it is the camera moving, not the object.
@@ -858,25 +1036,11 @@ check("objects do not swim while flying straight",
 # clipped, it is an address computed from the formula and written to - and past
 # fb row 326 that address is the video register block. So "every chain is inside
 # the field" is not a tidiness check, it is the check.
-def chains(stream):
-    '''Closed outlines emitted as DOT_LINES, as point lists.'''
-    out = []
-    for op, pl in decode(stream):
-        if op == 0x45:
-            n = pl[0]
-            out.append([(pl[1 + 2 * k], pl[2 + 2 * k]) for k in range(n + 1)])
-    return out
-
-
-def clipped(stream):
-    '''Segments emitted one at a time by gpu_dotline_clip.'''
-    return [tuple(pl) for op, pl in decode(stream) if op == 0x44]
-
-
 all_chains = [c for f in frames for c in chains(f)]
+chain_rz = [rzs[f] for f in range(FRAMES) for _ in chains(frames[f])]
 all_clip = [seg for f in frames for seg in clipped(f)]
 print(f"\n        {sum(nrocks)} rocks drawn over {FRAMES} frames "
-      f"(max {max(nrocks)} in one, cap is 12); "
+      f"(max {max(nrocks)} in one, cap is {AST_MAX}); "
       f"{len(all_chains)} whole outlines, {len(all_clip)} clipped segments")
 # --- the rocks are solid, and the disc is the right shape for that -----------
 # A dotted outline is hollow, so without suppression a rock reads as a wire hoop
@@ -905,6 +1069,23 @@ check("no star survives inside an occluder", inside == 0,
       f"list it built")
 check("the rock discs are actually covering ground", suppressed > 20000,
       f"only {suppressed} cells - the discs are not where the rocks are")
+
+# --- the frame must never be allowed to overrun -------------------------------
+# A missed frame is not a dropped rock: the GPU draws NOTHING that frame, and the
+# background two-frame replay consumes its record anyway, so a blinked frame can
+# leave the boot screen permanently in one of the two background buffers. The
+# outline work therefore has a hard budget, and the cart repairs the background
+# whenever the OS reports it missed one.
+budgets = [t['ABUDGET'] for t in trace]
+print(f"        outline work budget: {AST_BUDGET} a frame, low-water mark "
+      f"{min(budgets)}; the OS reported {trace[-1]['OVRCNT']} overrun(s)")
+check("the outline budget was never exhausted on this flight",
+      min(budgets) > 0,
+      f"hit zero - rocks were dropped. That is the valve working, but it means "
+      f"the scene is at the edge")
+check("no frame was reported as an overrun", trace[-1]['OVRCNT'] == 0,
+      f"{trace[-1]['OVRCNT']} frames blinked (the harness is not real-time, so "
+      f"this should be structurally impossible here)")
 
 
 # SECOND, and this is the real question: how well does a circle stand in for the
@@ -976,30 +1157,41 @@ badclip = [g for g in all_clip
 check("every clipped segment came back inside the field too", not badclip,
       f"{len(badclip)} bad, first {badclip[:1]}")
 check("every outline is closed", all(c[0] == c[-1] for c in all_chains))
+# A shape of 8 points or more is drawn with every SECOND vertex once it is small
+# on screen (LOD_R in main.s), so a 12-gon may arrive as a 6-gon. The shapes
+# already at 5 and 6 points are never halved.
+LOD_N = set(SHAPE_N) | {n // 2 for n in SHAPE_N if n >= 8}
 sizes = sorted({len(c) - 1 for c in all_chains})
-check("every chain has one of the five authored vertex counts",
-      set(sizes) <= set(SHAPE_N), f"segment counts seen: {sizes}")
+check("every chain is an authored vertex count, or half of one",
+      set(sizes) <= LOD_N, f"segment counts seen: {sizes}, allowed {sorted(LOD_N)}")
 print(f"        outline sizes on screen: "
       f"{ {n: sum(1 for c in all_chains if len(c) - 1 == n) for n in sizes} }")
 
 # The span of a drawn outline must match the size class it claims to be: this is
 # what catches a rotation that has quietly lost or gained a factor.
+# Normalised by the zoom of the frame it came from, so one bound covers every
+# scale: span * 128 / RZ is what the outline would have spanned at 1:1, and that
+# has to sit between the authored radius and twice it (an irregular polygon never
+# quite reaches 2R).
 spans = {}
-for c in all_chains:
+for c, rz in zip(all_chains, chain_rz):
     xs = [x for x, _ in c[:-1]]
     ys = [y for _, y in c[:-1]]
-    spans.setdefault(len(c) - 1, []).append(max(max(xs) - min(xs),
-                                                max(ys) - min(ys)))
+    span = max(max(xs) - min(xs), max(ys) - min(ys))
+    spans.setdefault(len(c) - 1, []).append((span * 128 + rz // 2) // rz)
+# The span must sit between "as small as full zoom-out makes it" and "twice the
+# authored radius" - the zoom scales every rock, so this can no longer be pinned
+# to one number. It still catches a rotation that has lost or gained a factor.
 ok = True
 for n, sp in spans.items():
-    R = SHAPE_R[SHAPE_N.index(n)]
+    R = SHAPE_R[SHAPE_N.index(n if n in SHAPE_N else n * 2)]
     lo, hi = min(sp), max(sp)
-    print(f"        {n:2d}-gon: span {lo}-{hi} half-res px, "
-          f"authored radius {R} (so 2R = {2*R})")
-    if not (R <= hi <= 2 * R + 2):
+    print(f"        {n:2d}-gon: un-zoomed span {lo}-{hi} half-res px, authored "
+          f"radius {R} (so R..2R = {R}..{2*R})")
+    if not (R - 3 <= lo and hi <= 2 * R + 3):
         ok = False
-check("each outline spans about twice its authored radius, in every rotation",
-      ok, "a span that drifts with the angle means the rotation is not one")
+check("every outline, un-zoomed, spans between its radius and twice it", ok,
+      "outside that, the rotation or the scale has lost a factor")
 
 # ...and they must actually TURN. A rock's outline changes shape on screen from
 # frame to frame for two reasons at once - its own spin and the camera's - so a

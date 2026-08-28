@@ -153,7 +153,37 @@ the same reason.
 
 Zoom is expressed as **world units per screen pixel**: reference zoom = 16. Zooming
 out to 3x means 48 units/px and a visible window of 900 x 1200 reference pixels.
-Exact zoom range **(TBM)**.
+Exact zoom range **(TBM — 2x is built and flying, see open_questions C1)**.
+
+**How it is carried, and why that shape.** As the **reciprocal**, Q0.7: 128 is
+1:1, 64 is twice as far out. That turns every use of it into a multiply and never
+a divide, and because the camera only ever pulls *back* (`s <= 1`) the scaled
+trig stays inside the quarter-square table's 127 limit for free.
+
+| where | what it costs |
+|---|---|
+| an object's **centre** | two products, through a `ZS[i] = signed(i)*RZ/128` table read exactly like the rotation tables (4.5a) |
+| an object's **vertices** | nothing. The scale folds into the per-object `cos`/`sin`, so rotate-and-scale is one matrix and a vertex costs what it always cost |
+| its **occlusion disc** | one product on the radius |
+| the **ship** | three products, because it is three points — which is the whole argument for keeping it vector rather than pre-scaling a sprite per zoom step |
+| the **cull radius** | a nine-entry lookup. It scales as `128/RZ`, and a cull that did not follow the zoom would pop the biggest rocks in and out at the screen edges |
+| the **starfield and motes** | nothing. They do not zoom |
+
+**The scale must NOT be folded into the rotation tables** (4.5a says why in
+general): three things read those tables — the starfield, the object centres and
+the radar — and only one of them zooms. A separate scale table is 512 bytes and
+~10k cycles to rebuild, against ~20k for the rotation pair, and it is rebuilt only
+on frames where the reciprocal's integer part actually moved.
+
+**Gradual, not stepped.** A step at a speed threshold saves nothing: the per-object
+product is paid whether or not the scale changed, so the only difference is the
+table rebuild during the transition. Against that, a step is worse in three ways.
+The starfield does not zoom, so a rock snapping to a third of its size while the
+stars stand still reads as the *rock* teleporting rather than the camera moving.
+Its occlusion disc snaps with it, so a ring of stars blinks on at once around
+every rock. And because the visible-object count goes as the square of the zoom,
+a step concentrates the entire ~4x cost increase into one frame — which is the
+frame the budget is set by. Easing spreads it over forty.
 
 ### 4.5 The transform, and why it is affordable
 

@@ -75,7 +75,7 @@ MOTE_N      = 10                ; motes: a second layer much CLOSER than the
                                 ;   ship's speed. ~5 on screen at a time - they
                                 ;   are there to sell speed when nothing else is
                                 ;   in view, not to be looked at.
-NOBJ        = 200               ; asteroids, scattered over the whole torus. The
+NOBJ        = 120               ; asteroids, scattered over the whole torus. The
                                 ;   world is about 140 screens, so a bit over one
                                 ;   rock per screen by centre - and because they
                                 ;   are up to 192 px across, that comes out as 3
@@ -87,28 +87,122 @@ NOBJ        = 200               ; asteroids, scattered over the whole torus. The
                                 ;   the budget note in README.md.
 SPR_W2      = 8                 ; the ship is 32x32 full-res -> 16x16 half-res,
 SPR_H2      = 8                 ;   so half of that, for the occluder box
+
+; The star-occlusion pass is indexed by SCREEN ROW BAND. The old shape was "for
+; each star, for every occluder", which is O(stars x occluders) - 40 survivors
+; times up to 16 boxes is 640 tests, and it grows with exactly the thing that
+; overloads the frame. Inverted: an occluder is registered in the bands its box
+; spans, and a star tests only the occluders in ITS band.
+;
+; 16 half-res rows a band (OCCB_SH = 4) keeps the list index in a byte -
+; band*16 + slot is at most 9*16+15 = 159 - and it is why the base offset comes
+; out as FBY & $F0 with no shifting at all. 16 slots a band is the OCCN maximum,
+; so a band can never overflow and the build needs no capacity test.
+OCCB_SH     = 4                 ; FBY >> this = band
+OCCB_N      = 10                ; bands covering FBY 0..149
+
+; The SECTOR GRID. do_objects used to walk all NOBJ every frame just to ask each
+; rock whether it was near - 40 cycles a rock, paid on the 99% that are not, and
+; the reason NOBJ is a budget parameter rather than a world parameter.
+;
+; A cell is the top nibble of each position high byte: 16 x 16 cells over the
+; torus, 4096 world units (256 reference px) a side. The cell index is one byte,
+; (YH & $F0) | (XH >> 4), and THE WRAP IS FREE - a cell column past 15 masks back
+; to 0, which is the same overflow that makes the world a torus in the first
+; place. Only cells overlapping the cull window are visited, so the cost becomes
+; proportional to what is NEAR rather than to how many rocks exist.
+;
+; Rocks outside the window are frozen (finding 11), so they can never change
+; cell: the lists only need maintaining for the handful being integrated, and a
+; rock crosses a 4096-unit boundary about once in 300 frames.
+PEND_MAX    = 16                ; deferred cell moves per frame; overflow is safe
+                                ;   - it just relinks on a later frame instead
+; The ship is a VECTOR TRIANGLE for now, not the sprite. Set SHIP_SPRITE = 1 to
+; put ship32.png back: the asset, the converter and the whole upload path are
+; still here, just assembled out. The triangle is here to be measured against a
+; sprite once zoom exists - it scales for nothing, where a sprite would need a
+; pre-scaled frame per zoom step, and the ship is the one object in the game
+; that never rotates so the usual argument for sprites does not apply to it.
+SHIP_SPRITE = 0
+
+SHIP_NOSE   = 14                ; FULL-res, from the ship's centre forward...
+SHIP_TAIL   = 14                ;   ...and back, so 28 px tall...
+SHIP_HALFW  = 12                ;   ...and 24 across the base. These were half-res
+                                ; until the triangle moved to LINE16 - see the
+                                ; note in emit_ship. qmul indexes its table with
+                                ; |x| + |y|, so 14 + 128 = 142 stays inside a byte
+                                ; and the zoom product is unaffected.
+SHIP_LINES  = 3                 ; ...drawn as three solid LINE ops
+
 SPR_SHIP    = 1                 ; the slot the ship art is installed into. Slot 0
                                 ;   is left as the ROM test sprite so that a
                                 ;   forgotten id draws something recognisable
 SHIP_PAGE   = $10               ; ...and the GPU RAM page its 256 bytes land on
-AST_MAX     = 12                ; asteroids transformed and drawn per frame. The
-                                ;   world holds NOBJ of them and about two are on
-                                ;   camera at a time; this is the ceiling that
-                                ;   stops a chance cluster eating the frame.
+LOD_R       = 16                ; below this ON-SCREEN radius (half-res) a rock is
+                                ;   drawn with every SECOND vertex. A rock that
+                                ;   small cannot show its corners, and the zoom
+                                ;   makes every rock small at speed - which is
+                                ;   exactly when the frame is tightest.
+LOD_MIN_N   = 10                ; ...but only shapes with at least this many
+                                ; vertices may be halved. It was 8, and every
+                                ; second vertex of an octagon is a QUADRILATERAL,
+                                ; which does not read as a rock - it reads as a
+                                ; rectangle. The shape census said so before the
+                                ; eye did: no 8-gon or 12-gon ever reached the
+                                ; screen unhalved, and 174 of 483 outlines drawn
+                                ; were 4-gons, all of them reduced octagons.
+                                ;
+                                ; The real lesson is about the REDUCTION, not the
+                                ; threshold: taking every second vertex is not a
+                                ; level of detail, it is a coincidence that
+                                ; happens to work on a 12-gon and destroys an
+                                ; 8-gon. Reduced shapes want authoring, the same
+                                ; way the full ones are authored.
+; THE FRAME CANNOT BE ALLOWED TO OVERRUN, and the reason is far worse than a
+; dropped frame. The ping-pong SRAMs swap owner at EVERY VSYNC, unconditionally,
+; in hardware. If CPU1 is still building when that happens, the rest of its list
+; lands in the OTHER chip - on top of the list from two frames ago - and then
+; gpu_end stamps CPU_READY on that splice. The GPU has no way to tell, walks into
+; the seam mid-command, and starts executing whatever follows as opcodes. What
+; follows is the HUD, and HUD text is full of live opcodes: ' ' is CLEAR_BG, '0'
+; is LOAD (258 bytes into an arbitrary GPU page), 'D' is DOT_LINE with letters
+; for coordinates. That is how a late frame writes to the background layer and
+; how it eventually latches BLINDER and kills the screen for good. Reproduced,
+; decoded out of an F2 dump, and written up in README finding 30.
+;
+; So the outlines get a hard budget rather than a count: a rock costs what it
+; actually costs. The unit is one VERTEX, ~530 cycles of transform. A rock that
+; straddles a screen edge costs far more than its vertices, because each crossing
+; segment goes through gpu_dotline_clip at ~3,000 cycles - six vertices' worth -
+; and a straddling rock has two or three of them. AST_CLIP is that surcharge.
+;
+; 120 is CALIBRATED, not chosen: the bench's own flight peaked at 112 units on a
+; frame that cost 209,000 cycles of the 237,404 available. Holding the outline
+; work near that keeps the worst frame near that, whatever the rock density does.
+; Raising it buys rocks and spends the margin that stands between a busy screen
+; and a corrupted one.
+AST_BUDGET  = 120               ; vertex-units of outline work per frame
+AST_CLIP    = 14                ; ...and what a straddling rock adds on top
+AST_MAX     = 10                ; a hard ceiling as well, so one enormous rock
+                                ;   cannot spend the whole budget by itself
 
 FBCX        = 200               ; full-res framebuffer centre
 FBCY        = 149
 HCX         = 100               ; half-res framebuffer centre
 HCY         = 74
 
-SHIP_SX     = FBCX - 16         ; ship top-left, so its centre is the screen's
+SHIP_SX     = FBCX - 16         ; sprite top-left, so its centre is the screen's
 SHIP_SY     = FBCY - 16
 
 ; --- cartridge zero page ($80-$FF belongs to the game) -----------------------
 FRAME       = $80               ; $80-$81 16-bit frame counter
 BGDONE      = $82
 HEAD        = $83               ; heading, brad 0-255 (the integer part)
-TIER        = $84               ; speed tier, index into TIER_SPD
+TIER        = $84               ; speed tier the PLAYER has selected, 0..TIER_N-1
+                                ;   (ETIER/BOOSTN are NOT here - $9B/$9C are
+                                ;   star_rebase's SDXI/SDXF, and do_stars runs
+                                ;   after do_ship, so it would eat them)
+
 TURNIX      = $85               ; index into TURN_RATE
 TURNR       = $86               ; the selected rate itself, brad per frame
 COSV        = $87               ; cos(HEAD), signed Q0.7
@@ -121,12 +215,13 @@ SHXF        = $8D
 SHYL        = $8E
 SHYH        = $8F
 SHYF        = $90
-VELXL       = $91               ; ship velocity, signed 8.8 world units/frame
+VELXL       = $91               ; ship velocity, signed 16.8 world units/frame
 VELXH       = $92
 VELYL       = $93
 VELYH       = $94
-SGVX        = $95               ; sign extensions of VELXH / VELYH
-SGVY        = $96
+VELXT       = $95               ; ...their top bytes, so the ship's velocity is
+VELYT       = $96               ;   16.8 like its position and a boost can exceed
+                                ;   what 8.8 holds - see vel_shl
 ACCL        = $97               ; running sum while building ROTC / ROTS
 ACCH        = $98
 CDXI        = $99               ; rebase scratch: the eight table reads, 8.8
@@ -143,6 +238,8 @@ SAMPY       = $A3
 MAL         = $A4               ; smul: multiplicand, signed 16
 MAH         = $A5
 MB          = $A6               ; smul: multiplier, signed byte
+MAT         = $0CAE             ; ...and a third byte the multiply never touches:
+                                ;   vel_shl widens its result into it
 MR0         = $A7               ; smul: 24-bit magnitude product
 MR1         = $A8
 MR2         = $A9
@@ -258,9 +355,59 @@ OCCCX       = $0A80             ; ...and the DISC inside it: centre (low byte
 OCCCY       = $0AA0             ;   only - see disc_hit) and the radius squared.
 OCCR2L      = $0AC0             ;   r2 = $FFFF makes the entry a plain box, which
 OCCR2H      = $0AE0             ;   is what the ship's is
+OCCBN       = $1B40             ; OCCB_N bytes: occluders registered in each band
+OCCBL       = $1B50             ; OCCB_N * 16: their ids, band b at offset b*16
+PEND        = $1BF0             ; PEND_MAX ids whose cell changed this frame
+                                ;   (OCCBL ends at $1BEF and CELLHD starts at
+                                ;   $1C00, so this slot is exactly 16 bytes)
+CELLHD      = $1C00             ; 256 cells: the first object in each, $FF = empty
+OBJNXT      = $1D00             ; NOBJ bytes: the next object in the same cell
+OBJCEL      = $1E00             ; NOBJ bytes: which cell each one is LINKED into
 DSQL        = $62D1             ; disc_hit's own 16-bit scratch
 DSQH        = $62D2
 AOCR        = $62D3             ; this rock's star-suppression radius
+ZEASL       = $62D4             ; the EASED zoom reciprocal, 8.8 Q0.7-per-1,
+ZEASH       = $62D5             ;   read by nothing but the quantiser
+ZOOMH       = $62F8             ; ...and the snapped one, which is what the whole
+                                ;   rest of the frame means by "the zoom"
+ZSHEAD      = $62D6             ; the reciprocal the ZS tables were built for
+CULRL       = $62D7             ; this frame's cull radius, from ZOOM_CULLR
+CULRH       = $62D8
+CUL2L       = $62D9             ; ...and 2*CULR + 1, which in_range compares to
+CUL2H       = $62DA
+CULHI       = $62DB             ; the high-byte window, from ZOOM_CULLH
+CULHI2      = $62E1             ; ...doubled plus one, the compare it feeds
+ASHP        = $62E2             ; this rock's size class, kept because qmul
+                                ;   clobbers both index registers
+AVSTEP      = $62E3             ; bytes to the next vertex: 2, or 4 at half LOD
+OVRCNT      = $62E4             ; frames the OS reported as overrun
+ABUDGET     = $62E5             ; outline work left this frame, in vertex-units
+SIDX        = $62E6             ; the star loop's index, parked over the band walk
+OCCBW       = $62E7             ; ...and how many of that band's occluders are left
+OCCBMAX     = $62E8             ; deepest band ever walked, for the harness
+GX0         = $62E9             ; the sector walk: first cell column and row...
+GY0         = $62EA
+GN          = $62EB             ; ...how many of each, 2R+1
+GDY         = $62ED             ; ...and the cursor over the rows
+GROW        = $62EE             ; this row's cell index, already shifted
+GNEXT       = $62EF             ; the successor in the cell list, read BEFORE the
+                                ;   body runs so a relink cannot lose the walk
+GTMP        = $62F0
+GOBJ        = $62F1             ; the object cell_flush is moving
+PENDN       = $62F2             ; deferred cell moves waiting
+GCELLS      = $62F3             ; cells visited this frame, for the harness
+GPENDMX     = $62F4             ; deepest PEND ever reached, likewise
+GRUN        = $62F5             ; cells left in the contiguous run being walked
+GRUN2       = $62F6             ; ...and in the one that wrapped past column 15
+GCELL       = $62F7             ; the run cursor, parked while a rock is drawn
+ETIER       = $62F9             ; the tier the frame actually uses: TIER, except
+                                ;   while boosting, when it is TIER_BOOST
+BOOSTN      = $62FA             ; frames of boost left, 0 = not boosting
+SNOSE       = $62DC             ; the ship triangle, scaled for this frame
+STAIL       = $62DD
+SHALFW      = $62DE
+SOCCW       = $62DF             ; ...and its occluder box, half-extents
+SOCCH       = $62E0
 OBJXL       = $1000             ; object world positions, 16.8, structure-of-arrays
 OBJXH       = $1100
 OBJXF       = $1200
@@ -298,12 +445,33 @@ STR_SPD     = $0C00             ; HUD strings, patched in place every frame
 STR_TRN     = $0C20
 STR_HDG     = $0C40
 STR_STA     = $0C60
+SHOFXL      = $0CA0             ; the CROSS-axis camera offset, signed 8.8
+SHOFXH      = $0CA1             ;   full-res px. Nothing but the world, the ship
+                                ;   and the ship's occluder box reads it.
+SHCY        = $0CA2             ; ...and HCY + half of it, the HALF-res cross
+                                ;   centre the ship's occluder box is built about
+SHOFXQ      = $0CAC             ; the lean >> 4, ready for the object loop
+TPGO        = $0CAF             ; a teleport was asked for this frame
+TPDST       = $0CB0             ; ...the SHOFF it will land on, signed
+TPML        = $0CB1             ; ...and how far it moves, full-res screen px
+TPMH        = $0CB2
+TPCNT       = $0CB3             ; teleports so far, for the HUD and the harness
+SHOFT       = $0CB4             ; the SHOFF ease's 24-bit gap: target top byte...
+SHOFC       = $0CB5             ;   ...and the current offset's
+TPSGN       = $0CB6             ; the landing point's sign extension
+SHPNX       = $0CA4             ; the ship triangle's corners, full-res signed 16
+SHPBX       = $0CA6
+SHPLY       = $0CA8
+SHPRY       = $0CAA
 STR_SCL     = $0C80
 QSL         = $0E00             ; the quarter-square multiply table, f(x) = x*x/4
 QSH         = $0F00             ;   for x = 0..255, low byte and high byte
 QRL         = $6400             ; ...and the same table plus 64. Subtracting the
 QRH         = $6500             ;   plain one from THIS one is the rounding: the
                                 ;   +64 that a >>7 needs, for no cycles at all
+ZSI         = $6600             ; the ZOOM table: ZS[i] = signed(i)*RZ/128, 8.8,
+ZSF         = $6700             ;   the same shape as ROT and read the same way -
+                                ;   see RPROD. Rebuilt when the reciprocal moves
 OBJSHP      = $1F00             ; NOBJ bytes: which of the five sizes each rock is
 OBJANG      = $6000             ; NOBJ bytes: its spin angle, brad (integer part)
 OBJANGF     = $6100             ; ...and the fraction, so a spin can be far slower
@@ -334,6 +502,28 @@ SPHIL       = $62CB
 SPHIH       = $62CC
 
 ; -----------------------------------------------------------------------------
+; SHIPSEG — one full-res segment. Each argument is a 16-bit little-endian pair;
+; T2/T3 doubles as the centre-y pair, which is why it is passed by its low label.
+.macro  SHIPSEG x1, y1, x2, y2
+        lda     x1
+        sta     OS_ARG+0
+        lda     x1+1
+        sta     OS_ARG+1
+        lda     y1
+        sta     OS_ARG+2
+        lda     y1+1
+        sta     OS_ARG+3
+        lda     x2
+        sta     OS_ARG+4
+        lda     x2+1
+        sta     OS_ARG+5
+        lda     y2
+        sta     OS_ARG+6
+        lda     y2+1
+        sta     OS_ARG+7
+        jsr     API_GPU_LINE16
+.endmacro
+
 ; BUILD_ROT — fill a 256-byte table with signed(i) * coef / 128.
 ; -----------------------------------------------------------------------------
 ; The positive half is a running 16-bit sum: add the coefficient, store the top
@@ -446,6 +636,8 @@ cart_init:
         stz     HEAD
         lda     #TIER_ZERO              ; standing still
         sta     TIER
+        sta     ETIER
+        stz     BOOSTN
         stz     SHOFFL
         stz     SHOFFH
         lda     #5                      ; 2.00 brad/frame, ~2.1 s per revolution
@@ -473,6 +665,11 @@ cart_init:
         lda     #$80                    ; != HEAD (0), so frame 1 builds the
         sta     BASEHEAD                ;   tables and rebases the star bases
         sta     ROTHEAD
+        lda     #128                    ; 1:1, and ZSHEAD != it so frame 1 builds
+        sta     ZOOMH                   ;   the scale table too
+        sta     ZEASH
+        stz     ZEASL
+        stz     ZSHEAD
 
         lda     #$A5                    ; any nonzero seed; see prng
         sta     PRNGL
@@ -680,7 +877,97 @@ init_objects:
         iny
         cpy     #NOBJ
         bne     @lp
+        ; fall through: the field is placed, so bucket it
+
+; -----------------------------------------------------------------------------
+; init_cells — bucket the whole field into the sector grid, once.
+; -----------------------------------------------------------------------------
+; This is the only full pass over NOBJ in the program. Afterwards the grid is
+; maintained incrementally by the handful of rocks that are actually moving.
+; -----------------------------------------------------------------------------
+init_cells:
+        lda     #$FF                    ; every cell empty
+        ldx     #$00
+:       sta     CELLHD,x
+        inx
+        bne     :-
+        stz     PENDN
+        stz     GPENDMX
+
+        ldx     #NOBJ-1
+@lp:    jsr     cell_of                 ; A = this rock's cell
+        sta     OBJCEL,x
+        tay
+        lda     CELLHD,y                ; push at the head
+        sta     OBJNXT,x
+        txa
+        sta     CELLHD,y
+        dex
+        bpl     @lp
+        cpx     #$FF                    ; (NOBJ may exceed 128, so bpl alone
+        bne     @lp                     ;  is not the whole loop)
         rts
+
+; -----------------------------------------------------------------------------
+; cell_of — X = object, A = its cell index. Y is clobbered.
+; -----------------------------------------------------------------------------
+cell_of:
+        lda     OBJXH,x
+        lsr     a
+        lsr     a
+        lsr     a
+        lsr     a
+        sta     GTMP
+        lda     OBJYH,x
+        and     #$F0
+        ora     GTMP
+        rts
+
+; -----------------------------------------------------------------------------
+; cell_flush — apply the cell moves do_objects deferred.
+; -----------------------------------------------------------------------------
+; Deferred, not immediate, and the reason is the walk: a rock relinked into a
+; cell the walk has not reached yet would be integrated and DRAWN a second time
+; in the same frame. Applying the moves after the walk cannot do that. The cost
+; of the delay is one frame of stale cell membership, on a rock 13 units past a
+; 4096-unit boundary.
+; -----------------------------------------------------------------------------
+cell_flush:
+        lda     PENDN
+        beq     @done
+@lp:    dec     PENDN
+        ldx     PENDN
+        lda     PEND,x
+        sta     GOBJ
+        tax
+
+        ldy     OBJCEL,x                ; unlink from the cell it is in now
+        lda     CELLHD,y
+        cmp     GOBJ
+        bne     @scan
+        lda     OBJNXT,x                ; it was the head of that list
+        sta     CELLHD,y
+        bra     @link
+@scan:  tax                             ; walk to the predecessor - it is in
+        lda     OBJNXT,x                ;   there, so this always terminates
+        cmp     GOBJ
+        bne     @scan
+        ldy     GOBJ
+        lda     OBJNXT,y
+        sta     OBJNXT,x
+
+@link:  ldx     GOBJ                    ; ...and push it onto the new one
+        jsr     cell_of
+        sta     OBJCEL,x
+        tay
+        lda     CELLHD,y
+        sta     OBJNXT,x
+        txa
+        sta     CELLHD,y
+
+        lda     PENDN
+        bne     @lp
+@done:  rts
 
 ; -----------------------------------------------------------------------------
 ; init_strings — copy the HUD templates ROM -> RAM so digits can be patched.
@@ -710,16 +997,37 @@ cart_frame:
         bne     :+
         inc     FRAME+1
 :
+.if SHIP_SPRITE
         lda     SPRSTEP                 ; the sprite upload, one LOAD page per
         cmp     #$05                    ;   frame, and FIRST in the frame it
         bcs     :+                      ;   happens on - see upload_step
         jsr     upload_step
 :
+.endif
         lda     BGDONE                  ; one-shot: wipe the boot screen off the
         bne     :+                      ;   background. The OS replays background
         jsr     API_GPU_CLEARBG         ;   commands on the next frame for us, so
         lda     #$01                    ;   issuing this once is the whole job.
         sta     BGDONE
+:
+        ; ---- repair after a frame we failed to deliver ----------------------
+        ; OVERRUN_FLAG is set by the OS when a VSYNC fired before gpu_end. It is
+        ; sticky and the OS never clears it, so a cartridge that reads and clears
+        ; it gets per-frame detection - and this one needs it, because a late
+        ; frame here does not merely blink. See the note on AST_BUDGET: the list
+        ; gets spliced across both ping-pong chips and stamped CPU_READY, the GPU
+        ; executes HUD text as opcodes, and ' ' (CLEAR_BG) and '0' (LOAD) are
+        ; among them. Re-issuing CLEAR_BG cannot undo a LOAD, but it does repair
+        ; the background layer, which is the damage that persists and accumulates.
+        ;
+        ; This is a mitigation, not a fix. The fix is four bytes in the OS: do not
+        ; stamp CPU_READY when VSYNC_FLAG is already set. os_run computes exactly
+        ; that condition one instruction too late.
+        lda     OVERRUN_FLAG
+        beq     :+
+        stz     OVERRUN_FLAG
+        inc     OVRCNT
+        jsr     API_GPU_CLEARBG
 :
         jsr     do_input
         jsr     do_camera               ; cos/sin, then the two rotation tables
@@ -737,6 +1045,7 @@ cart_frame:
         jsr     emit_stars
         jmp     emit_motes
 
+.if SHIP_SPRITE
 ; -----------------------------------------------------------------------------
 ; upload_step — install the ship sprite, ONE LOAD page per frame for five frames.
 ; -----------------------------------------------------------------------------
@@ -788,6 +1097,8 @@ upload_step:
         lda     #>DEFPG
         sta     OS_ARG+2
         jmp     API_GPU_LOAD
+
+.endif
 
 ; -----------------------------------------------------------------------------
 ; do_input — joystick 1.
@@ -940,6 +1251,20 @@ do_input:
         lda     #RAMP_N
 @rdn:   dec     a
         sta     RAMPIX
+:       lda     JOY2_PRESS              ; joystick 2 UP: BOOST. Only from the top
+        and     #JOY_UP                 ;   tier, and not while one is running -
+        beq     :+                      ;   so it cannot be stacked or held
+        lda     BOOSTN
+        bne     :+
+        lda     TIER
+        cmp     #TIER_N-1
+        bne     :+
+        lda     #BOOST_FRAMES
+        sta     BOOSTN
+:       lda     JOY2_PRESS              ; joystick 2 DOWN: TELEPORT
+        and     #JOY_DOWN
+        beq     :+
+        inc     TPGO
 :       lda     JOY2_PRESS              ; joystick 2's button steps the speed
         and     #JOY_FIRE               ;   coupling, so the settings can be
         beq     :+                      ;   compared back to back, no rebuild
@@ -996,7 +1321,18 @@ do_camera:
 ; can express is 1/4096 of a pixel per frame.
 ; -----------------------------------------------------------------------------
 do_ship:
+        ; The boost is a TIER the player cannot select. It runs out on its own,
+        ; and while it does, every table this frame reads is indexed by ETIER
+        ; instead of TIER - which is how it changes the speed without changing
+        ; the zoom or the ship's place on screen: those two rows of ZOOM_RZ and
+        ; SHIP_OFF are copies of the top tier's.
         lda     TIER
+        ldx     BOOSTN
+        beq     :+
+        dec     BOOSTN
+        lda     #TIER_BOOST
+:       sta     ETIER
+
         asl     a
         tax
         lda     TIER_SPD,x
@@ -1011,10 +1347,13 @@ do_ship:
         lda     SINV
         sta     MB
         jsr     smul16q7
+        jsr     vel_shl                 ; ...then the tier's speed multiplier
         lda     MAL
         sta     VELXL
         lda     MAH
         sta     VELXH
+        lda     MAT
+        sta     VELXT
 
         lda     SPDL                    ; VELY = -(speed * cos)
         sta     MAL
@@ -1023,6 +1362,7 @@ do_ship:
         lda     COSV
         sta     MB
         jsr     smul16q7
+        jsr     vel_shl
         sec
         lda     #$00
         sbc     MAL
@@ -1030,22 +1370,166 @@ do_ship:
         lda     #$00
         sbc     MAH
         sta     VELYH
+        lda     #$00
+        sbc     MAT
+        sta     VELYT
 
         ; The ship slides down the screen as it speeds up, and above centre in
         ; reverse, so the player is always looking at where they are going. It
         ; EASES toward the tier's target instead of snapping: a jump on every
         ; tier change would be unreadable, and this shift is the camera-lag
         ; constant the design still has to settle (open question B3).
-        ldx     TIER
+        ; The GAP is 24-bit, and it has to be. Target and offset are each a
+        ; signed byte of pixels, so their difference reaches 255 px - which in
+        ; 8.8 is 65280 and is not a positive signed 16. Between adjacent tiers
+        ; the gap never exceeded 127 px and this never showed; the teleport opens
+        ; a 246 px gap in one frame, the subtract wrapped, and the ease walked
+        ; the ship AWAY from its target. SHOFF itself stays 8.8 - only the gap
+        ; needed the third byte.
+        ldx     ETIER
         stz     T0
         lda     SHIP_OFF,x
         sta     T1
+        ldy     #$00
+        bpl     :+
+:       bit     T1
+        bpl     :+
+        ldy     #$FF
+:       sty     SHOFT
+        ldy     #$00
+        bit     SHOFFH
+        bpl     :+
+        ldy     #$FF
+:       sty     SHOFC
         sec
         lda     T0
         sbc     SHOFFL
         sta     T0
         lda     T1
         sbc     SHOFFH
+        sta     T1
+        lda     SHOFT
+        sbc     SHOFC
+        sta     SHOFT
+        ldx     #SHOFF_LAG
+:       lda     SHOFT
+        cmp     #$80
+        ror     SHOFT
+        ror     T1
+        ror     T0
+        dex
+        bne     :-
+        clc                             ; the sum converges into range, so the
+        lda     SHOFFL                  ;   top byte is not carried back
+        adc     T0
+        sta     SHOFFL
+        lda     SHOFFH
+        adc     T1
+        sta     SHOFFH
+
+        ; ---- and the zoom, on the same curve, because it is the same gesture --
+        ; ...and the cross-axis lean, on the same shape of ease. TURNV is signed
+        ; 8.8, so shifting it up 3 and taking a Q0.7 product lands the target in
+        ; 8.8 full-res pixels directly.
+        lda     TURNVL                  ; CLAMP FIRST. The shift below is 5, and
+        sta     MAL                     ;   the speed coupling can push the turn
+        lda     TURNVH                  ;   rate to 4.5 brad a frame - 1152 in
+        sta     MAH                     ;   8.8, which shifted 5 is 36864 and no
+        bpl     @cxpos                  ;   longer a positive signed 16. The lean
+        lda     MAH                     ;   saturates at CAMX_CLAMP instead, which
+        cmp     #>-CAMX_CLAMP           ;   is the right behaviour anyway: past
+        bne     :+                      ;   three brad a frame it is already as
+        lda     MAL                     ;   far over as it is ever going to lean.
+        cmp     #<-CAMX_CLAMP
+:       bcs     @cxok
+        lda     #<-CAMX_CLAMP
+        sta     MAL
+        lda     #>-CAMX_CLAMP
+        sta     MAH
+        bra     @cxok
+@cxpos: lda     MAH
+        cmp     #>CAMX_CLAMP
+        bne     :+
+        lda     MAL
+        cmp     #<CAMX_CLAMP
+:       bcc     @cxok
+        lda     #<CAMX_CLAMP
+        sta     MAL
+        lda     #>CAMX_CLAMP
+        sta     MAH
+@cxok:  asl     MAL
+        rol     MAH
+        asl     MAL
+        rol     MAH
+        asl     MAL
+        rol     MAH
+        asl     MAL
+        rol     MAH
+        asl     MAL
+        rol     MAH
+        ldx     ETIER                   ; the gain is per TIER, not a constant:
+        lda     CAMX_TIER,x             ;   the effect is meant to read as the
+        sta     MB                      ;   camera failing to keep up with a ship
+        jsr     smul16q7                ;   that is MOVING, and at a standstill
+                                        ;   a camera that swings on a pivot the
+                                        ;   ship is sitting still on has nothing
+                                        ;   to fail to keep up with. Zero there.
+        sec
+        lda     MAL
+        sbc     SHOFXL
+        sta     T0
+        lda     MAH
+        sbc     SHOFXH
+        sta     T1
+        ldx     #CAMX_LAG
+:       lda     T1
+        cmp     #$80
+        ror     T1
+        ror     T0
+        dex
+        bne     :-
+        clc
+        lda     SHOFXL
+        adc     T0
+        sta     SHOFXL
+        lda     SHOFXH
+        adc     T1
+        sta     SHOFXH
+        lda     SHOFXH                  ; the half-res cross centre the ship and
+        cmp     #$80                    ;   its occluder box are drawn about
+        ror     a
+        clc
+        adc     #HCY
+        sta     SHCY
+        lda     SHOFXH                  ; ...and the lean in ZOOM_MA's own scale,
+        sta     T1                      ;   which is pixels * 16. SHOFX is 8.8
+        lda     SHOFXL                  ;   px, so that is simply >> 4 - and it
+        sta     T0                      ;   is folded into the value BEFORE
+        ldx     #4                      ;   asr4r rounds, not added as a whole
+:       lda     T1                      ;   pixel after it. Adding it after made
+        cmp     #$80                    ;   the entire world step 1 px at a time
+        ror     T1                      ;   as the lean decayed, and preview.py
+        ror     T0                      ;   counted that as objects swimming.
+        dex                             ;   Finding 15's rule, on a third axis:
+        bne     :-                      ;   register sub-unit, floor once.
+        lda     T0
+        sta     SHOFXQ
+        lda     T1
+        sta     SHOFXQ+1
+
+        ; The camera pulls back as the ship slides down: both exist so the player
+        ; is looking at where they are going, so they must move together or the
+        ; two halves of it read as two events.
+        ldx     ETIER
+        lda     ZOOM_RZ,x
+        sta     T1
+        stz     T0
+        sec
+        lda     T0
+        sbc     ZEASL
+        sta     T0
+        lda     T1
+        sbc     ZEASH
         sta     T1
         ldx     #SHOFF_LAG
 :       lda     T1
@@ -1054,34 +1538,72 @@ do_ship:
         ror     T0
         dex
         bne     :-
-        clc
-        lda     SHOFFL
+        lda     T0                      ; finding 13's trap, and it bites harder
+        ora     T1                      ;   here: an ease that never lands would
+        bne     @zstep                  ;   leave the reciprocal creeping, and
+        ldx     ETIER                   ;   every creep rebuilds a 512-byte table
+        lda     ZOOM_RZ,x
+        sta     ZEASH
+        stz     ZEASL
+        bra     @zdone
+@zstep: clc
+        lda     ZEASL
         adc     T0
-        sta     SHOFFL
-        lda     SHOFFH
+        sta     ZEASL
+        lda     ZEASH
         adc     T1
-        sta     SHOFFH
+        sta     ZEASH
+@zdone:
+        ; QUANTISE. The ease is continuous, but everything downstream reads the
+        ; SNAPPED reciprocal: nothing outside this line ever sees ZEASH.
+        ldx     ZEASH
+        lda     ZQ_SNAP-64,x
+        sta     ZOOMH
+        ; The cull window follows the zoom: pulling back widens the visible
+        ; world, so a rock that was out of range comes into it.
+        lda     ZOOMH
+        lsr     a
+        lsr     a
+        lsr     a
+        sec
+        sbc     #$08                    ; RZ 64..128 -> 0..8
+        tax
+        lda     ZOOM_CULLH,x
+        sta     CULHI
+        txa
+        asl     a
+        tax
+        lda     ZOOM_CULLR,x
+        sta     CULRL
+        asl     a
+        sta     CUL2L
+        lda     ZOOM_CULLR+1,x
+        sta     CULRH
+        rol     a
+        sta     CUL2H
+        inc     CUL2L                   ; 2*CULR + 1, the exclusive upper bound
+        bne     :+
+        inc     CUL2H
+:
+        ; The scale table, rebuilt only when the reciprocal's integer part moved.
+        ; ~10k cycles, so it must not run on a frame where nothing changed - and
+        ; must run BEFORE do_objects, which is the next thing the frame does.
+        lda     ZOOMH
+        cmp     ZSHEAD
+        beq     :+                      ; (an anonymous label, not a cheap one:
+        sta     ZSHEAD                  ;  BUILD_ROT's .local symbols end the
+        BUILD_ROT ZSI, ZSF, ZOOMH, #$00 ;  @-scope this sits in)
+:
 
-        ldx     #$00                    ; sign extensions for the 24-bit add
-        bit     VELXH
-        bpl     :+
-        ldx     #$FF
-:       stx     SGVX
-        ldx     #$00
-        bit     VELYH
-        bpl     :+
-        ldx     #$FF
-:       stx     SGVY
-
-        clc                             ; position += velocity, 16.8 + 8.8
-        lda     SHXF
-        adc     VELXL
-        sta     SHXF
-        lda     SHXL
+        clc                             ; position += velocity, 16.8 + 16.8.
+        lda     SHXF                    ;   The velocity carries its own top byte
+        adc     VELXL                   ;   now, so the two sign extensions this
+        sta     SHXF                    ;   used to build are gone and the add is
+        lda     SHXL                    ;   a plain 24-bit one.
         adc     VELXH
         sta     SHXL
         lda     SHXH
-        adc     SGVX
+        adc     VELXT
         sta     SHXH
         clc
         lda     SHYF
@@ -1091,9 +1613,167 @@ do_ship:
         adc     VELYH
         sta     SHYL
         lda     SHYH
-        adc     SGVY
+        adc     VELYT
         sta     SHYH
+
+        lda     TPGO                    ; ...and only then, the teleport: it must
+        beq     :+                      ;   land on THIS frame's position
+        stz     TPGO
+        jsr     do_teleport
+:       rts
+
+; -----------------------------------------------------------------------------
+; do_teleport — jump a fixed screen distance and leave the camera behind.
+; -----------------------------------------------------------------------------
+; Move the ship in the world, drop SHOFF by the same screen distance, and the
+; camera point does not move: the ship simply appears further up the screen and
+; SHOFF_LAG walks the camera back, fast at first and slower as it closes.
+;
+; PSHOFF is dragged with it because do_stars folds (SHOFF - PSHOFF) into the
+; scroll - that term exists so the field does not twitch while the offset eases
+; between tiers - and a 246 px step there would sweep the whole field sideways.
+;
+; The rebase is NOT belt and braces. The star camera point is SHOFF scaled into
+; LAYER units (shl6) and the motes' into their own (shl3), not world units, so
+; the ship's world displacement and the SHOFF drop do not cancel analytically the
+; way they do for the world objects. star_rebase_full recomputes every base from
+; whatever the camera point now is, so the question never has to be answered -
+; and if the field does jump one frame, you did just teleport.
+; -----------------------------------------------------------------------------
+do_teleport:
+        inc     TPCNT
+        lda     #<-TP_OFF               ; forward: land near the LEADING edge
+        ldx     TIER
+        cpx     #TIER_ZERO
+        bcs     :+
+        lda     #TP_OFF                 ; reversing: mirror it, and the jump
+:       sta     TPDST                   ;   below comes out negative by itself
+
+        ; M = SHOFF - landing, full-res px, positive meaning "forward along the
+        ; heading". BOTH operands are sign-extended first, because the difference
+        ; reaches 246 px and does not fit the byte either of them lives in. The
+        ; first cut wrote `sbc TPDST / ldy #$00 / bpl` - and LDY sets the flags,
+        ; so the branch tested the zero it had just loaded rather than the
+        ; subtraction. The top byte came out $00 every time, which is right by
+        ; luck going forward and turns the backward jump into a forward one.
+        ldy     #$00
+        bit     SHOFFH
+        bpl     :+
+        ldy     #$FF
+:       sty     TPMH
+        ldy     #$00
+        bit     TPDST
+        bpl     :+
+        ldy     #$FF
+:       sty     TPSGN
+        sec
+        lda     SHOFFH
+        sbc     TPDST
+        sta     TPML
+        lda     TPMH
+        sbc     TPSGN
+        sta     TPMH
+
+        asl     TPML                    ; screen px -> world units at 1:1 is x16
+        rol     TPMH
+        asl     TPML
+        rol     TPMH
+        asl     TPML
+        rol     TPMH
+        asl     TPML
+        rol     TPMH
+
+        lda     TPML                    ; ...and x(128/RZ) on top, because the
+        sta     MAL                     ;   distance is authored on the SCREEN:
+        lda     TPMH                    ;   at 2x out the same screen span is
+        sta     MAH                     ;   twice as much world. TPQ holds
+        ldx     ZOOMH                   ;   128/RZ - 1 in Q0.7, so this is one
+        lda     TPQ-64,x                ;   product and one add.
+        sta     MB
+        jsr     smul16q7
+        clc
+        lda     TPML
+        adc     MAL
+        sta     TPML
+        lda     TPMH
+        adc     MAH
+        sta     TPMH
+
+        lda     TPML                    ; SHX += M * sin
+        sta     MAL
+        lda     TPMH
+        sta     MAH
+        lda     SINV
+        sta     MB
+        jsr     smul16q7
+        ldy     #$00
+        bit     MAH
+        bpl     :+
+        dey
+:       clc
+        lda     SHXL
+        adc     MAL
+        sta     SHXL
+        lda     SHXH
+        adc     MAH
+        sta     SHXH
+
+        lda     TPML                    ; SHY -= M * cos
+        sta     MAL
+        lda     TPMH
+        sta     MAH
+        lda     COSV
+        sta     MB
+        jsr     smul16q7
+        sec
+        lda     SHYL
+        sbc     MAL
+        sta     SHYL
+        lda     SHYH
+        sbc     MAH
+        sta     SHYH
+
+        lda     TPDST                   ; the camera stays where it was...
+        sta     SHOFFH
+        stz     SHOFFL
+        sta     PSHOFFH                 ; ...and the scroll must not see the step
+        stz     PSHOFFL
+        lda     HEAD                    ; force a full rebase of the star bases
+        eor     #$80
+        sta     BASEHEAD
         rts
+
+; -----------------------------------------------------------------------------
+; vel_shl — MA (signed 16) -> MA/MAT (signed 24), shifted by this tier's TIER_SHL.
+; -----------------------------------------------------------------------------
+; The ship's speed is authored in TIER_SPD as signed 8.8 world units a frame, and
+; that type stops at 127.996 units - 482.5 px/s. A boost that only reaches 482
+; against a normal top of 350 is a 37% difference and does not read as a boost at
+; all, which is what flying it said.
+;
+; Rather than widen SPD - which would mean a 24-bit operand for smul16q7, twice a
+; frame, and a three-byte TIER_SPD - the multiplier lives here, AFTER the
+; direction product. TIER_SHL says how many times to double this tier's velocity,
+; so an authored 350 with a shift of 1 flies at 700 px/s and the arithmetic that
+; produced it never left 16 bits. The ceiling is 964 px/s at shift 1; the cull
+; allows 1157 (the gap at RZ 64 is 320 units and a rock adds 13).
+; -----------------------------------------------------------------------------
+vel_shl:
+        ldy     #$00                    ; sign-extend the product into 24 bits
+        bit     MAH
+        bpl     :+
+        ldy     #$FF
+:       sty     MAT
+        ldx     ETIER
+        lda     TIER_SHL,x
+        beq     @done
+        tax
+:       asl     MAL
+        rol     MAH
+        rol     MAT
+        dex
+        bne     :-
+@done:  rts
 
 ; -----------------------------------------------------------------------------
 ; do_objects — reject, then move, then transform the centre to the screen.
@@ -1110,14 +1790,100 @@ do_ship:
 ; integrated. That was the largest single item in the frame.
 ; -----------------------------------------------------------------------------
 do_objects:
+        lda     CULHI                   ; the coarse window, doubled once here
+        asl     a                       ;   rather than per object
+        clc
+        adc     #$01
+        sta     CULHI2
         stz     OCCN
         stz     VISN
         jsr     add_ship_occluder
-        stz     OBJI
-@lp:
+
+        ; The sector walk. CULHI is the coarse window in position-high-byte
+        ; units and a cell is 16 of those, so the window reaches (CULHI >> 4)
+        ; cells each way; +1 rounds outward, which over-covers by up to a whole
+        ; cell. That slack is what keeps finding 11's staleness argument true
+        ; with room to spare: the camera moves at most 93 units a frame and the
+        ; margin is thousands.
+        lda     SHXH
+        lsr     a
+        lsr     a
+        lsr     a
+        lsr     a
+        sta     GX0                     ; (the ship's cell column, for now)
+        lda     SHYH
+        lsr     a
+        lsr     a
+        lsr     a
+        lsr     a
+        sta     GY0
+        lda     CULHI
+        lsr     a
+        lsr     a
+        lsr     a
+        lsr     a
+        inc     a
+        sta     GTMP                    ; R
+        asl     a
+        inc     a
+        sta     GN                      ; 2R+1 columns, and as many rows
+        sec
+        lda     GX0
+        sbc     GTMP
+        and     #$0F                    ; the mask IS the torus
+        sta     GX0
+        sec
+        lda     GY0
+        sbc     GTMP
+        and     #$0F
+        sta     GY0
+        stz     GCELLS
+        stz     GDY
+
+        ; A row of the window is a contiguous run of cell indices, EXCEPT where
+        ; it crosses column 15 into column 0. Splitting it into the two runs up
+        ; front is what lets the cell cursor be a plain INX: masking per cell
+        ; cost about as much as the object reject it was there to avoid, which
+        ; is how the first version of this managed to be slower than no grid at
+        ; all.
+@rowlp: clc
+        lda     GY0
+        adc     GDY
+        and     #$0F
+        asl     a
+        asl     a
+        asl     a
+        asl     a
+        sta     GROW
+
+        lda     #16                     ; how much of the run fits before the
+        sec                             ;   column wrap...
+        sbc     GX0
+        cmp     GN
+        bcc     :+
+        lda     GN
+:       sta     GRUN
+        lda     GN                      ; ...and what is left over for column 0
+        sec
+        sbc     GRUN
+        sta     GRUN2
+        lda     GX0
+        ora     GROW
+        tax
+
+@cellp: inc     GCELLS
+        lda     CELLHD,x
+@lp:    cmp     #$FF                    ; walk this cell's list
+        bne     :+
+        jmp     @cellnext
+:       stx     GCELL                   ; the run cursor parks over the body
+        sta     OBJI
+        tax
+        lda     OBJNXT,x                ; the successor, read BEFORE the body -
+        sta     GNEXT                   ;   see cell_flush
         ldx     OBJI
         ; The coarse reject comes FIRST, before the rock has even moved. Any
-        ; object whose high byte is more than CULL_HI from the ship's cannot
+        ; object whose high byte is more than CULHI from the ship's cannot
         ; survive the precise cull below, and an object that is not drawn does
         ; not need to have moved: on a torus with no off-camera collisions,
         ; nothing in the machine can observe where a distant rock has drifted
@@ -1126,22 +1892,23 @@ do_objects:
         ;
         ; Reading the position one frame stale is what makes this safe to do in
         ; this order: a rock moves at most ~13 world units a frame and the gap
-        ; between this window (CULL_HI * 256) and the precise cull (CULL_R) is
-        ; 128 units, so nothing can cross both tests inside one frame.
+        ; between this window (CULHI * 256) and the precise cull (CULRL/H) is
+        ; at least 128 units at EVERY zoom step, so nothing can cross both
+        ; tests inside one frame - see the rounding note on ZOOM_CULLH.
         lda     OBJXH,x
         sec
         sbc     SHXH
         clc
-        adc     #CULL_HI
-        cmp     #CULL_HI * 2 + 1
+        adc     CULHI
+        cmp     CULHI2
         bcc     :+
         jmp     @cull
 :       lda     OBJYH,x
         sec
         sbc     SHYH
         clc
-        adc     #CULL_HI
-        cmp     #CULL_HI * 2 + 1
+        adc     CULHI
+        cmp     CULHI2
         bcc     :+
         jmp     @cull
 :
@@ -1189,6 +1956,20 @@ do_objects:
         adc     AST_SPIN+1,y
         sta     OBJANG,x
 
+        jsr     cell_of                 ; it moved, so it may have left its cell
+        cmp     OBJCEL,x
+        beq     :+
+        ldy     PENDN
+        cpy     #PEND_MAX
+        bcs     :+                      ; full: it queues again next frame, and
+        txa                             ;   a cell is 4096 units wide, so being
+        sta     PEND,y                  ;   one frame late is 13 units of wrong
+        inc     PENDN
+        lda     PENDN
+        cmp     GPENDMX
+        bcc     :+
+        sta     GPENDMX
+:
         sec                             ; world delta — wrap-correct for free
         lda     OBJXL,x
         sbc     SHXL
@@ -1217,10 +1998,17 @@ do_objects:
 :
         jsr     view_xform              ; -> VXL/VXH, VYL/VYH, still world units
 
-        lda     VYL                     ; fb_x = FBCX + round(vy / 16)
+        ; ...and then the ZOOM, which is the same shape of product as the
+        ; rotation and uses the same trick on it: one table pair built from the
+        ; reciprocal, two lookups and an add per axis. Doing it HERE and not by
+        ; folding the scale into the rotation tables is what lets the starfield
+        ; and the radar keep those tables unscaled, which they must - neither of
+        ; them zooms.
+        lda     VYL                     ; fb_x = FBCX + round(vy * z / 16)
         sta     MAL
         lda     VYH
         sta     MAH
+        jsr     zoom_ma
         jsr     asr4r
         clc                             ; fb_x = FBCX + offset + vy: an object at
         lda     MAL                     ;   the ship's own position must land ON
@@ -1240,9 +2028,17 @@ do_objects:
         tya
         adc     FXH
         sta     FXH
-        lda     VXL                     ; fb_y = FBCY - round(vx / 16)
+        lda     VXL                     ; fb_y = FBCY - round(vx * z / 16)
         sta     MAL
         lda     VXH
+        sta     MAH
+        jsr     zoom_ma
+        sec                             ; fb_y = FBCY - round((vx*z - lean)/16):
+        lda     MAL                     ;   the cross-axis camera lean joins the
+        sbc     SHOFXQ                  ;   value here, so the single rounding in
+        sta     MAL                     ;   asr4r covers both terms
+        lda     MAH
+        sbc     SHOFXQ+1
         sta     MAH
         jsr     asr4r
         sec
@@ -1269,12 +2065,30 @@ do_objects:
         inc     VISN
 @cull:                                  ; (culled needs no store at all now)
 @next:
-        inc     OBJI
-        lda     OBJI
-        cmp     #NOBJ
-        beq     :+
+        ldx     GCELL
+        lda     GNEXT
         jmp     @lp
-:       rts
+
+@cellnext:
+        inx
+        dec     GRUN
+        beq     :+
+        jmp     @cellp
+:       lda     GRUN2                   ; the part of the row past column 15
+        beq     @rownext
+        sta     GRUN
+        stz     GRUN2
+        lda     GROW
+        tax
+        jmp     @cellp
+
+@rownext:
+        inc     GDY
+        lda     GDY
+        cmp     GN
+        bcs     :+
+        jmp     @rowlp
+:       jmp     cell_flush              ; ...and only now may the lists change
 
 ; MA >>= 4, arithmetic, ROUNDED. CMP #$80 puts the sign bit into carry for ROR.
 ; -----------------------------------------------------------------------------
@@ -1298,6 +2112,22 @@ shl_ma:
         rol     MAH
         dex
         bne     @lp
+        rts
+
+; -----------------------------------------------------------------------------
+; zoom_ma — MA (world units) *= the zoom reciprocal, in place.
+; -----------------------------------------------------------------------------
+; A subroutine and not the macro inline, for a reason worth knowing: RPROD ends
+; with .local symbols, and a .local closes the enclosing cheap-local (@) scope.
+; Expanded inside do_objects it silently orphaned that routine's own @cull and
+; @lp. Macros that declare locals do not belong in a routine that uses @labels.
+; -----------------------------------------------------------------------------
+zoom_ma:
+        RPROD   ZSI, ZSF, MAL, MAH
+        lda     T0
+        sta     MAL
+        lda     T1
+        sta     MAH
         rts
 
 asr4r:
@@ -1330,23 +2160,21 @@ asr4r:
 ; it. At the old 400 px the biggest rocks popped in and out at the screen edges,
 ; which is precisely the size this bench exists to look at.
 ; -----------------------------------------------------------------------------
-CULL_R      = 7808              ; 488 full-res px, in world units (16 per px)
-CULL_HI     = 31                ; ...and CULL_R / 256, rounded up, for the cheap
-                                ;   high-byte reject above
-
+; CULRL/CULRH is this frame's radius and CUL2 is 2*it + 1; both are set in
+; do_ship from ZOOM_CULLR, because pulling the camera back widens the window.
 in_range:
         clc
-        adc     #<CULL_R
+        adc     CULRL
         sta     T0
         tya
-        adc     #>CULL_R
+        adc     CULRH
         tay
         bmi     @out
-        cpy     #>(CULL_R * 2 + 1)
+        cpy     CUL2H
         bcc     @in
         bne     @out
         lda     T0
-        cmp     #<(CULL_R * 2 + 1)
+        cmp     CUL2L
         bcc     @in
 @out:   sec
         rts
@@ -1411,6 +2239,19 @@ view_xform:
 ; a bounding box.
 ; -----------------------------------------------------------------------------
 add_ship_occluder:
+        lda     #SPR_W2                 ; the box shrinks with the ship, or a
+        sta     MQA                     ;   small ship would sit in a large hole
+        lda     ZOOMH                   ;   in the starfield
+        sta     MQB
+        jsr     qmul
+        sta     SOCCW
+        lda     #SPR_H2
+        sta     MQA
+        lda     ZOOMH
+        sta     MQB
+        jsr     qmul
+        sta     SOCCH
+
         lda     SHOFFH                  ; the box rides down with the ship
         cmp     #$80
         ror     a                       ; offset / 2, arithmetic: half-res
@@ -1420,19 +2261,23 @@ add_ship_occluder:
         ldy     OCCN
         lda     T0
         sec
-        sbc     #SPR_W2
+        sbc     SOCCW
         sta     OCCX0,y
         lda     T0
         clc
-        adc     #SPR_W2
+        adc     SOCCW
         sta     OCCX1,y
-        lda     #HCY - SPR_H2
+        sec
+        lda     SHCY
+        sbc     SOCCH
         sta     OCCY0,y
-        lda     #HCY + SPR_H2
+        clc
+        lda     SHCY
+        adc     SOCCH
         sta     OCCY1,y
         lda     T0                      ; the ship is opaque to its box corners,
         sta     OCCCX,y                 ;   so r2 = $FFFF: every star that gets
-        lda     #HCY                    ;   inside the box is inside the "disc"
+        lda     SHCY                    ;   inside the box is inside the "disc"
         sta     OCCCY,y
         lda     #$FF
         sta     OCCR2L,y
@@ -1573,6 +2418,79 @@ disc_hit:
         rts
 
 ; -----------------------------------------------------------------------------
+; occ_bands — index the occluder list by the screen row bands each box spans.
+; -----------------------------------------------------------------------------
+; The star loop used to ask every star about every occluder. That product is
+; O(stars x rocks), and both factors grow together: pulling the camera back puts
+; more rocks on screen without removing a single star, so the pass gets more
+; expensive on exactly the frames that are already the worst ones. The frame
+; budget did not model it at all, because it was measured once, at two rocks,
+; and written down as a constant.
+;
+; Inverting it costs one pass over the occluders - at most 16 of them, each
+; touching a handful of bands - and turns the per-star walk from OCCN into
+; "however many occluders are in these 16 rows". At full zoom-out the suppression
+; radii are 19, 13, 6, 3 and 1 half-res pixels, so most rocks land in one or two
+; bands and a star sees two or three occluders instead of ten.
+;
+; Nothing here knows the outline is dotted: it works on the occluder boxes, which
+; are the same whether the rock is drawn with DOT_LINES or with solid LINES.
+; -----------------------------------------------------------------------------
+occ_bands:
+        ldx     #OCCB_N-1
+:       stz     OCCBN,x
+        dex
+        bpl     :-
+
+        ldx     OCCN
+        beq     @done
+@occ:   dex                             ; occluder ids, OCCN-1 down to 0
+        stx     T3                      ; ...parked: X becomes the band, because
+        lda     OCCY0,x                 ;   INC abs,y does not exist
+        lsr     a                       ; the bands its clamped box spans. Both
+        lsr     a                       ;   ends are already 0..149, so both
+        lsr     a                       ;   bands are already 0..OCCB_N-1 and
+        lsr     a                       ;   neither needs a range test.
+        sta     T0
+        lda     OCCY1,x
+        lsr     a
+        lsr     a
+        lsr     a
+        lsr     a
+        sta     T1
+@band:  ldx     T0
+        lda     OCCBN,x                 ; append at band*16 + count. The count
+        inc     OCCBN,x                 ;   cannot reach 16: OCCN is capped at 16
+        sta     T2                      ;   and an occluder is appended once per
+        txa                             ;   band, so no capacity test is needed.
+        asl     a
+        asl     a
+        asl     a
+        asl     a
+        clc
+        adc     T2
+        tay
+        lda     T3
+        sta     OCCBL,y
+        inc     T0
+        lda     T0
+        cmp     T1
+        beq     @band
+        bcc     @band
+        ldx     T3
+        bne     @occ
+
+@done:  ldx     #OCCB_N-1               ; deepest band, for the harness to report
+        lda     #$00
+:       cmp     OCCBN,x
+        bcs     :+
+        lda     OCCBN,x
+:       dex
+        bpl     :--
+        sta     OCCBMAX
+        rts
+
+; -----------------------------------------------------------------------------
 ; do_stars — scroll the field, rebuild it only when the heading moved, emit it.
 ; -----------------------------------------------------------------------------
 ; THE WHOLE POINT OF THIS ROUTINE'S SHAPE. A star's exact view position is
@@ -1620,6 +2538,15 @@ do_stars:
         ror     T0
         dex
         bne     :-
+        ldx     ETIER                   ; ...times whatever vel_shl multiplied the
+        lda     TIER_SHL,x              ;   ship by. The scroll is computed from
+        beq     :++                     ;   SPD and the ship flies on VEL, so a
+        tax                             ;   boosted tier would otherwise leave the
+:       asl     T0                      ;   whole starfield behind.
+        rol     T1
+        dex
+        bne     :-
+:
 
         ; ...plus however far the CAMERA moved on its own. The camera point sits
         ; ahead of the ship by the ship's screen offset, and that offset EASES
@@ -1681,6 +2608,9 @@ do_stars:
         bcc     @draw
         jsr     star_rebase_refresh
 @draw:
+        jsr     occ_bands               ; emit_asteroids has finished, so the
+                                        ;   occluder list is complete and can be
+                                        ;   indexed by band before a star reads it
         stz     DIDX
         stz     STARN
         ldx     #$00
@@ -1727,25 +2657,38 @@ do_stars:
         jmp     @next
 :       sta     FBY
 
-        ldy     OCCN                    ; drop the star if any box covers it
-        beq     @emit
-@occ:   dey
+        lda     FBY                     ; drop the star if any box covers it -
+        lsr     a                       ;   but only the boxes registered in this
+        lsr     a                       ;   star's row band can, so that is the
+        lsr     a                       ;   whole list it has to walk
+        lsr     a
+        tay
+        lda     OCCBN,y
+        beq     @emit                   ; empty band: nothing parked, nothing walked
+        sta     OCCBW
+        stx     SIDX                    ; X becomes the walk cursor; the star
+        lda     FBY                     ;   index parks until the walk is over
+        and     #$F0                    ; band*16 IS the list offset
+        tax
+@occ:   ldy     OCCBL,x
         lda     FBX
         cmp     OCCX0,y
         bcc     @occn
         lda     OCCX1,y
         cmp     FBX
         bcc     @occn
-        lda     FBY
-        cmp     OCCY0,y
-        bcc     @occn
+        lda     FBY                     ; the band narrows y to 16 rows, it does
+        cmp     OCCY0,y                 ;   not decide it - a box covers part of
+        bcc     @occn                   ;   its first and last band, not all
         lda     OCCY1,y
         cmp     FBY
         bcc     @occn
         jsr     disc_hit                ; inside the box - inside the disc?
-        bcs     @next
-@occn:  cpy     #$00
+        bcs     @killed
+@occn:  inx
+        dec     OCCBW
         bne     @occ
+        ldx     SIDX
 
 @emit:
         ldy     DIDX
@@ -1757,6 +2700,9 @@ do_stars:
         iny
         sty     DIDX
         inc     STARN
+        bra     @next
+@killed:
+        ldx     SIDX
 @next:
         inx
         cpx     #STAR_N
@@ -1791,7 +2737,7 @@ emit_motes:
 @none:  rts
 
 ; -----------------------------------------------------------------------------
-; do_motes — the near layer: 16 specks at TWICE the ship's speed.
+; do_motes — the near layer: MOTE_N specks at TWICE the ship's speed.
 ; -----------------------------------------------------------------------------
 ; Everything the starfield needs machinery for, this does not. There are 16 of
 ; them, so they are simply transformed from scratch every frame: no stored bases,
@@ -1804,9 +2750,15 @@ emit_motes:
 ; so this borrows them for free.
 ;
 ; The sample is the same camera point the stars use, but at parallax 2 instead of
-; 1/4: sample = camera >> 4. The camera offset is pre-multiplied by 8 rather than
-; 64 for the same reason it is pre-multiplied at all - to come out as the ship's
-; screen offset in layer units after the shift.
+; 1/4: sample = camera >> 4, so one layer unit is 16 world units where a half-res
+; screen pixel is 32 - hence 2x. The camera offset is pre-multiplied by 8 rather
+; than 64 for the same reason it is pre-multiplied at all: to come out as the
+; ship's screen offset in layer units after the shift.
+;
+; 4x was tried and is too fast: at the top tier it moves them ~12 half-res pixels
+; a frame, and specks that quick stop reading as depth and start reading as
+; noise. 2x is ~6 a frame, which is the layer doing its job - saying "fast" when
+; there is nothing else in view - without taking the eye off the rocks.
 ; -----------------------------------------------------------------------------
 do_motes:
         lda     SHOFFH                  ; camera = ship + offset * forward
@@ -2415,13 +3367,17 @@ srb_next:
 emit_asteroids:
         stz     ADRAWN
         stz     VISI
+        lda     #AST_BUDGET
+        sta     ABUDGET
 @lp:    lda     VISI
         cmp     VISN
         beq     @done
         lda     ADRAWN
         cmp     #AST_MAX
         bcs     @done
-        jsr     one_asteroid
+        lda     ABUDGET                 ; out of frame? stop drawing rocks. The
+        beq     @done                   ;   ones that go are the ones the visible
+        jsr     one_asteroid            ;   list happened to reach last
         inc     VISI
         bra     @lp
 @done:  rts
@@ -2432,16 +3388,40 @@ one_asteroid:
         sta     OBJI
         tax
         ldy     OBJSHP,x
-        lda     SHAPE_R,y
-        sta     ARAD
-        lda     SHAPE_OCC,y
-        sta     AOCR
-        lda     SHAPE_N,y
+        sty     ASHP                    ; qmul clobbers X and Y, so everything
+        lda     SHAPE_N,y               ;   indexed by the class is read FIRST
         sta     AVN
         lda     SHAPE_LO,y
         sta     SHPL
         lda     SHAPE_HI,y
         sta     SHPH
+
+        lda     SHAPE_R,y               ; both radii shrink with the zoom - the
+        sta     MQA                     ;   bounding one because it decides what
+        lda     ZOOMH                   ;   is on screen, the suppression one
+        sta     MQB                     ;   because a rock that draws smaller has
+        jsr     qmul                    ;   to hide stars over a smaller disc
+        sta     ARAD
+        ldy     ASHP
+        lda     SHAPE_OCC,y
+        sta     MQA
+        lda     ZOOMH
+        sta     MQB
+        jsr     qmul
+        sta     AOCR
+
+        lda     #$02                    ; LOD: how far apart the vertices we use
+        sta     AVSTEP                  ;   sit in the shape, in bytes
+        lda     ARAD
+        cmp     #LOD_R
+        bcs     :+
+        lda     AVN
+        cmp     #LOD_MIN_N              ; anything below the floor keeps all its
+        bcc     :+                      ;   vertices - see the note on LOD_MIN_N
+        lsr     a
+        sta     AVN
+        asl     AVSTEP
+:
 
         ldy     VISI                    ; half-res centre = the full-res screen
         lda     VSXH,y                  ;   position >> 1, arithmetic (cmp #$80
@@ -2504,6 +3484,23 @@ one_asteroid:
 :       sta     ASINV
         stx     SGS
 
+        ; The ZOOM folds into the trig, ONCE per rock, so a vertex costs exactly
+        ; what it cost before: rotate-and-scale is one matrix, not two passes.
+        ; It stays inside qmul's 127 only because the camera never pushes IN -
+        ; |cos| <= 127 and the reciprocal <= 128, so the product is <= |cos|.
+        lda     ACOSV
+        sta     MQA
+        lda     ZOOMH
+        sta     MQB
+        jsr     qmul
+        sta     ACOSV
+        lda     ASINV
+        sta     MQA
+        lda     ZOOMH
+        sta     MQB
+        jsr     qmul
+        sta     ASINV
+
         stz     AVI
         ldy     #$00                    ; Y walks the shape, 2 bytes a vertex
 @vlp:   lda     (SHPL),y                ; mx, split the same way - once per
@@ -2525,7 +3522,11 @@ one_asteroid:
         ldx     #$FF
 :       sta     AMYM
         stx     SGMY
-        iny
+        tya                             ; Y is on my; the next pair starts one
+        clc                             ;   back plus the LOD stride
+        adc     AVSTEP
+        tay
+        dey
         sty     ASHY
 
         lda     AMXM                    ; px = mx*cos - my*sin
@@ -2613,6 +3614,19 @@ one_asteroid:
 :                                       ;  transform is a long loop body)
 
         inc     ADRAWN
+        sec                             ; charge the budget: the vertices, plus a
+        lda     ABUDGET                 ;   surcharge if this one has to be
+        sbc     AVN                     ;   clipped segment by segment
+        bcs     :+
+        lda     #$00
+:       ldx     ACLIP
+        beq     :+
+        sec
+        sbc     #AST_CLIP
+        bcs     :+
+        lda     #$00
+:       sta     ABUDGET
+
         lda     ACLIP
         bne     @clipped
 
@@ -2782,7 +3796,31 @@ span_test:
 @miss:  lda     #$02
         rts
 
+; -----------------------------------------------------------------------------
+; emit_ship — three solid lines, nose up, riding the speed tier up and down.
+; -----------------------------------------------------------------------------
+; SOLID, three LINE ops, 15 bytes of the command list. The rocks are dot-lines
+; because a dotted rim is what reads as rock and there are a dozen of them; the
+; ship is one object and wants to be the solid thing in the frame, which is also
+; what it looked like as a sprite.
+;
+; Measured, because a dirty diagnostic said otherwise for a while and it was
+; worth settling: LINE (10,10)-(40,30) draws exactly 101 pixels over exactly the
+; right extent, and the whole triangle is 116 pixels inside fb_x 286-314,
+; fb_y 136-160. It does not byte-smear a diagonal.
+;
+; No clipping is needed and none is available: the coordinates are half-res bytes
+; and nothing validates them. The ship is safe because it never leaves the middle
+; of the screen - fb_x is 200 plus at most 120 of speed offset, so the half-res
+; centre is 80..130 and +/-7 stays a long way inside 0..199.
+;
+; TATE: "up" on the player's screen is DECREASING fb_x, so the nose is the point
+; with the smaller x and the base spreads along fb_y. That is the same rotation
+; sprgen bakes into the artwork with --tate; here it is just how the three
+; points are written.
+; -----------------------------------------------------------------------------
 emit_ship:
+.if SHIP_SPRITE
         lda     #SPR_SHIP
         sta     OS_ARG+0
         ldy     #$00                    ; fb_x = FBCX + offset - 16
@@ -2801,6 +3839,95 @@ emit_ship:
         lda     #>SHIP_SY
         sta     OS_ARG+4
         jmp     API_GPU_SPRITE
+.else
+        lda     #SHIP_NOSE              ; the triangle shrinks with the zoom, for
+        sta     MQA                     ;   free: it is three points, so this is
+        lda     ZOOMH                   ;   three multiplies a frame and no
+        sta     MQB                     ;   pre-scaled artwork at all. That is the
+        jsr     qmul                    ;   argument for keeping the ship vector
+        sta     SNOSE                   ;   rather than going back to a sprite.
+        lda     #SHIP_TAIL
+        sta     MQA
+        lda     ZOOMH
+        sta     MQB
+        jsr     qmul
+        sta     STAIL
+        lda     #SHIP_HALFW
+        sta     MQA
+        lda     ZOOMH
+        sta     MQB
+        jsr     qmul
+        sta     SHALFW
+
+        ; FULL RESOLUTION, and the reason is motion, not sharpness. $42 takes
+        ; half-res endpoints and doubles them, so a line that drifts or turns
+        ; slowly lands on the same two even pixels for several frames and then
+        ; jumps 2 px - which on the one object the player watches the whole time
+        ; reads as the ship stepping rather than moving. $43 takes the endpoints
+        ; on the 400x300 grid and draws them with the same renderer: identical
+        ; still picture, four times the distinct positions in motion. It costs 8
+        ; PPRAM bytes a line instead of 4, and PPRAM is at 16% of the list.
+        ;
+        ; The centre is 16-bit for the same reason it has to be: FBCX plus a
+        ; SHOFF of 126 plus the nose is past 255 on its own.
+        ldy     #$00                    ; cx = FBCX + SHOFF, signed 16
+        bit     SHOFFH
+        bpl     :+
+        ldy     #$FF
+:       clc
+        lda     SHOFFH
+        adc     #<FBCX
+        sta     T0
+        tya
+        adc     #>FBCX
+        sta     T1
+
+        ldy     #$00                    ; cy = FBCY + SHOFX, the cross lean
+        bit     SHOFXH
+        bpl     :+
+        ldy     #$FF
+:       clc
+        lda     SHOFXH
+        adc     #<FBCY
+        sta     T2
+        tya
+        adc     #>FBCY
+        sta     T3
+
+        sec                             ; NOSE  = (cx - SNOSE, cy)
+        lda     T0
+        sbc     SNOSE
+        sta     SHPNX
+        lda     T1
+        sbc     #$00
+        sta     SHPNX+1
+        clc                             ; BASE x, shared by both corners
+        lda     T0
+        adc     STAIL
+        sta     SHPBX
+        lda     T1
+        adc     #$00
+        sta     SHPBX+1
+        sec                             ; LEFT  y = cy - SHALFW
+        lda     T2
+        sbc     SHALFW
+        sta     SHPLY
+        lda     T3
+        sbc     #$00
+        sta     SHPLY+1
+        clc                             ; RIGHT y = cy + SHALFW
+        lda     T2
+        adc     SHALFW
+        sta     SHPRY
+        lda     T3
+        adc     #$00
+        sta     SHPRY+1
+
+        SHIPSEG SHPNX, T2, SHPBX, SHPLY ; nose -> left corner
+        SHIPSEG SHPBX, SHPLY, SHPBX, SHPRY  ; ...the base...
+        SHIPSEG SHPBX, SHPRY, SHPNX, T2 ; ...and back to the nose
+        rts
+.endif
 
 ; -----------------------------------------------------------------------------
 ; do_hud — patch the four RAM strings, then six VTEXT commands.
@@ -2809,7 +3936,7 @@ emit_ship:
 ; the same order and directions as the horizontal opcode.
 ; -----------------------------------------------------------------------------
 do_hud:
-        lda     TIER                    ; speed: a canned 4-character field per
+        lda     ETIER                   ; speed: a canned 4-character field per
         asl     a                       ;   tier, so there is no formatting to do
         asl     a
         tax
@@ -2883,6 +4010,22 @@ do_hud:
         sta     STR_HDG+5
         lda     DEC1
         sta     STR_HDG+6
+        lda     ZOOMH                   ; the zoom, as its raw reciprocal: 128 is
+        jsr     put_dec3                ;   1:1 and 64 is twice as far out. The
+        lda     DEC0                    ;   number to watch while re-tuning
+        sta     STR_HDG+11              ;   ZOOM_RZ, so it is the number shown
+        lda     DEC1
+        sta     STR_HDG+12
+        lda     DEC2
+        sta     STR_HDG+13
+        lda     OVRCNT                  ; ...and OVR: frames the OS said we did
+        jsr     put_dec3                ;   not deliver. It must stay at 000. Any
+        lda     DEC0                    ;   other number means the GPU blinked and
+        sta     STR_HDG+18              ;   the scene needs thinning
+        lda     DEC1
+        sta     STR_HDG+19
+        lda     DEC2
+        sta     STR_HDG+20
 
         lda     STARN
         jsr     put_dec3
@@ -3081,6 +4224,7 @@ smul16q7:
 ; =============================================================================
         .segment "RODATA"
 
+.if SHIP_SPRITE
 ; --- the ship -----------------------------------------------------------------
 ; Generated from assets/png/ship32.png:
 ;     python tools/sprgen.py assets/png/ship32.png proto/01_flight/ship32.s \
@@ -3100,6 +4244,7 @@ SPRDEF:
         .byte   $00, $00                ; $0400 SPR_PTR_LSB
         .byte   $F4, SHIP_PAGE          ; $0500 SPR_PTR_MSB
         .byte   26,  SHIP32_HEIGHT      ; $0600 SPR_HEIGHT
+.endif
 
 ; =============================================================================
 ; Asteroids
@@ -3223,24 +4368,127 @@ AST_PHASE:  .byte   0, 32, 64, 96, 128, 160, 192, 224
 ; full-res pixel and the frame is 60.317 Hz, so one unit per frame is 3.77 px/s
 ; and the tiers below come out as exact round numbers of pixels per second -
 ; which is the whole reason the speed is 8.8 and not a byte.
-TIER_N      = 11
+TIER_N      = 11                ; tiers the player can select, 0..10
 TIER_ZERO   = 3
+TIER_BOOST  = 11                ; ...and the one only the boost can reach
+BOOST_FRAMES = 90               ; 1.5 s at 60.317 Hz
+
+; THE TELEPORT lands the ship on a FIXED screen point, and that one decision is
+; what makes it cheap. The ship sits at FBCX + SHOFF, so a fixed landing point
+; means a fixed SHOFF afterwards - and since SHOFF is a signed byte, the landing
+; point only has to satisfy L >= 72 for the whole thing to fit the representation
+; the cartridge already has. No 16-bit camera offset, and - because the ship
+; never leaves the screen - no clipping of a ship whose LINE16 coordinates the
+; GPU would not have validated.
+;
+; TP_OFF 120 lands it 80 px from the leading edge: 8 units of margin in the byte
+; and 66 px of clearance for the nose at 1:1.
+;
+; The jump length falls out of the geometry rather than being authored: it is
+; (SHOFF - landing), so +350 jumps 246 px and a standstill jumps 160. Faster
+; means further, which is what you want from an escape move, and no code decides
+; it. Reverse mirrors: the ship rides ABOVE centre backing up, so it lands low
+; and the jump goes backwards along the heading.
+TP_OFF      = 120               ; |SHOFF| the ship lands on, sign by direction
 TIER_SPD:
         .word   $D836, $E579, $F2BD, $0000, $0D43, $1A87
         .word   $27CA, $350E, $4251, $4F94, $5CD8
+        .word   $5CD8                   ; TIER_BOOST: 350 authored, doubled by
+                                        ;   TIER_SHL to 700 px/s
+;
+; 480 and not 500, and the 4% is not a rounding preference. SPD is signed 8.8
+; world units per frame; a unit is 1/16 px at 60.317 Hz, so one unit a frame is
+; 3.7698 px/s and $7FFF - the largest value the type holds - is 482.5 px/s.
+; 500 px/s is 132.6 units a frame, which is $8499: a NEGATIVE number in signed
+; 8.8. Typing 500 into this table does not give a slower boost, it fires the ship
+; backwards at ~490 px/s. Above 482.5 the speed has to become 16.8, which widens
+; smul16q7 by one partial product - twice a frame, not once per object - and
+; makes the position add cheaper, because a 16.8 velocity needs no sign extension
+; into the 24-bit accumulator.
+;
+; The cull does not constrain this. The boost only starts from the top tier and
+; does not touch the zoom, so RZ stays 64, where the gap between the coarse
+; window and the precise cull is 256 units. Ship 127 + rock 13 = 140. 1.8x.
 ;               -150   -100    -50      0    +50   +100
 ;               +150   +200   +250   +300   +350        px/s
 TIER_TXT:
         .byte   "-150", "-100", "-050", "+000", "+050", "+100"
         .byte   "+150", "+200", "+250", "+300", "+350"
+        .byte   "BOST"                  ; TIER_BOOST reads ETIER, so the HUD says
+                                        ;   so while it runs
 
-; How far down the screen the ship sits at each tier, in full-res pixels. At
-; rest it is centred; forward pushes it down so the player sees further ahead,
-; reverse lifts it above centre for the same reason. SHOFF_LAG is the ease: the
-; offset closes 1/(2^LAG) of the remaining gap each frame.
+; How far down the screen the ship sits at each tier, in full-res pixels.
+; Forward pushes it down so the player sees further ahead; reverse lifts it for
+; the same reason. SHOFF_LAG is the ease: the offset closes 1/(2^LAG) of the
+; remaining gap each frame.
+;
+; At REST it is 40 px below centre, not on it - 20% of the screen's half-height.
+; Dead centre gives the same amount of screen ahead and behind, and the thing
+; ahead is the thing you are flying into.
+;
+; The forward end is squashed to fit, and the ceiling is not aesthetic: SHOFFH is
+; the high byte of a SIGNED 8.8 offset and is read as a signed byte everywhere,
+; so 127 is the wall. The first cut of this table ran to 140 and the offset wrapped
+; to -127 mid-flight - the ship shot to the top of the screen and took the star
+; camera point with it. Squashing costs little now that the ZOOM provides most of
+; the look-ahead the slide used to.
 SHOFF_LAG   = 4
+
+; The camera leans INTO a turn, which slides the ship across the screen. Target
+; cross-offset = turn velocity * CAMX_GAIN, eased with CAMX_LAG the same way the
+; along-axis offset is eased. The turn velocity is 8.8 brad per frame and tops
+; out near 3.0 - and is clamped to exactly that before the shift, so the speed
+; coupling cannot push it past what the arithmetic holds. Shift 5 and the per-tier
+; Q0.7 gain in CAMX_TIER put the target at +/-80 full-res px at full lean and top
+; speed. The first cut was a quarter of that and read as almost nothing; the
+; second was half; and all three leaned just as hard standing still, which is
+; where it looked wrong - see CAMX_TIER. Flip the SIGN of CAMX_GAIN if it leans the
+; wrong way - that is the only thing about it that is a guess.
+;
+; The pivot of the world rotation is the SHIP, not the screen centre (4.2), so
+; moving the ship across the screen moves the pivot with it. CULL_R has always
+; carried that term for the along axis - "200 half-height + 126 ship offset + 96
+; rock radius" - and this adds the same term to the cross axis: 150 + 80 + 96 =
+; 326 instead of 246, so the worst-case reach goes from 483 to 534 px. Both cull
+; tables are regenerated from that number, and this is the real price of leaning
+; harder: a 4.7% bigger CULL_R is 9.6% more area through the precise cull.
+;
+; The star and mote layers deliberately do NOT get this offset. At 1/4 parallax
+; an 80 px camera shift is 20 px of backdrop, it only exists while the field is
+; already rotating, and every heading change rebases the field anyway - so it
+; cannot accumulate. That buys us out of a second sub-unit-registered
+; accumulator in the code findings 6, 12 and 15 are all about.
+CAMX_CLAMP  = 768               ; ...and the turn velocity it saturates at, 8.8
+                                ;   brad per frame, i.e. 3.0
+CAMX_LAG    = 5                 ; the ease closes 1/(2^LAG) of the gap a frame
+; How many times each tier's velocity is doubled after the direction product.
+; Everything the player can select is authored at face value; only the boost is
+; multiplied. See vel_shl for why the multiplier is here and not in TIER_SPD.
+TIER_SHL:
+        .byte   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+        .byte   1                       ; TIER_BOOST: 350 -> 700 px/s
+
+; How hard the camera leans into a turn, Q0.7, per tier. The lean exists to say
+; "the camera is not keeping up with this ship", and that sentence has no meaning
+; at a standstill: a pivot the ship is sitting still on has nothing to lag behind.
+; So the gain tracks |speed|, zero at TIER_ZERO and 107 at either end of the
+; range. Reverse leans too - the camera lags whichever way you are going.
+;
+; The boost is held at 107 rather than scaled to its 2x speed on purpose: the
+; lean is what sets CULL_R's cross-axis term, and a harder one there would mean
+; regenerating both cull tables for a case that lasts 90 frames.
+;              -150 -100  -50    0  +50 +100 +150 +200 +250 +300 +350
+CAMX_TIER:
+        .byte    46,  31,  15,   0,  15,  31,  46,  61,  76,  92, 107
+        .byte   107                     ; TIER_BOOST
+
 SHIP_OFF:
-        .byte   <-80, <-55, <-28, 0, 18, 35, 52, 69, 86, 103, 120
+        .byte   <-40, <-18, 12, 40, 56, 71, 85, 97, 108, 118, 126
+        .byte   126                     ; TIER_BOOST: the top tier's, unchanged -
+                                        ;   the boost must not move the ship. It
+                                        ;   also COULD not: 127 is the ceiling on
+                                        ;   a signed byte and 126 is where the top
+                                        ;   tier already sits. See finding 28.
 
 ; Turn rates in brad per frame (256 brad = one revolution) and the resulting
 ; milliseconds per revolution. Rate 8 is the "1/32 of a turn per frame" idea:
@@ -3255,6 +4503,121 @@ TURN_RATE:  .word   $00C0, $0100, $0140, $0180, $01C0, $0200, $0280, $0300
 ;                    0.75   1.00   1.25   1.50   1.75   2.00   2.50   3.00
 TURN_TXT:
         .byte   "5659", "4244", "3396", "2830", "2425", "2122", "1698", "1415"
+
+; =============================================================================
+; Zoom
+; =============================================================================
+; The camera pulls BACK as the ship speeds up, and never pushes in past 1:1, so
+; the scale is always <= 1. It is carried as its RECIPROCAL in Q0.7 - "how many
+; screen pixels per reference pixel, times 128" - because that turns every use
+; of it into a multiply and never a divide:
+;
+;   128 = 1:1, 64 = twice as far out, 43 would be three times
+;
+; Per tier, and eased toward it on the same curve as the ship's screen offset,
+; because they are one gesture: the camera pulls back AND the ship slides down,
+; both so the player is looking at where they are going (design_technical 4.4).
+;
+; Reverse and rest stay at 1:1 - going backwards you want to see what you are
+; backing into, not a wider view of it. This is the whole zoom curve and it is
+; meant to be flown and re-tuned; making the ramp start later, or making it a
+; step, is an edit to this one line.
+;              -150  -100   -50     0   +50  +100  +150  +200  +250  +300  +350
+ZOOM_RZ:
+        .byte   128,  128,  128,  128,  128,  123,  112,   99,   87,   76,   64
+        .byte    64                     ; TIER_BOOST: the top tier's, unchanged
+;              1:1                            ...                        2x out
+;   rung k:      0     0     0     0     0     1     3     6     9    12    16
+;
+; Every value is a RUNG of ZQ_LADDER, and the shape is "start later, end harder".
+; +50 stays at 1:1 - at fifty pixels a second a wider view buys nothing and costs
+; a table rebuild. From +100 the steps grow 1, 2, 3, 3, 3, 4 rungs, so the world
+; opens up fastest exactly where the look-ahead is worth most. The old curve was
+; a first cut: it started widening at +50 and its steps were 6, 8, 9, 9, 10, 11
+; reciprocal counts, which is nearly linear and put the biggest proportional
+; change at the bottom of the range where it reads least.
+;
+; The whole ramp crosses 16 rungs, so a full acceleration rebuilds the ZS table
+; at most 16 times. Un-quantised the same ramp crosses all 64 integer values of
+; the reciprocal, at ~10,000 cycles each.
+
+; -----------------------------------------------------------------------------
+; ZQ_LADDER / ZQ_SNAP — the zoom is quantised, and the rungs are GEOMETRIC.
+; -----------------------------------------------------------------------------
+; Two reasons, and they are independent.
+;
+; CYCLES. The ZS scale table is rebuilt whenever the reciprocal's integer part
+; moves - ~10,000 cycles - and the ease walks the reciprocal one count at a time,
+; so the un-quantised ramp pays that on nearly every frame it is accelerating.
+; Which is the same stretch of frames on which the zoom is multiplying the number
+; of rocks in view. Snapping the eased value to 16 rungs an octave cuts that by
+; 4x for a 4.4% step in scale, which is below what the eye picks up on a rock.
+;
+; SPRITES, and this is why the rungs are geometric rather than evenly spaced.
+; On-screen radius is R_class * RZ/128. With the rungs at 128*2^(-k/16) and the
+; size classes an octave apart, that becomes
+;
+;       r = R0 * 2^(-(c*S + k)/S)
+;
+; so the on-screen size depends on ONE integer, c*S + k. A rock at the bottom
+; rung of its octave is pixel-identical to the next class down at the top rung:
+; k=16 of class c IS k=0 of class c+1. A sprite atlas is therefore indexed by an
+; ADDITION, not a table, and one sprite serves every (class, zoom) pair that
+; lands on its index. The S=4 sub-ladder the sprites will actually use is every
+; fourth rung - 128, 108, 91, 76, 64 - and it is exact, not approximate, because
+; it is a subset of these same rungs.
+;
+; SHAPE_R's 48 breaks the octave spacing (48, 32, 16, 8, 4 - the first step is
+; 1.5x). It does not matter: the 192 class is far too big to ever be a sprite,
+; and 32/16/8/4 are octaves.
+ZQ_LADDER:                              ; 128 * 2^(-k/16), k = 0..16
+        .byte    64,  67,  70,  73,  76,  79,  83,  87,  91
+        .byte    95,  99, 103, 108, 112, 117, 123, 128
+
+; ...and the nearest rung for every reciprocal the ease can produce, indexed by
+; the eased value: ZQ_SNAP-64,x with x = ZEASH. One table read a frame.
+; TPQ - (128/RZ) - 1 in Q0.7, indexed by the snapped reciprocal. The teleport
+; distance is authored on the SCREEN, so it has to be divided by the zoom to get
+; world units; this turns that divide into one multiply and one add.
+TPQ:
+        .byte   127, 124, 120, 117, 113, 109, 106, 103, 100,  96,  93,  90,  88
+        .byte    85,  82,  79,  77,  74,  72,  69,  67,  65,  63,  60,  58,  56
+        .byte    54,  52,  50,  48,  46,  44,  43,  41,  39,  37,  36,  34,  33
+        .byte    31,  30,  28,  27,  25,  24,  22,  21,  20,  18,  17,  16,  14
+        .byte    13,  12,  11,  10,   9,   7,   6,   5,   4,   3,   2,   1,   0
+
+ZQ_SNAP:
+        .byte    64,  64,  67,  67,  67,  70,  70,  70,  73,  73,  73,  76,  76
+        .byte    76,  79,  79,  79,  79,  83,  83,  83,  83,  87,  87,  87,  87
+        .byte    91,  91,  91,  91,  95,  95,  95,  95,  99,  99,  99,  99, 103
+        .byte   103, 103, 103, 108, 108, 108, 108, 108, 112, 112, 112, 112, 117
+        .byte   117, 117, 117, 117, 117, 123, 123, 123, 123, 123, 128, 128, 128
+
+; What the cull has to admit, per zoom step: CULL_R scales as 128/RZ, because
+; pulling the camera back makes the visible window that much wider in world
+; units. Indexed by (RZ >> 3) - 8, so RZ 64..128 is nine entries. Rounded UP, and
+; the high-byte window with it: the freeze-far-rocks ordering in do_objects needs
+; CULL_HI * 256 to stay at least 128 units clear of CULL_R, or a rock could cross
+; both tests inside one frame.
+;              RZ 64   72     80     88     96    104    112    120    128
+ZOOM_CULLR:
+        .word   17088, 15190, 13671, 12428, 11392, 10516,  9765,  9114,  8544
+ZOOM_CULLH:
+        .byte      68,    61,    55,    50,    46,    43,    40,    37,    35
+;
+; Regenerated when the camera gained its cross-axis lean. The pivot of the world
+; rotation is the SHIP, so moving the ship across the screen moves the pivot: the
+; cross-axis reach goes from 150 + 96 = 246 to 150 + 20 + 96 = 266, and the
+; worst-case vector from sqrt(422^2 + 246^2) = 483 px to sqrt(422^2 + 266^2) =
+; 499. At 483 the big rocks popped in and out at the edges - see finding 18 -
+; and the cross axis would have started doing the same thing on hard turns.
+;
+; The high-byte windows are now +2 rather than the minimum +1, so the smallest
+; clearance is 281 units instead of 128. That costs a coarse window 3% wider -
+; about half a rock more through the cheap test at 1:1 - and buys two things:
+; the freeze-far-rocks ordering keeps its margin at every zoom step, and the
+; BOOST's 127 units a frame plus a rock's 13 stays well inside it everywhere,
+; not just at the top tier where the boost happens to live today.
 
 ; Optional speed coupling: rate = rate * (1 + xtra/128), indexed by speed tier.
 ; Standstill is unchanged, top speed is doubled.
@@ -3273,10 +4636,10 @@ TSCALE_TXT: .byte   "x1.12", "x1.25", "x1.50"
 ; HUD templates. Each is exactly 24 bytes, which is what init_strings copies.
 TPL_SPD:    .byte   "SPD +000 PX/S", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 TPL_TRN:    .byte   "TURN 2 2122 MS/REV R0", 0, 0, 0
-TPL_HDG:    .byte   "HDG $00", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+TPL_HDG:    .byte   "HDG $00 RZ 000 OVR000", 0, 0, 0
 TPL_STA:    .byte   "STARS 000/088 M00 A00", 0, 0, 0
 TPL_SCL:    .byte   "TSCALE OFF", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 TPL_SCL2:   .byte   "TSCALE 0 MAX x1.00", 0, 0, 0, 0, 0, 0
 
-TXT_H1:     .byte   "JOY1 L/R TURN  UP/DN SPEED", 0
+TXT_H1:     .byte   "J1 TURN/SPEED  J2UP BOOST", 0
 TXT_H2:     .byte   "FIRE RATE  J2 L/R RAMP", 0

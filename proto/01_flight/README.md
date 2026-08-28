@@ -34,20 +34,33 @@ the geometry, reports the cycle budget, and writes `preview.png`.
   cheap: no occlusion pass, and being few they need none of the starfield's
   rebuild-and-scroll machinery — they are transformed from scratch every frame.
   They do still need its *arithmetic* — see finding 15.
-- **The ship.** `assets/png/ship32.png`, 32 × 32 with an overlay plane, run
-  through `tools/sprgen.py --tate` into `ship32.s` and installed into sprite
-  slot 1 at boot. Always nose-up, riding up and down the screen with the speed
-  tier. Slot 0 is deliberately left as the GPU's ROM test sprite, so an id typo
-  draws something recognisable rather than nothing.
-- **200 asteroids** with real world positions, velocities and spins, scattered
-  over the whole torus — three to six on camera at a time. Each is a **closed
+- **The ship.** A **solid vector triangle**, 28 px tall and 24 across the base at
+  1:1, always nose-up, **40 px below centre at rest** and riding further down as
+  the speed tier climbs. It shrinks with the zoom like everything else in the
+  world. Three
+  `LINE` ops.
+
+  The 32 × 32 sprite it replaced is still here and still works — set
+  `SHIP_SPRITE = 1` in `main.s` and the artwork, the `--tate` conversion and the
+  five-page upload all come back. The triangle is in so the two can be compared
+  once **zoom** exists: a vector ship scales for nothing, where a sprite needs a
+  pre-scaled frame per zoom step, and the ship is the one object in the game that
+  never rotates — so the usual argument for sprites does not apply to it.
+- **120 asteroids** with real world positions, velocities and spins, scattered
+  over the whole torus — two or three on camera at rest, seven or eight at top
+  speed once the camera has pulled back. Each is a **closed
   dotted outline** at one of **five sizes: 192, 128, 64, 32 and 16** full-res
   pixels across, rotated by (its own spin — the heading) every frame. **Stars
   go out underneath one**, so a rock reads as a solid body and not as a wire
   hoop. Nothing collides with anything: you fly straight through them.
+- **The zoom.** The camera pulls **back** as the ship speeds up, smoothly, to
+  **2x out at the top tier**. Rocks and the ship scale with it, and so do their
+  star-suppression discs. The starfield and the motes do **not** — the stars are
+  conceptually infinitely far away and are there to show the *rotation*, and the
+  motes are foreground grit for the sense of speed.
 - **A HUD**: speed in px/s, turn rate in milliseconds per revolution, heading,
-  the number of stars that survived clipping, and `A` — how many rocks were
-  drawn this frame.
+  `RZ` (the zoom reciprocal — 128 is 1:1, 64 is twice out), the number of stars
+  that survived clipping, and `A` — how many rocks were drawn this frame.
 
 ### The rocks, and how to change them
 
@@ -63,6 +76,17 @@ to be edited and looked at:
 | `AST_VEL` | four drift vectors per size, **hardcoded**, picked by `index & 3`. 8 px/s for the 192s up to 50 px/s for the 16s |
 | `AST_SPIN` | one spin rate per size, 8.8 brad/frame: 45 s a revolution for the 192, 2.8 s for the 16 |
 | `AST_PHASE` | eight starting angles, so they do not all turn in step |
+| `ZOOM_RZ` | the **whole zoom curve**, one reciprocal per speed tier (128 = 1:1). Making the ramp start later, or making it a step, is an edit to this one line |
+| `ZOOM_CULLR` / `ZOOM_CULLH` | what the cull has to admit at each zoom step. Regenerate both if `ZOOM_RZ` leaves the 64..128 range |
+| `SHIP_OFF` | how far down the screen the ship sits per tier. **127 is a hard ceiling** — it is a signed byte |
+| `AST_BUDGET` / `AST_CLIP` | the per-frame outline work budget, in vertex-units, and what a screen-straddling rock adds. **This is what stops the frame overrunning** — see finding 30 |
+| `LOD_R` | on-screen radius below which a rock is drawn with every second vertex |
+| `LOD_MIN_N` | ...and the vertex count below which it is **not**, because halving an octagon makes a rectangle — see finding 35 |
+| `ZQ_LADDER` / `ZQ_SNAP` | the geometric zoom rungs the eased reciprocal snaps to, and the lookup that does it — finding 36 |
+| `CAMX_GAIN` / `CAMX_LAG` | how far the camera leans into a turn, and how fast. **Flip the sign of the gain if it leans the wrong way** |
+| `TP_OFF` | the `\|SHOFF\|` the teleport lands on. **72 is the floor** — below it the landing point stops fitting a signed byte |
+| `CAMX_TIER` | how hard the camera leans into a turn, per tier — zero at a standstill |
+| `BOOST_FRAMES` | how long a boost lasts; `TIER_SPD`'s last entry and `TIER_SHL`'s are how fast |
 
 Nothing here is random except *where* a rock is and *which size* it is. The
 velocities and spins are authored, so the field is identical every run and
@@ -80,6 +104,8 @@ table with `|x| + |cos|` and that has to stay inside a byte.
 | FIRE | cycle the turn rate |
 | JOY2 FIRE | step the speed-coupling strength |
 | JOY2 LEFT/RIGHT | step how sharply the turn winds up |
+| **JOY2 DOWN** | **TELEPORT** — jump to a fixed point 80 px from the leading edge; 246 px at top speed, 160 at rest, backwards when reversing |
+| **JOY2 UP** | **BOOST** — 700 px/s for 90 frames. Top tier only, cannot be stacked. The HUD speed field reads `BOST` while it runs |
 
 Speed tiers, in pixels per second: `-150, -100, -50, 0, +50, +100, +150, +200,
 +250, +300, +350`. Those are exact, not approximate: a world unit is 1/16 of a
@@ -402,8 +428,16 @@ that is only half off screen most segments are in the first two categories.
 The lesson is the one in finding 11: what cost was the **objects you cannot
 see**, not the ones you can.
 
-Where it lands: **median 80,800 cycles (34% of budget), worst frame 165,000
-(70%)** with the star occlusion of finding 22 in. PPRAM is a non-issue at 281 bytes of 2047, 14%.
+Where it lands with the **zoom in and the bench driven to its top tier**:
+**median 118,200 cycles (50% of budget), worst frame 209,200 (88%)**, with the
+outline budget's low-water mark at 38 of 150 — so the valve is there but this
+flight never needed it with the star occlusion of finding 22 in.
+
+The worst frames are **heading-change frames**, and now we know why: `BUILD_ROT`
+costs **20,081 cycles** for the pair of tables, measured on frame 30 mid-turn.
+That is 8.5% of budget, paid only when the heading's integer part moves — and
+it is the number that decides how zoom should work, because folding a scale into
+those tables would mean paying it on every frame the zoom eases as well. PPRAM is a non-issue at 281 bytes of 2047, 14%.
 
 One number in that budget is set by the *biggest* rock, not the average one. The
 coarse cull has to pass anything whose rotation could still reach the screen,
@@ -472,6 +506,208 @@ in the frame for this — `do_stars` now runs after `emit_asteroids`, which is
 where the discs are registered. The command list order is unchanged, because
 `do_stars` only fills a buffer; `emit_stars` still goes last.
 
+**23. The preview picture had been wrong the whole time, and the harness was
+lying about it.** `preview.py` resets the buffer it captures GPU writes into to
+the background at the top of every frame, exactly as the hardware re-copies
+VRAM-image from VRAM-background. It never reset **the GPU's own VRAM**. The
+drawing routines read-modify-write, so every byte the current frame touched came
+back carrying whatever had been in it since frame zero: the ship, the motes and
+the starfield accumulated two hundred frames of trails, a byte at a time.
+
+It reads as fuzz — outlines a little too thick, a stray line here and there —
+which is exactly the kind of wrongness that gets explained away. It nearly cost a
+false firmware finding: a throwaway diagnostic with the same flaw made the solid
+`LINE` opcode look as though it byte-smeared diagonals, and the fix was almost
+written up as a firmware limitation. Cleared properly, `LINE (10,10)-(40,30)`
+draws 101 pixels over exactly the right extent, and the ship triangle is 116
+pixels inside `fb_x 286-314, fb_y 136-160`. The opcode was never at fault.
+
+Two lessons worth keeping. A harness that models a hardware copy has to model it
+**everywhere the hardware does it**, not just where the answer is read from. And
+a measurement that indicts the platform should be repeated on a clean rig before
+it is written down.
+
+**24. The ship is a vector triangle, and solid.** The rocks are dot-lines because
+a dotted rim is what reads as rock and there are a dozen of them; the ship is one
+object and wants to be the solid thing in the frame, which is also what it looked
+like as a sprite. Three `LINE` ops, 15 bytes of the command list.
+
+TATE decides which way it points, and it is worth writing down because it is easy
+to get backwards: **up on the player's screen is DECREASING `fb_x`**, so the nose
+is the point with the smaller x and the base spreads along `fb_y`. That is the
+same quarter turn `sprgen --tate` bakes into the artwork; here it is just how the
+three points are written. `preview.py` asserts the exact corners every run, which
+is what would catch it flipping.
+
+**25. 4x motes are too fast; 2x is the number.** The layer's parallax is one
+shift in the sample — `camera >> 3` for 4x, `>> 4` for 2x, with the camera offset
+pre-multiplied to match — so it costs nothing to try either. 4x was tried and
+flown: at the top tier it moves the specks ~12 half-res pixels a frame, and at
+that speed they stop reading as depth and start reading as noise, pulling the eye
+off the rocks. Back to **2x**, ~6 pixels a frame, which is the layer doing its
+job: saying "fast" when there is nothing else in view. `preview.py` measures the
+ratio against the starfield — 2 / 0.25 = 8 expected, 7.9 measured.
+
+**26. The zoom is a reciprocal, and it never touches the rotation tables.**
+Carried as `128/scale` in Q0.7 — 128 is 1:1, 64 is twice out — so every use of it
+is a multiply and never a divide. Because the camera only ever pulls *back*, the
+scaled trig stays inside `qmul`'s 127 limit for nothing.
+
+| where it lands | cost |
+|---|---|
+| a rock's **centre** | two products, through a `ZS[i] = signed(i)*RZ/128` table read exactly like the rotation tables (finding 20) |
+| a rock's **vertices** | **nothing**. The scale folds into the per-rock `cos`/`sin`, so rotate-and-scale is one matrix and a vertex costs what it always did |
+| its **suppression disc** | one product on the radius |
+| the **ship** | three products, because it is three points |
+| the **cull radius** | a nine-entry lookup; it scales as `128/RZ` |
+| **stars and motes** | nothing, by design |
+
+The scale is deliberately **not** folded into the rotation tables, even though
+that would make it free per object: three things read those tables — the
+starfield, the object centres, and the radar when it arrives — and only one of
+them zooms. A separate 512-byte scale table costs ~10k to rebuild against ~20k
+for the rotation pair, and only on frames where the reciprocal's integer part
+actually moved (57 of 200 on the bench's flight).
+
+**27. Gradual beats stepped, and the budget is the reason — not the look.**
+A step at a speed threshold saves nothing measurable: the per-object product is
+paid whether or not the scale changed, so the only difference between the two is
+the table rebuild during the transition. Against that, a step is worse three ways,
+and the third is the one that decides it:
+
+- The starfield does not zoom, so a rock snapping to half its size while the
+  stars stand still reads as the **rock** teleporting, not the camera moving.
+- Its suppression disc snaps with it, so a ring of stars blinks on at once around
+  every rock.
+- **The visible-object count goes as the square of the zoom.** 2x out is ~4x the
+  objects through the cull. A step drops that entire increase onto one frame —
+  and the budget is set by the worst frame. Easing spreads it over forty.
+
+That square is the real bill for zoom, and it is what took `NOBJ` from 200 to
+**120**: at 2x out, 120 rocks put as many on camera as 200 did at 1:1.
+
+**28. The ship at rest belongs below centre, and it is not free.** Dead centre
+gives as much screen behind the ship as ahead of it, and ahead is where you are
+going. It now rests 40 px down, 20% of the half-height.
+
+Two things that cost. **127 is a hard ceiling** on the offset — it is the high
+byte of a *signed* 8.8 value — and the first cut of the table ran to 140, wrapped
+to -127 and threw the ship to the top of the screen mid-flight. And the star and
+mote camera point rides `SHOFF` ahead of the ship, so lowering the ship pushes
+that sample nearer the star layer's 128-unit reach: wrong-way star sweeps went
+from 8 to 13 in 1,900, and the motes' cross-axis jitter roughly quintupled. Both
+are still an order of magnitude below the numbers that indicated the real defects,
+but a lower ship is not simply better.
+
+**29. A test that lumps two axes together is measuring neither.** The mote
+"do not twitch" check counted reversals on both screen axes at once and started
+failing when the ship moved down. Split apart, the two axes were saying opposite
+things:
+
+| | steps | mean step | reversals |
+|---|---:|---:|---:|
+| **along** travel | 365 | 5.5 px | **0** |
+| **across** it | 30 | 1.0 px | 26 |
+
+Finding 15's defect — freeze-then-jump — lives on the travel axis, and there it is
+perfectly clean. The cross axis has no motion at all, so every step on it is
++/-1 of pure quantisation and a "reversal" is just two of those in a row. The
+check now asserts **zero** reversals along travel — stricter than what it
+replaced — and reports the sideways jitter with a bound on its size instead.
+
+**30. A late frame does not blink — it hands the GPU a spliced list and the
+GPU executes the HUD as code.** Flown at nine-plus rocks the bench started losing
+the whole screen, sometimes permanently, and leaving debris on the *background*
+layer, which this cartridge writes to exactly once in its life. Four F2 dumps and
+a decoder settled it.
+
+**What the dumps ruled out first.** PPRAM peaked at **550 bytes of 2047**, so the
+list was never close to full. `video_reg` read `$08` in every dump, so nothing had
+latched a register *at the moment of capture*. And one dump caught CPU1 at
+**100.0% util, `state=Running`** — a frame that never reached `gpu_end`.
+
+**What the decoder found.** One buffer, status `$A2` — **CPU_READY** — decodes
+cleanly for forty commands of rock outlines and then does this:
+
+```
+   280: DOT_LINE   [197, 47, 192, 57]
+   285: DOT_LINE   [77, 158, 74, 98]   <- Y=158, outside the 0..149 field
+   290: !! $02 is not an opcode:  02 02 00 53 50 44 20 2B 33 35 30 ...
+                                        s  c  \0  S  P  D  ' ' +  3  5  0
+```
+
+That tail is a `VTEXT` — `62 02 02 00 "SPD +350 PX/S"` — whose `$62` opcode sits
+at index 289 and was swallowed as the fourth argument of the `DOT_LINE` at 285.
+The buffer is a **seam**: one frame's rock outlines spliced mid-command into
+another frame's HUD, and stamped ready.
+
+**How a seam happens.** From `MAD65_architecture.md`: *"Each frame, one chip
+belongs exclusively to CPU1 and the other to GPU. At every VSYNC the assignment
+swaps."* Unconditionally, in hardware. If CPU1 is still building when VSYNC
+fires, the rest of its list lands in the **other** chip, on top of the list from
+two frames ago — and `gpu_end` then stamps `CPU_READY` on that splice. The GPU's
+contract (*"does not process PPRAM content until the CPU has set CPU_READY"*) is
+satisfied by a buffer that is two half-frames glued together.
+
+**Why it is catastrophic rather than ugly.** Once the walker desyncs it executes
+whatever comes next, and what comes next is text. One HUD string:
+
+| byte | char | as an opcode |
+|---|---|---|
+| `$20` | space | **CLEAR_BG** — writes the background layer |
+| `$30` | `0` | **LOAD** — 258 bytes into an arbitrary GPU page |
+| `$44` | `D` | DOT_LINE, with letters for coordinates |
+| `$50` | `P` | SPRITE |
+
+A `DOT_LINE` with a letter for `Y` reaches `fb_y = 2*255 = 510`, and
+`$8000 + 510*50` lands deep inside the background window. A little further and it
+is `$BFE0`, `VIDEO_REG`, where one stray bit is `BLINDER` and the screen is off
+until something writes it back — which nothing will. All three symptoms, one
+mechanism.
+
+**The cartridge's defence: a work BUDGET, not a rock count.** `AST_BUDGET` is 120
+vertex-units a frame; a rock costs its vertices, and a rock that straddles a
+screen edge costs `AST_CLIP` more because each crossing segment goes through
+`gpu_dotline_clip` at ~3,000 cycles. When the budget runs out the frame stops
+drawing rocks. 120 is calibrated, not picked: this flight peaked at 112 units on
+a 209,000-cycle frame. The cart also reads `OVERRUN_FLAG` every frame, re-issues
+`CLEAR_BG` to repair the background, and shows the count as `OVR` on the HUD —
+**it must read 000**.
+
+**The real fix is four bytes, and it is in the OS.** `os_run` already computes the
+exact condition — one instruction too late:
+
+```
+    jsr (FRAME_VEC)
+    jsr gpu_end                      <- stamps CPU_READY unconditionally
+    if VSYNC_FLAG != 0: OVERRUN_FLAG <- 1
+```
+
+Testing `VSYNC_FLAG` *before* `gpu_end` and skipping the `CPU_READY` stamp turns
+a spliced buffer into a buffer the GPU refuses — the documented benign blink
+instead of arbitrary code execution. That belongs in the MAD-65 repo, not here.
+
+(An earlier draft of this finding blamed the `rp_replay` open item in
+`MAD65_CPU_OS.md` — a real bug, about background writes being *lost* on a late
+frame. It is not this one. This is writes being *invented*.)
+
+**31. Clipping is now the largest single item, and a rock that straddles an edge
+costs about what two rocks cost.** Profiled at five rocks on a turning, zooming
+frame: `gpu_dotline_clip` **26,400 cycles** against 27,000 for every rock
+transform put together. The outcode pre-pass of finding 17 already sends only the
+genuinely-crossing segments there — this is what is left, and it is the OS doing a
+real Cohen-Sutherland with a divide per crossing. It is why `AST_CLIP` exists, and
+it is the next thing worth attacking if the scene needs to grow: a purpose-built
+clipper that knows both endpoints are within 48 px of a known centre should be
+able to beat 3,000 cycles by a lot.
+
+**32. A rock small on screen does not show its corners.** The zoom makes every
+rock small at speed, which is exactly when the frame is tightest, so below an
+on-screen radius of `LOD_R` a shape of eight points or more is drawn with **every
+second vertex**. Shapes already at five or six points are left alone — halving
+those makes a triangle. Worth ~10,000 cycles on the worst frame for no visible
+change, because at that size the vertices that get dropped were a pixel apart.
+
 **19. Five LOAD pages on one frame is 98% of budget, and there is no reason for
 it.** Installing the ship means a `LOAD` of the 256-byte bitmap plus the four
 sprite-definition pages — and `LOAD` is the only way CPU1 can write GPU RAM, so
@@ -487,6 +723,308 @@ passed happily while the bitmap `LOAD` was going to the **wrong page** and the
 blitter was reading the object table, which is also lit. `preview.py` now
 compares GPU RAM against `ship32.s` byte for byte, and the pixels on screen
 against the asset's two planes.
+
+**33. The star-occlusion pass is not a constant, and inverting it is a loss until
+the scene gets big.** Finding 18 wrote `do_stars` down as 15,100 cycles and said
+it was not going down. That number was measured at **two rocks on camera**, and
+the pass is `for each star, for each occluder` — O(stars x rocks), with both
+factors rising together when the camera pulls back. It is the one item in the
+frame whose cost grows with exactly what overloads the frame, and `AST_BUDGET`
+does not model it at all.
+
+Inverting it — register each occluder in the screen row bands its box spans
+(`occ_bands`), then have a star walk only its own band's list — was measured
+both ways on the same 200-frame flight, forcing every occluder into one band to
+reproduce the old shape:
+
+| | flat (old) | banded | |
+|---|---:|---:|---|
+| `NOBJ` 120, median | **117,057** | 118,422 | +1,365 |
+| `NOBJ` 120, worst | **205,071** | 205,745 | +674 |
+| `NOBJ` 250, median | 195,033 | **188,998** | −6,035 |
+| `NOBJ` 250, worst | 310,085 | **299,311** | −10,774 |
+
+So the inversion **costs** 1,365 cycles on the flight this bench actually flies
+and **saves** 10,774 on the worst frame of one twice as dense. The crossover sits
+between the 7 rocks the standard flight peaks at and the 13 the dense one does.
+Two reasons the win is smaller than the test count suggests: the band index only
+filters when the occluders are *small*, and at `RZ` 128 a 192-class disc spans
+five of the ten bands on its own; and the build has a fixed cost — clearing the
+bands, then a shift-and-append per occluder per band — that is paid whether there
+are two occluders or sixteen.
+
+It is in unconditionally. 1,365 cycles is 0.6% of budget on a frame already
+running at 49%, and the whole reason this discussion started is that the scene
+has to get denser. A threshold on `OCCN` would buy the sparse case back at the
+price of a second path through the hottest loop in the file; worth doing only if
+the sparse case ever becomes the one that is tight.
+
+The dense column is worth reading on its own: **310,085 cycles is 131% of
+budget**. Doubling `NOBJ` puts the bench well past the deadline, which is what
+the sprite LOD, the sector grid and the degraded mode all exist to prevent.
+
+**34. The sector grid barely pays as a cull, because the window is a quarter of
+the world.** The 16 x 16 grid of `design_technical` 6.3 is in: cell index is
+`(YH & $F0) | (XH >> 4)`, the wrap is a mask, rocks are bucketed once at init
+and relinked only when a moving one crosses a 4096-unit boundary — about once in
+300 frames. `do_objects` visits only the cells overlapping the cull window, and
+`preview.py` confirms the output is unchanged: the same 669 rocks, drawn the same
+way.
+
+The cycles do not follow:
+
+| | flat scan | grid | |
+|---|---:|---:|---|
+| `NOBJ` 120, median | **118,422** | 119,547 | +1,125 |
+| `NOBJ` 250, median | 188,998 | **186,144** | −2,854 |
+| `NOBJ` 250, worst | 299,311 | **298,283** | −1,028 |
+
+The arithmetic that explains it: at `RZ` 64 the cull radius is 976 px in a
+4096 px world, so **the window is 22.7% of the torus by area**. No spatial index
+can beat that — the best any of them can do is skip the other 77%. The grid
+visits 81 of 256 cells (32%, the cost of rounding a circle up to whole cells),
+and at `NOBJ` 120 that is 81 cells for 120 rocks: **more cells than the objects
+they were meant to save testing.**
+
+The first version was worse still, at +2,649, because it masked the column into
+the cell index per cell. Splitting each row into the two contiguous runs either
+side of the column-15 wrap makes the cursor a plain `INX` and takes an empty cell
+from ~60 cycles to ~16. That is what the numbers above are.
+
+**It stays in, and not for the cull.** Rock-rock collision over the ~27 rocks
+inside the window is 351 pairs naively — about 21,000 cycles — against ~54 pairs
+and ~4,000 with the grid. Bullets want the same structure. As a broad phase it is
+required; as a cull it is a rounding error, and the honest reason to have written
+it is the first of those.
+
+If the cull saving is ever wanted, the lever is not a finer grid — it is a
+**bigger world**. Section 11 fixes world size as a function of the unit, and at
+1/8 px instead of 1/16 the torus is 8192 px, the window falls to 5.7% of it, and
+the grid starts skipping 90% instead of 68%.
+
+**35. Every second vertex is not a level of detail. It made 36% of the rocks
+rectangles.** Finding 32 halved the vertex count below `LOD_R` and called it free
+— "at that size the vertices that get dropped were a pixel apart". Flying it says
+otherwise, and the shape census says why:
+
+```
+outline sizes on screen: {4: 174, 5: 126, 6: 30, 10: 153}
+```
+
+No 8-gon and no 12-gon ever reached the screen: every one of them was halved. And
+every 4-gon is a halved octagon — **174 of the 483 outlines drawn**. A
+quadrilateral does not read as a rock, it reads as a rectangle.
+
+Raising the floor to `LOD_MIN_N = 10`, so only the 12- and 10-vertex shapes may
+halve, removes them:
+
+| | median | worst | 4-gons |
+|---|---:|---:|---:|
+| halving from 8 | **119,547** | **207,102** | 174 |
+| halving from 10 | 126,769 | 217,910 | **0** |
+
+**+7,222 median, +10,808 worst, and the outline budget's low-water mark goes to
+zero** — the valve is now dropping rocks on this flight, which is what
+`[FAIL] the outline budget was never exhausted` is reporting.
+
+That price is not the price of "more detail". It is the price of *not having a
+reduced shape to switch to*. Taking every second vertex is a coincidence that
+survives a 12-gon and destroys an 8-gon; a hand-drawn 5-point reduction of the
+octagon would cost the same as the 4-gon did and still look like a rock. **Level
+of detail wants authoring, the same way the full shapes are authored** — which is
+the argument for the shape editor, and the thing that editor most needs to do is
+show the reduced shape next to the full one.
+
+**36. The zoom is quantised, and the rungs are geometric so sprites can share
+them.** The ease still runs continuously in `ZEASL/ZEASH`; everything downstream
+reads `ZOOMH`, which is the eased value snapped to one of 17 rungs at
+`128 * 2^(-k/16)` — one table read a frame (`ZQ_SNAP`). `ZOOM_RZ` was rewritten
+onto those rungs, and reshaped: 1:1 held all the way to +50, then steps of 1, 2,
+3, 3, 3, 4 rungs, so the view opens fastest at the top of the range instead of
+almost linearly.
+
+Two payoffs, and only the second one shows up in a cycle count here.
+
+**The rebuilds.** A full ramp crosses 16 rungs instead of all 64 integer values
+of the reciprocal, so it rebuilds the ZS table at most 16 times instead of ~64,
+at ~10,000 cycles each. That saving lands on **acceleration** frames — of which
+this scripted flight has about forty, and none of them are its worst. The
+measured median moved 126,769 → 124,642 and the worst 217,910 → 215,773, but part
+of that is the scene itself shifting: snapping changes `RZ` during the ease, so a
+slightly different set of rocks is on camera. The number that matters is not in
+that table — it is that "accelerating while turning" now costs one table rebuild
+where it used to cost two.
+
+**The sprite index**, which is the reason the rungs are geometric rather than
+merely fewer. With rungs at `128 * 2^(-k/16)` and size classes an octave apart,
+on-screen radius is `R0 * 2^(-(c*S + k)/S)` — it depends on a **single integer**.
+The bottom rung of one class is pixel-identical to the top rung of the class
+below, so a sprite atlas is indexed by an addition and one sprite serves every
+`(class, zoom)` pair landing on its index. The S=4 sub-ladder the sprites will
+use — 128, 108, 91, 76, 64 — is every fourth rung, so it is exact rather than
+approximate.
+
+**37. The boost is a tier the player cannot select, and 500 px/s is a negative
+number.** `ETIER` is `TIER`, except while `BOOSTN` is running, when it is
+`TIER_BOOST`. The four places that were table-driven off `TIER` — speed,
+`SHIP_OFF`, `ZOOM_RZ`, the HUD — read `ETIER` instead, and rows 11 of `ZOOM_RZ`
+and `SHIP_OFF` are **copies of row 10**. That is the whole of "changes the speed
+without touching the zoom or the ship's place on screen". JOY2 UP, top tier only,
+90 frames. Idle cost is inside the noise.
+
+480 px/s and not 500. `SPD` is signed 8.8 world units a frame; a unit is 1/16 px
+at 60.317 Hz, so `$7FFF` is **482.5 px/s** and 500 px/s is `$8499` — negative.
+Typing 500 into `TIER_SPD` fires the ship backwards at ~490 px/s.
+
+**The first version of this was a silent corruption, and it looked like a
+speedup.** `ETIER`/`BOOSTN` went at `$9B`/`$9C`, which are `star_rebase`'s
+`SDXI`/`SDXF`. `do_stars` runs after `do_ship`, so the rebase ate them every
+frame: the ship boosted at random and the HUD indexed `TIER_TXT` with garbage.
+The symptom was the median **falling** to 123,890 and the outline-budget `[FAIL]`
+going away. A second, quieter collision was found in the same sweep — `PEND` at
+`$1BC0` reached 48 bytes into `OCCBL` — which had polluted some of finding 34's
+measurements without ever tripping an assertion.
+
+**42. Landing the teleport on a FIXED screen point removed two thirds of the
+work — and uncovered an overflow that had been there all along.** The plan was:
+widen `SHOFF` to 16.8 across nine sites, then clip the ship because it would
+leave the screen, then jump. Landing on a fixed point instead makes `SHOFF`
+afterwards a **constant**, and since the ship sits at `FBCX + SHOFF`, a landing
+point `L` only has to satisfy **`L >= 72`** for the whole thing to fit the signed
+byte the cartridge already has. `TP_OFF = 120` lands it 80 px from the leading
+edge: 8 units of margin in the byte and 66 px of clearance for the nose. The ship
+never leaves the screen, so nothing needs clipping either.
+
+The jump length is not authored — it is `SHOFF - landing`, so **+350 jumps 246 px
+and a standstill jumps 160**. Faster means further, which is what an escape move
+wants, and no code decides it. Reverse mirrors: the ship rides above centre
+backing up, so it lands low and the jump runs backwards along the heading.
+
+**The overflow.** The first flight showed `SHOFF` running the wrong way after the
+jump. The ease computes `target - SHOFF` in 16 bits, and both are signed bytes of
+pixels, so the gap reaches 255 px — **65,280 in 8.8, which is not a positive
+signed 16**. Between adjacent tiers the gap never passed 127 px, so this sat
+there unseen from the beginning; a 246 px jump wrapped it and the ease walked the
+ship away from its target. Only the *gap* needed a third byte; `SHOFF` itself is
+still 8.8.
+
+Three things the jump does that are not obvious. `PSHOFF` is dragged with
+`SHOFF`, because `do_stars` folds `(SHOFF - PSHOFF)` into the scroll and a 246 px
+step there would sweep the entire field sideways. The star bases are **rebased
+from scratch**, and that is not caution: the star camera point is `SHOFF` scaled
+into *layer* units (`shl6`) and the motes' into their own (`shl3`), not world
+units, so the ship's world displacement and the `SHOFF` drop do not cancel
+analytically the way they do for world objects — a full rebase means the question
+never has to be answered. And the distance is authored on the **screen**, so it
+is divided by the zoom to reach world units; `TPQ` turns that divide into one
+Q0.7 product because the zoom is quantised to known rungs (finding 36).
+
+**43. The backward teleport went forwards, and the harness could not have known.**
+`LDY` sets the flags. The distance was computed as `sbc TPDST / ldy #$00 / bpl`,
+so the branch that was meant to test the *subtraction's* sign tested the zero it
+had just loaded instead, and the top byte came out `$00` every time. Going
+forward that is right by accident — the difference is genuinely positive.
+Reversing, `SHOFF −38` against a landing of `+120` is −158 px, which as `$60`
+with a zero top byte reads as **+96**, and the ship jumped forwards.
+
+The fix is to sign-extend **both** operands before subtracting: the difference
+reaches 246 px and does not fit the byte either of them lives in.
+
+The reason this reached the screen is the more useful half. The scripted flight
+only ever teleports at top speed, which is forward, so **every assertion passed
+on a code path that was wrong in the other direction**. `preview.py` now flies a
+second, 60-frame leg: re-init, three `DOWN` presses to full astern, teleport, and
+check that the world position moved **backwards** — the broken version jumps
+−1,515 where the fixed one jumps +2,548, and the check was verified by putting
+the bug back and watching it fail.
+
+`preview.py` also scripts a boost and a forward teleport into the main flight and
+asserts the landing point, the once-only fire, and that the walk home is
+front-loaded — five frames must carry over 40% of what fourteen do, which a
+linear recovery fails.
+The three continuity checks skip the jump and the fast part of the recovery,
+because 15 px in one frame is more than "eases rather than snapping" allows and
+is supposed to be.
+
+**41. The boost did not read as a boost, and the fix was a shift, not a wider
+type.** 480 px/s against a normal top of 350 is 37% and flying it says that is
+not enough. `TIER_SPD` is signed 8.8 world units a frame and stops at 482.5 px/s,
+so the number could not simply go up.
+
+Widening `SPD` would mean a 24-bit operand for `smul16q7` and a three-byte tier
+table. The multiplier goes **after** the direction product instead: `vel_shl`
+sign-extends the 16-bit result into 24 bits and doubles it `TIER_SHL[ETIER]`
+times. An authored 350 with a shift of 1 flies at **700 px/s** and nothing in the
+multiply ever left 16 bits. The ship's velocity is 16.8 now like its position,
+which also deleted the two sign extensions the integrate used to build every
+frame — the change pays for itself.
+
+The ceiling is 964 px/s at shift 1. The cull allows 1157: after finding 38's
+regeneration the gap at `RZ` 64 is 320 units and a rock adds 13.
+
+One thing this caught: `do_stars` computes the scroll from `SPD`, but the ship
+flies on `VEL`. A boosted tier would have left the whole starfield behind, so the
+scroll takes the same shift.
+
+**39. The ship was stepping 2 px at a time, and it was the opcode.** `LINE`
+(`$42`) takes half-res endpoints and doubles them, so a line that drifts or turns
+slowly lands on the same two even pixels for several frames and then jumps. The
+GPU OS documents the size of it: a 140 px spoke swept through 10 degrees in 0.4
+degree steps gives **13 distinct lines out of 25 with `$42` and 24 with `$43`**.
+On rocks it is invisible; on the one object the player watches for the whole
+game it reads as the ship stepping rather than moving.
+
+`emit_ship` now builds `LINE16` (`$43`) with signed-16 full-res endpoints — same
+renderer, same still picture, four times the distinct positions in motion. The
+centre has to be 16-bit because `FBCX` plus a `SHOFF` of 126 plus the nose is
+past 255 on its own, and `SHIP_NOSE/TAIL/HALFW` became full-res numbers (14, 14,
+12) rather than half-res ones. 8 PPRAM bytes a line instead of 4, on a list at
+16% capacity.
+
+**40. A camera offset added after the rounding makes the whole world step.**
+Doubling the turn lean to +/-40 px broke `objects do not swim while flying
+straight` — **160 reversals in 2,928 steps**, where there had been none. The lean
+was being added to `fb_y` as a whole pixel *after* `asr4r` had already rounded
+the zoom product, so every time `SHOFXH` crossed an integer the entire scene
+jumped a pixel sideways, and the decay after a turn does that forty times.
+
+Folding it into `MA` **before** the rounding — the lean pre-divided into
+`zoom_ma`'s pixels-times-16 scale, once per frame — takes it back to zero
+reversals, and is slightly cheaper than the sign-extend-and-add it replaced.
+This is finding 15's rule on a third axis: register against the sub-unit part,
+floor once, at the end. Three separate defects in this bench have now had the
+same cause.
+
+**38. The camera leans into a turn, and that moves the pivot — so `CULL_R` had to
+grow.** `SHOFXL/H` eases toward `turn velocity * CAMX_GAIN` and is added to the
+world's `fb_y` exactly as `SHOFF` is added to `fb_x`, plus to the ship and its
+occluder box. The world rotation pivots on the **ship** (4.2), so the ship
+sliding across the screen slides the pivot with it, and the cross-axis reach goes
+from `150 + 96 = 246` to `150 + 40 + 96 = 286`. The worst-case vector goes
+483 → 510 px and both cull tables were regenerated.
+
+| | median | worst |
+|---|---:|---:|
+| before | 125,057 | 217,745 |
+| after the wider cull | 128,385 | 221,167 |
+
+**+3,328 cycles, and almost none of it is overhead** — a 2.3% larger `CULL_R` is
+4.6% more area, so it is mostly rocks that genuinely have to be drawn now and
+were being missed. The alternative is rocks popping in at the cross edges, which
+is the defect finding 18 describes at 400 px.
+
+**And the gain is per tier, not a constant.** The lean is meant to say "the
+camera is not keeping up with this ship", and that sentence has no meaning at a
+standstill — a pivot the ship is sitting still on has nothing to lag behind. It
+looked wrong there, and it looked wrong because it was. `CAMX_TIER` tracks
+|speed|: zero at `TIER_ZERO`, 107 at either end. Reverse leans too. It costs
+nothing — a constant became a table read.
+
+The backdrop deliberately does **not** get the lean. At 1/4 parallax a 20 px
+camera shift is 5 px of stars, it only exists while the field is already
+rotating, and a heading change rebases the field anyway so it cannot accumulate.
+That buys a way out of a second sub-unit-registered accumulator in the code
+findings 6, 12 and 15 are all about.
 
 ---
 
@@ -514,7 +1052,8 @@ multiply the rocks on camera.
 header.s      "MAD65" signature + the two vectors, pointing at the bootstrap
 bootstrap.s   Model B: copies CODE+RODATA out of the window into RAM at $2000
 main.s        the bench itself — camera, ship, rocks, starfield, HUD
-ship32.s      GENERATED by tools/sprgen.py from assets/png/ship32.png (--tate)
+ship32.s      GENERATED by tools/sprgen.py from assets/png/ship32.png (--tate).
+              Assembled out while SHIP_SPRITE = 0; the ship is a triangle.
 mad65.inc     the OS entry points and RAM locations this cart uses
 cart.cfg      ld65 config: one 8 KB bank, load in ROM / run in RAM
 preview.py    headless end-to-end check, cycle budget, and preview.png

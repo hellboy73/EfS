@@ -6,6 +6,13 @@
 ; =============================================================================
 
 ; --- OS jump table ($FF00, ABI v1) -------------------------------------------
+API_GPU_LINE        = $FF15     ; OS_ARG+0..3 = X1,Y1,X2,Y2, half-res bytes.
+API_GPU_LINE16      = $FFC0     ; OS_ARG+0..7 = X1,Y1,X2,Y2, signed 16 FULL-res.
+                                ;   Same clamping as $FF15, same renderer - only
+                                ;   the ENDPOINTS stop being doubled, which is
+                                ;   what stops a slowly moving line stepping 2 px
+                                ;   at a time. 8 PPRAM bytes instead of 4.
+                                ;        Solid, unlike the DOT_ family.
 API_GPU_DOTLINE     = $FF1B     ; OS_ARG+0..3 = X1,Y1,X2,Y2, half-res bytes
 API_GPU_DOTLINES    = $FF1E     ; OS_ARG+0..1 = ptr -> { N, x0,y0, ... }  half-res
                                 ;        a chain of N connected dotted segments
@@ -27,6 +34,9 @@ API_GPU_VTEXT       = $FFB4     ; OS_ARG+0 = cell 0-36, +1 = line 0-49,
 
 ; --- published OS RAM ---------------------------------------------------------
 OS_ARG            = $20         ; $20-$2F - builder argument block
+OVERRUN_FLAG      = $03         ; the OS sets this when a VSYNC fired before
+                                ;   gpu_end - i.e. the GPU drew nothing that
+                                ;   frame. STICKY: the OS never clears it.
 JOY1              = $0A         ; port 1 held state, 1 = pressed
 JOY1_PRESS        = $0C         ; port 1 edges: bits newly pressed this frame
 JOY2              = $0D         ; port 2 held state
