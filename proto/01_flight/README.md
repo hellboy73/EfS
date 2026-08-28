@@ -919,6 +919,30 @@ never has to be answered. And the distance is authored on the **screen**, so it
 is divided by the zoom to reach world units; `TPQ` turns that divide into one
 Q0.7 product because the zoom is quantised to known rungs (finding 36).
 
+**45. Staggering the two table rebuilds does not work, and the reason
+generalises.** `BUILD_ROT` (20k, when the heading's integer part moves) and the
+`ZS` scale table (10k, when the snapped reciprocal moves) coincide on exactly the
+frames that are already worst: turning while accelerating. Deferring the zoom one
+to the next frame looks free — it costs a single frame at the previous rung, 4.4%,
+which is what quantising the zoom bought in the first place.
+
+Built and measured, bounded to one frame of staleness so a sustained turn cannot
+freeze the scale:
+
+| | median | worst |
+|---|---:|---:|
+| both on the same frame | 122,976 | **202,030** |
+| zoom stands aside | 122,998 | 203,402 |
+
+**Worse, by 1,372 on the frame that matters.** During a sustained turn `BUILD_ROT`
+runs *every* frame, so "the next frame without a rotation build" never arrives and
+the one-frame bound drops the deferred work onto the very next turning frame —
+which is just as busy. Plus the bookkeeping.
+
+The general form is worth keeping in mind: **deferral cannot lower a peak when
+the deferred work must land on an equally busy frame.** It only redistributes.
+Lowering the peak needs less work, not later work. Reverted.
+
 **44. The clipper was the largest item in the frame, and it did not need a
 divide.** `gpu_dotline_clip` is a general Cohen-Sutherland with a divide per
 crossing — ~3,000 cycles a call, **26,400 at five rocks**, more than every rock
