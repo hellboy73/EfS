@@ -919,6 +919,31 @@ never has to be answered. And the distance is authored on the **screen**, so it
 is divided by the zoom to reach world units; `TPQ` turns that divide into one
 Q0.7 product because the zoom is quantised to known rungs (finding 36).
 
+**44. The clipper was the largest item in the frame, and it did not need a
+divide.** `gpu_dotline_clip` is a general Cohen-Sutherland with a divide per
+crossing — ~3,000 cycles a call, **26,400 at five rocks**, more than every rock
+transform put together. None of that generality applies here: an outline's
+segment is short (a vertex sits within `ARAD` of a centre the cull has already
+put near the screen, so nothing is more than ~96 px outside) and the outcode
+pre-pass of finding 17 already establishes that one end is on screen.
+
+So `clip_fast` **bisects**. Keep `P` inside and `Q` outside, halve the interval
+eight times, and `P` is the crossing to within 0.75 px on a segment that cannot
+exceed ~192 — finer than the half-res lattice the dots land on. No divide, no
+table, no per-edge passes. And `P` is inside by construction on every iteration,
+so the byte coordinates the cheap builder wants need no clamping and cannot
+address outside the field.
+
+| | median | worst |
+|---|---:|---:|
+| `gpu_dotline_clip` | 127,293 | 214,778 |
+| bisection | **122,976** | **202,030** |
+
+**−12,748 on the worst frame, 90.5% of budget down to 85.1%**, and the scene is
+byte-for-byte the same: 654 rocks, 481 whole outlines, 777 clipped segments both
+ways. The one case it does not take is both ends off screen with the segment
+crossing anyway — a chord across a corner — which still goes to the OS.
+
 **43. The backward teleport went forwards, and the harness could not have known.**
 `LDY` sets the flags. The distance was computed as `sbc TPDST / ldy #$00 / bpl`,
 so the branch that was meant to test the *subtraction's* sign tested the zero it

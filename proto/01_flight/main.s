@@ -459,6 +459,14 @@ TPCNT       = $0CB3             ; teleports so far, for the HUD and the harness
 SHOFT       = $0CB4             ; the SHOFF ease's 24-bit gap: target top byte...
 SHOFC       = $0CB5             ;   ...and the current offset's
 TPSGN       = $0CB6             ; the landing point's sign extension
+CFAX        = $0CB7             ; clip_fast: the fixed inside end...
+CFAY        = $0CB9
+CFPX        = $0CBB             ; ...the inside cursor, which converges on the
+CFPY        = $0CBD             ;   crossing...
+CFQX        = $0CBF             ; ...and the outside one
+CFQY        = $0CC1
+CLIPF       = $0CC3             ; segments taken by the bisection clipper
+CLIPS       = $0CC4             ; ...and by the OS's, for the harness
 SHPNX       = $0CA4             ; the ship triangle's corners, full-res signed 16
 SHPBX       = $0CA6
 SHPLY       = $0CA8
@@ -3725,7 +3733,24 @@ one_asteroid:
         sta     OS_ARG+3
         jsr     API_GPU_DOTLINE
         bra     @clnext
-@clip1: ldx     AVI
+@clip1: lda     ATMP                    ; exactly one end on screen? then the
+        beq     @cfnear                 ;   bisection clipper, which is the case
+        ldx     AFAR                    ;   an outline almost always presents
+        lda     AOC,x
+        beq     @cffar
+        bra     @clipslow               ; both ends off, crossing anyway: rare,
+@cfnear:                                ;   and the OS still owns that one
+        ldx     AVI
+        ldy     AFAR
+        jsr     clip_fast
+        bra     @clnext
+@cffar: ldx     AFAR
+        ldy     AVI
+        jsr     clip_fast
+        bra     @clnext
+
+@clipslow:
+        ldx     AVI
         lda     AVXL,x
         sta     OS_ARG+0
         lda     AVXH,x
@@ -3743,13 +3768,125 @@ one_asteroid:
         sta     OS_ARG+6
         lda     AVYH,x
         sta     OS_ARG+7
+        inc     CLIPS
         jsr     API_GPU_DOTLINE_CLIP
 @clnext:
         inc     AVI
         lda     AVI
         cmp     AVN
-        bne     @cl
-        rts
+        beq     :+
+        jmp     @cl
+:       rts
+
+; -----------------------------------------------------------------------------
+; clip_fast — clip a segment with ONE end on screen, by bisection.
+; -----------------------------------------------------------------------------
+;   in:  X = the vertex that is INSIDE, Y = the one that is outside
+;
+; gpu_dotline_clip is a general Cohen-Sutherland with a DIVIDE per crossing, and
+; at ~3,000 cycles a call it was the largest single item in the frame - 26,400 at
+; five rocks, more than every rock transform put together. None of that generality
+; is needed here. An outline's segment is short (a vertex sits within ARAD of a
+; centre the cull has already put near the screen, so no coordinate is more than
+; ~96 px outside), and one of its ends is known to be on screen.
+;
+; So: bisect. Keep P inside and Q outside, halve the interval eight times, and P
+; is the crossing. Eight halvings of a segment that cannot exceed ~192 px leaves
+; it inside 0.75 px, which is finer than the half-res lattice the dots land on
+; anyway. No divide, no table, no per-edge passes - and P is inside by
+; construction on every iteration, so the byte coordinates the cheap builder
+; wants need no clamping and cannot address outside the field.
+;
+; The case this does NOT take is both ends off screen with the segment crossing
+; anyway - a chord across a corner. That still goes to the OS.
+; -----------------------------------------------------------------------------
+CLIP_ITER   = 8
+
+clip_fast:
+        lda     AVXL,x                  ; A and P both start at the inside end;
+        sta     CFAX                    ;   A stays there and is one end of the
+        sta     CFPX                    ;   line we finally draw
+        lda     AVXH,x
+        sta     CFAX+1
+        sta     CFPX+1
+        lda     AVYL,x
+        sta     CFAY
+        sta     CFPY
+        lda     AVYH,x
+        sta     CFAY+1
+        sta     CFPY+1
+        lda     AVXL,y                  ; ...and Q at the outside one
+        sta     CFQX
+        lda     AVXH,y
+        sta     CFQX+1
+        lda     AVYL,y
+        sta     CFQY
+        lda     AVYH,y
+        sta     CFQY+1
+
+        ldx     #CLIP_ITER
+@lp:    clc                             ; M = (P + Q) / 2, arithmetic, per axis
+        lda     CFPX
+        adc     CFQX
+        sta     T0
+        lda     CFPX+1
+        adc     CFQX+1
+        cmp     #$80
+        ror     a
+        sta     T1
+        ror     T0
+        clc
+        lda     CFPY
+        adc     CFQY
+        sta     T2
+        lda     CFPY+1
+        adc     CFQY+1
+        cmp     #$80
+        ror     a
+        sta     T3
+        ror     T2
+
+        lda     T1                      ; on screen? a high byte of anything but
+        bne     @out                    ;   zero is off it, negative included
+        lda     T0
+        cmp     #200
+        bcs     @out
+        lda     T3
+        bne     @out
+        lda     T2
+        cmp     #150
+        bcs     @out
+
+        lda     T0                      ; inside: it becomes the new P
+        sta     CFPX
+        lda     T1
+        sta     CFPX+1
+        lda     T2
+        sta     CFPY
+        lda     T3
+        sta     CFPY+1
+        bra     @next
+@out:   lda     T0
+        sta     CFQX
+        lda     T1
+        sta     CFQX+1
+        lda     T2
+        sta     CFQY
+        lda     T3
+        sta     CFQY+1
+@next:  dex
+        bne     @lp
+
+        inc     CLIPF                   ; how many took the fast path, for the
+        lda     CFAX                    ;   harness to compare against CLIPS
+        sta     OS_ARG+0
+        lda     CFAY
+        sta     OS_ARG+1
+        lda     CFPX
+        sta     OS_ARG+2
+        lda     CFPY
+        sta     OS_ARG+3
+        jmp     API_GPU_DOTLINE
 
 ; -----------------------------------------------------------------------------
 ; span_test - where does [C-R, C+R] sit against the field 0..LIM?
