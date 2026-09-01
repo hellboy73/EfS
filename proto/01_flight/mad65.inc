@@ -55,6 +55,21 @@ API_GPU_POLYGON16   = $FFD8     ; the same block, SOLID FULL-res ($4E) - the onl
                                 ;   way to get a full-res figure: a vertex CPU1
                                 ;   transforms cannot carry better than half-res
                                 ;   precision. Max 254 full-res px across.
+API_GPU_CIRCLE16    = $FFDB     ; OS_ARG+0..1 = CX, +2..3 = CY (signed 16, FULL-res,
+                                ;   MAY BE OFF SCREEN), +4 = R (full-res px, 0-255).
+                                ;   A SOLID circle outline, ALWAYS CLIPPED - the circle
+                                ;   member of the anchored family the polygons opened,
+                                ;   so an object that is "a circle plus a polygon on one
+                                ;   anchor" is one struct and two commands.
+                                ;   No ANGLE and no SCALE: a rotation does nothing to a
+                                ;   circle, and with none to ride inside, a scale would
+                                ;   cost a multiply and a stream byte to save one you
+                                ;   already do per object. Scale R yourself.
+                                ;   NOT a replacement for $FF27 gpu_dotcircle, which is
+                                ;   dotted, half-res, on-screen-only - and about HALF the
+                                ;   cycles. Budget: R=10 ~6,400 cycles, R=25 ~14,000,
+                                ;   R=50 ~27,500, R=100 ~54,000 (a quarter of a frame).
+                                ;   Off screen: 200 cycles flat.
 
 ; --- published OS RAM ---------------------------------------------------------
 OS_ARG            = $20         ; $20-$2F - builder argument block
