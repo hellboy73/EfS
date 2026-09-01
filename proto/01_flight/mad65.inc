@@ -13,6 +13,10 @@ API_GPU_LINE16      = $FFC0     ; OS_ARG+0..7 = X1,Y1,X2,Y2, signed 16 FULL-res.
                                 ;   what stops a slowly moving line stepping 2 px
                                 ;   at a time. 8 PPRAM bytes instead of 4.
                                 ;        Solid, unlike the DOT_ family.
+API_GPU_LINES       = $FFC6     ; OS_ARG+0..1 = ptr -> { N, x0,y0, ... } half-res
+                                ;   - the SOLID twin of DOTLINES ($4A)
+API_GPU_LINE_CLIP   = $FFC3     ; OS_ARG+0..7 = X1,Y1,X2,Y2 signed 16 half-res,
+                                ;   clipped, emitting LINE ($42)
 API_GPU_DOTLINE     = $FF1B     ; OS_ARG+0..3 = X1,Y1,X2,Y2, half-res bytes
 API_GPU_DOTLINES    = $FF1E     ; OS_ARG+0..1 = ptr -> { N, x0,y0, ... }  half-res
                                 ;        a chain of N connected dotted segments
@@ -31,6 +35,26 @@ API_GPU_VTEXT       = $FFB4     ; OS_ARG+0 = cell 0-36, +1 = line 0-49,
 ; NOTE: $FF6F joy_read is deliberately NOT listed. The kernel's frame ISR calls
 ; it once per frame, before cart_frame runs, so a cartridge just reads the
 ; shadows below. Calling it again zeroes every edge byte.
+
+API_GPU_DOTPOLYGON  = $FFD2     ; OS_ARG+0..1 = ptr -> one argument block:
+                                ;     CX.16, CY.16, ANGLE, SCALE, N,
+                                ;     dx0,dy0, ... , dxN-1,dyN-1
+                                ;   A CLOSED FIGURE round a signed-16 centre that
+                                ;   MAY BE OFF SCREEN, rotated by ANGLE (brad, the
+                                ;   same sense as API_SIN/API_COS) and scaled by
+                                ;   SCALE (Q0.7, 128 = 1:1, SHRINK ONLY) - all of
+                                ;   it ON THE GPU - and ALWAYS CLIPPED, properly
+                                ;   cut rather than clamped. Offsets are signed
+                                ;   bytes from the centre, unrotated and unscaled:
+                                ;   the raw shape, exactly as authored. N vertices
+                                ;   = N segments; the figure closes itself.
+                                ;   2N + 8 PPRAM bytes. This builder is a COPY -
+                                ;   CPU1 does no per-vertex work at all.
+API_GPU_POLYGON     = $FFD5     ; the same block, SOLID half-res ($4D)
+API_GPU_POLYGON16   = $FFD8     ; the same block, SOLID FULL-res ($4E) - the only
+                                ;   way to get a full-res figure: a vertex CPU1
+                                ;   transforms cannot carry better than half-res
+                                ;   precision. Max 254 full-res px across.
 
 ; --- published OS RAM ---------------------------------------------------------
 OS_ARG            = $20         ; $20-$2F - builder argument block

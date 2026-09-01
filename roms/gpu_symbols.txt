@@ -6,5 +6,5 @@
 #   cl65 -g -t none -C gpu.cfg -o gpu_dbg.bin -Wl --dbgfile,gpu.dbg gpu_os.s gpu_diag_list.s
 #   grep -o 'name="dispatch_loop".*val=0x[0-9A-Fa-f]*' gpu.dbg
 #
-# gpu_os.bin md5 = e2995235299d471c46f9b87380aea0b5
-dispatch_loop = 0xC104
+# gpu_os.bin md5 = 7e1717143cda1275e88ed2c9764413d8
+dispatch_loop = 0xC118

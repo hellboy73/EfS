@@ -17,6 +17,26 @@ API_GPU_CLEARBG     = $FF3C     ; (no args) clear the VRAM background
 ; zeroes every edge byte — held directions still work, every press does not.
 API_GPU_COMB_SPRITE = $FFBA     ; OS_ARG: SPR_ID, X16, Y16, GAP (0–15)
 
+API_GPU_DOTPOLYGON  = $FFD2     ; OS_ARG+0..1 = ptr -> one argument block:
+                                ;     CX.16, CY.16, ANGLE, SCALE, N,
+                                ;     dx0,dy0, ... , dxN-1,dyN-1
+                                ;   A CLOSED FIGURE round a signed-16 centre that
+                                ;   MAY BE OFF SCREEN, rotated by ANGLE (brad, the
+                                ;   same sense as API_SIN/API_COS) and scaled by
+                                ;   SCALE (Q0.7, 128 = 1:1, SHRINK ONLY) - all of
+                                ;   it ON THE GPU - and ALWAYS CLIPPED, properly
+                                ;   cut rather than clamped. Offsets are signed
+                                ;   bytes from the centre, unrotated and unscaled:
+                                ;   the raw shape, exactly as authored. N vertices
+                                ;   = N segments; the figure closes itself.
+                                ;   2N + 8 PPRAM bytes. This builder is a COPY -
+                                ;   CPU1 does no per-vertex work at all.
+API_GPU_POLYGON     = $FFD5     ; the same block, SOLID half-res ($4D)
+API_GPU_POLYGON16   = $FFD8     ; the same block, SOLID FULL-res ($4E) - the only
+                                ;   way to get a full-res figure: a vertex CPU1
+                                ;   transforms cannot carry better than half-res
+                                ;   precision. Max 254 full-res px across.
+
 ; --- published OS RAM ---------------------------------------------------------
 OS_ARG            = $20         ; $20–$2F — builder argument block
 JOY1              = $0A         ; port 1 held state, 1 = pressed
