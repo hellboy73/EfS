@@ -270,3 +270,141 @@ fewer/shorter tracks.
 
 **F4. Save / continue / high score (TBD).** The console has no persistent storage;
 decide what a "campaign" means across a power cycle (level codes?).
+
+---
+
+## G. HUD & radar
+
+**G1. Radar scale (SETTLED — fixed, independent of camera zoom).** The radar
+does **not** zoom with the camera (4.4) — it always represents the same
+world-unit radius, so its scale is a compile-time constant shift, not a value
+that tracks the camera's zoom reciprocal. Rotation is still shared with the
+main camera transform (the same per-frame `ROT[]` tables from
+`design_technical.md` 4.5a); only the scale step differs, and it's simpler
+than the camera's because it never changes.
+
+**G2. Data admission — by radius, entirely in world space, before the
+transform (TBD — shape decided, exact radius still TBM).** The radar's
+catchment is now a **circle** (G4), and a circle is rotation- and
+scale-invariant: whether a point ends up inside it does not depend on the
+camera heading or on the radar's (fixed) scale, only on its raw world-space
+distance from the ship. That means the admission test can run **before**
+any `ROT[]` rotation, and once a point passes it, no separate post-transform
+clip is needed at all — the earlier plan of a rotate-then-clip-to-a-box pass
+is dropped along with the rectangle.
+
+The test itself reuses the pattern already used for star occlusion (5.4): a
+cheap **box pre-reject** (compare `|dx|` and `|dy|` independently against the
+radius, no multiply — the same coarse reject as 4.5b) throws out nearly
+everything, then a **precise round test** (`dx*dx + dy*dy` vs `R*R`, via the
+quarter-square table already built for rotation — `x*x = f(2x)`, so this is
+two lookups and a compare, not a real multiply) confirms what's left. Only
+survivors get rotated and scaled for display.
+
+Candidates still have to come from somewhere — the sector grid (6.3/6.2) is
+the natural source, walking the ring of sectors covering the admission
+radius around the ship's own sector, independent of whatever cull window the
+camera currently has (see the correction below).
+
+**The radius itself is a performance knob, not a fixed number yet.** It will
+be tuned down until the frame budget is comfortable. It should **not**
+literally reuse any of the engine's existing cull thresholds — the per-sector
+cull window (6.3) and the per-object cull radius (4.4, a 9-entry table that
+scales as `128/RZ`) are both deliberately zoom-dependent, which is exactly
+what G1 opted the radar out of; reusing either would make the radar's reach
+breathe with the camera again, and reusing anything close to a screen's
+worth of world units is pointless anyway — that's already visible without a
+radar.
+
+**First cut: 1/4 of the world's coordinate width (`65536 / 4 = 16384` world
+units).** Expressed as a fraction of the coordinate range rather than an
+absolute pixel distance, so it stays meaningful however A1 (the
+unit-to-pixel mapping) is eventually settled. Three things make this a good
+starting number, not just a round one: it lands on an exact **4 sectors**
+(4096 each, E2), so the sector ring to walk is a clean -4..+4 around the
+ship's own sector with no fractional edge case; it sits safely under 32768,
+so it never approaches the point where a wrap-correct signed subtract
+becomes ambiguous; and as a circle rather than the square that "1/4 of the
+world" suggests, its actual coverage is `π·16384² / 65536² ≈ 19.6%` of the
+world's area — a bit less than a quarter, which is expected for a circle
+inscribed in that square. This is where tuning starts, not where it has to
+land. **(TBM.)**
+
+*Correction carried from the previous round:* the physics-active set is
+**not** larger than the camera's cull window (6.1 ties "frozen vs simulated"
+to that same window, and 6.3 says the collision pass sees only what survives
+inside the render-visible window, not a margin beyond it) — so the radar
+cannot just piggyback on "whatever physics already caught" and needs this
+independent radius-bounded query, sized on its own terms.
+
+**Frozen/stale rocks beyond the near-camera simulation window (SETTLED —
+accept it).** Objects inside the radar's radius but outside the camera's
+actual simulated window are frozen (6.1): their position is "last known
+while near the camera," not current. Decision: fine as-is for v1 — rocks
+drift slowly, a stationary one only starts moving once the camera nears it
+(6.1), and at the radar's small scale that lag reads as minimal. No plan to
+widen the simulated window just for this. Revisit only if playtesting says
+otherwise; note it also happens to sit comfortably next to **E8**'s eventual
+deliberate deception rather than fighting it.
+
+**G3. Blip shape (SETTLED for v1 — single pixels via the batched cloud
+call).** Every rock is **one point**, regardless of size class; an enemy is
+one point too, toggled by a **global blink counter at 10 frames dark / 10
+frames lit** (a 20-frame, ~3 Hz cycle) — skipped at list-build time on the
+off phase, no extra cost. All points for a frame go through **one**
+`gpu_dotpixels_clip` call (5.2) — the batched point-cloud primitive, not the
+full-res single-point `PIXEL` op (D8), which would cost 5 PPRAM bytes plus a
+dispatch *per point* instead of 2 batched bytes. `gpu_dotpixels_clip` places
+points on the half-res, 2-pixel lattice (D8); that rules out any tight
+multi-point "stamp" for size differentiation (offsets of 1 px don't land on
+distinct cells — see the previous round's dead end), which is why size
+differentiation is dropped for v1 rather than attempted with stamps. The
+ship stays a **static** icon on the background (G5) and does not blink.
+
+**G4. Radar shape & footprint (SETTLED — a circle in a 100x100 px box,
+bottom-left corner).** Simpler than the earlier rectangle proposal in every
+way that matters here: the catchment test is rotation-invariant (G2), and
+because the radar's scale never changes (G1), the on-screen result is
+exactly a circle too — no ellipse correction, no separate per-axis bound.
+
+**G5. Ship icon & frame (TBD, cheap either way).** A static 3x3 ship icon at
+the centre of the radar box, always pointing "up" like the main ship (4.3),
+drawn once on the VRAM background together with the radar's outline — same
+free redraw as the rest of the HUD (5.5). No per-frame cost, and no
+per-frame update needed since the ship is definitionally always at the
+radar's centre.
+
+**G6. Fallback: background-bitmap radar at a lower refresh (TBD, backup
+idea).** The radar does not need 60 Hz — unlike the main view, nothing about
+it needs to feel responsive frame-to-frame. If the live per-frame
+`gpu_dotpixels_clip` path ever busts the budget, the alternative is CPU1
+rasterising the radar into a RAM bitmap and uploading it to the VRAM
+background as a bitmap (5.1 already allows bitmaps there), refreshed less
+often than every frame instead of every frame. Two things to check before
+leaning on this: (1) whether a background bitmap write is bound by the same
+"one write + cooldown frame" replay rule as `TEXT_BG`/`CLEAR_BG` (5.5) — if
+so the achievable refresh is roughly every other frame, not a free choice;
+(2) the actual GPU primitive for a background bitmap blit isn't named in
+this document and likely lives in the MAD-65 firmware docs (the separate
+repo, per `CLAUDE.md`). Keep this as the backup path — build the live
+image-layer version first and measure before reaching for it.
+
+**G7. Graceful degradation under load — biggest first (TBD, follows the
+existing 5.3a rule).** If the radius (G2) admits more objects than the frame
+can afford to draw, build the point list **largest size class first**. That
+is exactly `design_technical.md` 5.3a's "list order is a priority order":
+the GPU walks a PPRAM list in order and drops whatever is at the end if a
+frame runs long, so ordering by size means small debris is what silently
+stops appearing under load, and it starts reappearing on its own the moment
+the list is short enough again — no explicit cap or hysteresis needed, the
+existing drop-the-tail behaviour does the work. What is still open is where
+the radar's block sits in the **whole** frame's PPRAM list relative to
+gameplay objects, stars and motes (5.3a again) — it is information, not
+decoration, so it likely wants to rank above the backdrop layers, but that
+is a placement decision for when the full per-frame list is actually being
+assembled.
+
+Ties to **E8** (instrument deception): everything above is the honest v1
+pipeline. The lying radar from level 5 on is a filter/parameter set applied
+on top of it — missing contacts, ghost contacts, wrong bearings — not a
+separate rendering path.
