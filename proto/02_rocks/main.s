@@ -1,5 +1,5 @@
 ; =============================================================================
-; EfS proto 01 — flight model bench
+; EfS proto 02 — rocks & collisions bench
 ; =============================================================================
 ; PURPOSE: measure what is playable, nothing else. There is no gameplay here,
 ; no collision and no zoom — just the camera, the speed tiers, the starfield and
@@ -4341,7 +4341,7 @@ smul16q7:
 .if SHIP_SPRITE
 ; --- the ship -----------------------------------------------------------------
 ; Generated from assets/png/ship32.png:
-;     python tools/sprgen.py assets/png/ship32.png proto/01_flight/ship32.s \
+;     python tools/sprgen.py assets/png/ship32.png proto/02_rocks/ship32.s \
 ;            ship32 --tate
 ; --tate pre-rotates the art a quarter turn, because the monitor is on its side
 ; and a sprite's width axis runs DOWN the player's screen. Nothing rotates it at

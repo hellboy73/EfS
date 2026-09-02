@@ -366,7 +366,7 @@ DISPATCH = gpu_symbol("dispatch_loop")
 
 CPU_ROM = open(f"{ROMS}/cpu_os.bin", "rb").read()
 GPU_ROM = open(f"{ROMS}/gpu_os.bin", "rb").read()
-CART = open("proto01.bin", "rb").read()
+CART = open("proto02.bin", "rb").read()
 assert len(CPU_ROM) == 0x4000 and len(GPU_ROM) == 0x4000
 assert len(CART) == 0x2000, f"cartridge must be one 8 KB bank, got {len(CART)}"
 assert CART[:5] == b"MAD65", "cartridge signature missing"

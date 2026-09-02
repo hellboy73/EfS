@@ -117,31 +117,14 @@ wrong on screen.
 
 **D1. Vector/sprite LOD crossover (TBM).** The on-screen size below which an object
 stops being a transformed polygon and becomes a pre-scaled sprite. Depends on the
-measured cost of both paths.
+measured cost of both paths. Current plan: everything stays vector-drawn first,
+including the smallest size class (which already costs few vertices, so it is
+cheap even fully vector). Only fall back to sprites for the smallest rocks if
+proto testing hits the vertex/render budget (E1) under real fragment density —
+not before.
 
 **D2. Number of pre-scaled sprite steps (TBD).** How many sizes per object type,
 which multiplies sprite ROM.
-
-**D3. Clipped polyline GPU opcode (TBD — now with numbers).** Whether to add an
-`N`-point clipped polyline to the MAD-65 GPU firmware. This is a **firmware**
-change in the MAD-65 repo (new opcode + builder + jump-table entry + py65 test),
-so it needs to be worth it. Proto 01 measured the per-edge path:
-
-- **PPRAM is not the argument.** A whole frame of the bench is 281 bytes of the
-  2047-byte list, 14%. Halving the outline traffic buys nothing that is scarce.
-- **CPU1 cycles are.** `gpu_dotline_clip` costs **~3,000 cycles a call** — it is
-  a real Cohen-Sutherland with a divide per crossing. Sending every edge of
-  every rock through it put a 7-rock frame ~15% over budget on its own.
-- **Most of that is avoidable in the cartridge.** Proto 01 emits a rock wholly
-  on screen as one unclipped `DOT_LINES` chain, and for a rock that straddles an
-  edge computes per-vertex outcodes and sends only the segments that actually
-  cross to the clip builder — both-ends-inside goes to plain `gpu_dotline`
-  (~200 cycles), both-ends-past-the-same-edge is dropped for free.
-
-So the question is no longer "would a clipped polyline save PPRAM" (it would,
-and it does not matter) but **"can it clip a chain for less than ~3,000 cycles a
-crossing edge"**. If the answer is no, the outcode pre-pass in the cartridge is
-the cheaper fix and the firmware stays as it is.
 
 **D8. Star size and lattice (TBD).** `DOT_PIXELS` draws single pixels but takes
 half-res coordinates, so stars land only on even framebuffer pixels - a 2-pixel

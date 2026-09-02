@@ -335,16 +335,55 @@ The vector/sprite crossover size is **(TBM)**.
 
 ### 5.2 GPU primitives available
 
-`gpu_dotline_clip` (`$FF93`, signed-16, Cohen-Sutherland clipped) is the vector
-workhorse — it clips off-screen geometry itself, which matters because at high
-zoom-out a lot of the scene straddles the edge. `gpu_dotpixels_clip` (`$FF99`)
-draws a whole cloud of clipped points in one call, which is exactly the starfield.
-`gpu_line` (`$FF15`) is half-res and unclipped.
+The **polygon family** - `gpu_dotpolygon` (`$FFD2`), `gpu_polygon` (`$FFD5`),
+`gpu_polygon16` (`$FFD8`) - is the workhorse for anything that is a closed
+outline around a centre, which is every rock and most enemies. One command is a
+whole figure:
 
-**Possible firmware addition:** a clipped *polyline* opcode (N points, one PPRAM
-record) would cut the per-asteroid PPRAM cost by close to half versus emitting each
-edge as a separate clipped dot-line. That is a MAD-65 firmware change, not a cart
-change, and it is on the table. **(TBD)**
+```
+CX.16, CY.16, ANGLE, SCALE, N, dx0,dy0, ... , dxN-1,dyN-1
+```
+
+The centre is signed-16 and **may be off screen**; the offsets are the raw
+authored shape, unrotated and unscaled. The GPU rotates, scales and clips, and
+it clips properly - it cuts, it does not clamp, so a figure half off the top edge
+keeps its shape instead of collapsing into a fan. CPU1's per-vertex cost is a
+two-byte copy and the builder does no arithmetic at all.
+
+`$4E POLYGON16` is the **only** way to get a full-resolution outline. A vertex
+CPU1 transforms cannot carry better than half-res precision, because the
+quarter-square multiply indexes with `|x| + |cos|` and that has to stay inside a
+byte; transforming on the GPU lets the same +/-127 offset simply be read on the
+400x300 grid. The limit worth writing down: a figure wider than 254 full-res
+pixels no longer fits.
+
+Measured (proto 01 finding 48), `$4E` costs **+17%** on the GPU over `$4C` - and
+the split is worth knowing, because most of it is not the resolution. Dotted to
+solid is +12%; half-res to full-res is only the further **+7%** `LINE16` charges
+for 16-bit endpoints. Two consequences for anything that adopts it:
+
+- **The win is the centre, not the shape.** A half-res anchor is the full-res
+  position `>> 1`, so an object moves in two-pixel steps and a slow drift
+  stutters. `$4E` removes that. A *finer shape* is a separate matter and cannot
+  be derived from half-res artwork - re-rounding a half-res vertex at twice the
+  radius returns exactly twice that vertex, so full-res shapes are new artwork.
+- **There is no dotted full-res figure.** `$4E` is solid. Going full-res is
+  therefore also an art decision, not only a precision one.
+
+`gpu_dotline_clip` (`$FF93`, signed-16, Cohen-Sutherland clipped) remains the
+tool for an *open* path - the polygon family has no polyline form and the closing
+edge is not optional. `gpu_dotpixels_clip` (`$FF99`) draws a whole cloud of
+clipped points in one call, which is exactly the starfield. `gpu_line` (`$FF15`)
+is half-res and unclipped.
+
+**Budget honestly: this is a transfer, not a speed-up.** Both processors are the
+same 65C02 at the same clock, so the same algorithm costs the same on either
+side; what is bought is that the cycles land on the idle one. The GPU pays
+roughly 620-690 cycles a vertex for transform and clip, on top of the raster it
+was already paying. Level-of-detail - sending fewer vertices - is the lever, and
+it is entirely CPU1's to pull: there is no shape table in GPU RAM and no
+`SHAPE_ID`, so a caller sending every second vertex simply sends a shorter
+command.
 
 ### 5.3 Starfield parallax
 
@@ -597,27 +636,35 @@ Two consequences worth planning for now:
 
 ## 6. Objects
 
-### 6.1 Every object is tracked exactly
+### 6.1 Parameters are tracked everywhere; physics runs only nearby
 
-A full population is simulated persistently across the whole world rather than
-spawned on approach — but the price is **ten times what this section first
-estimated**. Proto 01 measures **~290 cycles per object per frame** for integrate
-+ cull, not the ~30 the first estimate assumed: the position is 16.8 and the
-velocity 8.8, so integrating one axis is a 24-bit add with a sign extension, not
-a 16-bit add, and the cull costs more than the arithmetic. 250 objects therefore
-cost about **70k cycles, 30% of one CPU**, before anything is drawn.
+Every object's parameters (position, velocity, type, shape) are kept for the
+whole population, all the time — nothing is spawned on approach or discarded
+when the player looks away. But **the physics — integrate, cull, collide — only
+runs for objects near the camera**, not for the whole population every frame.
 
-That does not overturn the decision — persistent simulation is what makes the
-physics honest, and it is still affordable — but it does set the population
-budget. 250 objects is roughly the ceiling if asteroids are also to be
-transformed and drawn. Two cheap levers if it needs to go higher: reject on the
-high byte of the delta before computing anything precise (already done, worth
-about 7%), and dropping the fraction byte from positions that do not need
-sub-unit drift.
+The first attempt (proto 01) simulated everyone every frame, and the price was
+**ten times what this section first estimated**: **~290 cycles per object per
+frame** for integrate + cull, not the ~30 the first estimate assumed, because the
+position is 16.8 and the velocity 8.8, so integrating one axis is a 24-bit add
+with a sign extension, not a 16-bit add. 250 objects cost about **70k cycles, 30%
+of one CPU**, before anything is drawn — and, per 4.5b, 99% of that was spent on
+objects nowhere near the camera.
 
-**All asteroids and enemies are therefore simulated persistently across the whole
-world**, not spawned on approach. This keeps the physics honest: rocks that collided out of sight really
-did collide, and the player can return to a place and find it changed.
+Proto 02 fixed this with the sector grid (6.3): the coarse reject walks only the
+cells overlapping the cull window, and an object outside it is **frozen** — its
+stored position stands as of the last frame it was near the camera. Nothing in
+the machine can observe the difference, because a frozen object neither collides
+nor is drawn, and it starts integrating again the moment the camera comes near.
+
+So the population is **persistent in its parameters, not in its simulation**:
+returning to a place shows the same objects, doing what they were doing when the
+player left them near enough to matter, but two rocks that were both off-camera
+did not secretly collide with each other in the meantime — nothing computed that.
+The population ceiling this sets is no longer per-object integrate cost; it is
+RAM (one record per object, all the time) and how many objects are near the
+camera at once, which the sector grid, the visible-list cap and the render vertex
+budget bound separately. See `open_questions.md` E1 for the current numbers.
 
 Procedural generation is used only for **cosmetic** matter (debris sparks, the star
 layer), which has no state worth keeping.
@@ -746,9 +793,20 @@ These are settled and should not be re-opened without a reason:
 4. Rotation and zoom are **one matrix**, and object spin is folded into the camera
    angle before the matrix is built.
 5. Multiplies go through a **quarter-square table**, not `mul16`.
-6. All gameplay objects are **persistently tracked**; only cosmetics are generated.
+6. All gameplay objects keep **persistent parameters across the whole world**;
+   only cosmetics are procedurally generated. Physics (integrate, cull, collide)
+   runs only for objects near the camera — an object outside the sector grid's
+   cull window is frozen, not simulated. See 6.1.
 7. Broad phase is a **sector grid** indexed by masked high bits of position.
 8. Stars are a **sampled parallax layer**, not simulated objects.
 9. Sprites are a **level-of-detail optimisation** for small on-screen objects, not
    the primary art form.
 10. TATE, clockwise, per the MAD-65 house convention.
+11. **Closed outlines are drawn by the GPU, not transformed by CPU1.** The
+    `$4C` / `$4D` / `$4E` polygon family takes a centre, an angle, a scale and
+    the shape *as authored*; CPU1 copies two bytes a vertex and does nothing
+    else. This settles the old D3 ("would a clipped polyline opcode be worth
+    it?") in a stronger form than the question asked - the opcode transforms as
+    well as clips - and it moves the frame-budget question with it: the outline
+    budget still counts vertices, but the frame it protects is now the **GPU's**.
+    See proto 01 findings 46 and 48.
