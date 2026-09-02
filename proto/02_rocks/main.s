@@ -78,16 +78,24 @@ MOTE_N      = 10                ; motes: a second layer much CLOSER than the
                                 ;   ship's speed. ~5 on screen at a time - they
                                 ;   are there to sell speed when nothing else is
                                 ;   in view, not to be looked at.
-NOBJ        = 120               ; asteroids, scattered over the whole torus. The
-                                ;   world is about 140 screens, so a bit over one
-                                ;   rock per screen by centre - and because they
-                                ;   are up to 192 px across, that comes out as 3
-                                ;   to 6 actually on camera. It was 250 while
-                                ;   these were dots; every one of them costs the
-                                ;   position integrate and the coarse reject
-                                ;   whether or not it is anywhere near, which is
-                                ;   the single largest item in the frame - see
-                                ;   the budget note in README.md.
+NOBJ        = 120               ; asteroid SLOTS. How many rocks a level puts
+                                ;   in them is the level's own business (see
+                                ;   levels.s); this is the ceiling the arrays
+                                ;   are cut to, and a budget number rather than
+                                ;   a world one. The world is about 140 screens,
+                                ;   so 120 is a bit over one rock per screen by
+                                ;   centre - and because they are up to 192 px
+                                ;   across, that comes out as 3 to 6 actually on
+                                ;   camera. It was 250 while these were dots;
+                                ;   every one of them costs the position
+                                ;   integrate and the coarse reject whether or
+                                ;   not it is anywhere near, which is the single
+                                ;   largest item in the frame - see the budget
+                                ;   note in README.md.
+START_LEVEL = 0                 ; which of levels.s's levels cart_init loads.
+                                ;   One level exists; the campaign is five
+                                ;   (design_technical 9), and picking between
+                                ;   them is the menu's job, not a constant's.
 ; The HUD is SEVEN VTEXT commands and ~9,900 cycles a frame (finding 18) on the
 ; IMAGE layer, which is not where the real game will put it - text is destructive,
 ; so it belongs on the background where the hardware re-copies it for nothing
@@ -577,6 +585,14 @@ TPCNT       = $0CB3             ; teleports so far, for the HUD and the harness
 SHOFT       = $0CB4             ; the SHOFF ease's 24-bit gap: target top byte...
 SHOFC       = $0CB5             ;   ...and the current offset's
 TPSGN       = $0CB6             ; the landing point's sign extension
+LVLIX       = $0CB7             ; load_level's own state, nearly all of it dead
+NROCK       = $0CB8             ;   once the field is built: the level that was
+SCATN       = $0CB9             ;   loaded, how many rocks it came to, the five
+SCATC       = $0CBE             ;   per-class scatter countdowns, the class (and
+SLOT        = $0CBF             ;   then the placed-record) counter, the object
+LVREC       = $0CC0             ;   slot being filled, one staged six-byte
+LVTMP       = $0CC6             ;   record, and a scratch byte. NROCK is the one
+                                ;   that outlives init - see init_cells.
 STR_SCL     = $0C80
 QSL         = $0E00             ; the quarter-square multiply table, f(x) = x*x/4
 QSH         = $0F00             ;   for x = 0..255, low byte and high byte
@@ -757,14 +773,10 @@ cart_init:
         sta     TSCALE                  ;   x1.25 at the top tier
         stz     SPRSTEP
 
-        stz     SHXL                    ; the middle of the torus, which means
-        stz     SHYL                    ;   nothing on a torus but keeps a
-        stz     SHXF                    ;   debugger session readable
-        stz     SHYF
-        lda     #$80
-        sta     SHXH
-        sta     SHYH
-
+                                        ; (the ship's world position and its
+                                        ;  heading are not set here any more:
+                                        ;  they are level data, and load_level
+                                        ;  below writes them)
         stz     TRAVL
         stz     TRAVH
         lda     #$80                    ; != HEAD (0), so frame 1 builds the
@@ -784,8 +796,10 @@ cart_init:
         jsr     init_qs
         jsr     init_stars
         jsr     init_motes
-        jsr     init_objects
-        jmp     init_strings
+        ldx     #START_LEVEL            ; ...and the field, the ship's place in
+        jsr     load_level              ;   it and the sector grid, all out of
+        jmp     init_strings            ;   levels.s
+
 
 ; -----------------------------------------------------------------------------
 ; init_qs — the quarter-square multiply table, f(x) = x*x/4 for x = 0..255.
@@ -950,58 +964,34 @@ prng:
         rts
 
 ; -----------------------------------------------------------------------------
-; init_objects — scatter the asteroid field.
+; rock_kin — the part of a rock a level does not get to choose. Y = the object
+; slot and OBJSHP,y already set; A and X are clobbered, Y is not.
 ; -----------------------------------------------------------------------------
-; Scattered over the WHOLE torus, not around the ship: a 16-bit world position
-; is uniform by construction, so two random bytes per axis is the whole job. The
-; SIZE is drawn the same way, through SHAPE_PICK, which is where the size mix is
-; tuned.
-;
-; Velocity and spin are NOT random. Each is read out of a hand-written table:
-; one of four drift vectors per size class (index & 3) and one spin rate per
-; size class, so the field is completely reproducible and every number in it can
-; be argued with by editing AST_VEL / AST_SPIN rather than by reseeding. Big
-; rocks drift slowly and turn slowly; the small ones are quick and busy, which
-; is the Asteroids convention and the thing worth checking on screen.
-init_objects:
-        ldy     #$00
-@lp:    jsr     prng
-        sta     OBJXL,y
-        jsr     prng
-        sta     OBJXH,y
+; A level says WHICH rock and WHERE. How that rock moves is a property of its
+; size class, so it is read here out of AST_VEL / AST_PHASE rather than stored
+; per rock: one of four drift vectors per class by (slot & 3), one of eight
+; starting spin phases by (slot & 7). Both hardcoded, so the field is identical
+; on every run and any oddity in it can be reproduced — and two rocks of the
+; same class in the same level still differ from each other.
+; -----------------------------------------------------------------------------
+rock_kin:
         lda     #$00                    ; (stz has no abs,y mode)
         sta     OBJXF,y
-        jsr     prng
-        sta     OBJYL,y
-        jsr     prng
-        sta     OBJYH,y
-        lda     #$00
         sta     OBJYF,y
+        sta     OBJANGF,y
 
-        jsr     prng                    ; the size class
-        and     #$07
-        tax
-        lda     SHAPE_PICK,x
-        sta     OBJSHP,y
-
-        jsr     prng                    ; which authored variant of that class -
-        and     #$07                    ;   same eight-ticket trick, orthogonal
-        tax                             ;   to the size pick above
-        lda     TYPE_PICK,x
-        sta     OBJTYPE,y
-
-        lda     OBJSHP,y                ; velocity: AST_VEL[class][index & 3],
+        lda     OBJSHP,y                ; velocity: AST_VEL[class][slot & 3],
         asl     a
-        asl     a                       ;   four bytes per variant, four variants
+        asl     a                       ;   four bytes per vector, four vectors
         asl     a                       ;   per class -> class * 16
         asl     a
-        sta     T0
+        sta     LVTMP
         tya
         and     #$03
         asl     a
         asl     a
         clc
-        adc     T0
+        adc     LVTMP
         tax
         lda     AST_VEL+0,x
         sta     OBJVXL,y
@@ -1017,19 +1007,150 @@ init_objects:
         tax
         lda     AST_PHASE,x
         sta     OBJANG,y
-        lda     #$00
-        sta     OBJANGF,y
+        rts
 
-        iny
-        cpy     #NOBJ
-        bne     @lp
-        ; fall through: the field is placed, so bucket it
+; -----------------------------------------------------------------------------
+; load_level — build one level's opening state. X = the level (0..NLEVELS-1).
+; -----------------------------------------------------------------------------
+; Everything a level SAYS about its own start is in levels.s; this is the code
+; that acts on it. Two passes over the object slots, in the order that file
+; documents: the per-class SCATTER first, then the HAND-PLACED rocks appended
+; after it. NROCK is what the two came to, and init_cells buckets exactly that
+; many — the slots past it are never linked into the grid, so nothing in the
+; frame ever looks at them and none of them has to be cleared.
+;
+; The scatter covers the WHOLE torus, not the area around the ship: a 16-bit
+; world position is uniform by construction, so two random bytes per axis is the
+; whole job — no boundary to keep away from and no rejection loop. What is NOT
+; random any more is the SIZE. It used to be an eight-ticket draw through
+; SHAPE_PICK, which gave the mix only in expectation; it is the pour below now,
+; so a level that asks for four 192s gets four.
+;
+; Velocity and spin stay out of the level data entirely — see rock_kin.
+load_level:
+        stx     LVLIX
+
+        lda     LVL_SHXL,x              ; the ship first: init_cells is about to
+        sta     SHXL                    ;   bucket the field, and the very first
+        lda     LVL_SHXH,x              ;   frame culls against the ship's own
+        sta     SHXH                    ;   cell, so it has to already be where
+        lda     LVL_SHYL,x              ;   the level put it
+        sta     SHYL
+        lda     LVL_SHYH,x
+        sta     SHYH
+        stz     SHXF
+        stz     SHYF
+        lda     LVL_SHHD,x
+        sta     HEAD
+
+        lda     LVL_SEEDL,x             ; the scatter is random in shape but not
+        sta     PRNGL                   ;   in outcome: same level, same field,
+        lda     LVL_SEEDH,x             ;   every run — so an arrangement can be
+        sta     PRNGH                   ;   complained about and then rerolled
+
+        lda     LVL_N192,x              ; the five counts, out of their per-level
+        sta     SCATN+0                 ;   tables and into five CONSECUTIVE RAM
+        lda     LVL_N128,x              ;   bytes, so the pour below can index
+        sta     SCATN+1                 ;   them by class with no multiply
+        lda     LVL_N64,x
+        sta     SCATN+2
+        lda     LVL_N32,x
+        sta     SCATN+3
+        lda     LVL_N16,x
+        sta     SCATN+4
+
+        stz     SLOT
+        stz     SCATC                   ; pour class 0 (the 192s) first, one
+                                        ;   class at a time. That makes the field
+                                        ;   size-ordered by slot, which is what
+                                        ;   AST_VEL's (slot & 3) wants: its four
+                                        ;   vectors then spread across each
+                                        ;   class instead of across the mix
+@clslp: ldx     SCATC
+        lda     SCATN,x
+        beq     @clsnxt
+        dec     SCATN,x
+
+        ldy     SLOT                    ; Y survives prng (it clobbers A and X
+        jsr     prng                    ;   only), so it stays the slot for the
+        sta     OBJXL,y                 ;   whole rock
+        jsr     prng
+        sta     OBJXH,y
+        jsr     prng
+        sta     OBJYL,y
+        jsr     prng
+        sta     OBJYH,y
+        lda     SCATC                   ; the class is the loop counter itself
+        sta     OBJSHP,y
+        jsr     prng                    ; which authored variant of that class -
+        and     #$07                    ;   eight tickets over AST_TYPES values,
+        tax                             ;   still a draw, because which variant
+        lda     TYPE_PICK,x             ;   a rock wears is not something a level
+        sta     OBJTYPE,y               ;   has an opinion about
+        jsr     rock_kin
+        inc     SLOT
+        bra     @clslp
+@clsnxt:
+        inc     SCATC
+        lda     SCATC
+        cmp     #$05
+        bne     @clslp
+
+        ldx     LVLIX                   ; the hand-placed set-pieces, appended
+        lda     LVL_ROCKN,x             ;   after the scatter. SCATC is done
+        sta     SCATC                   ;   being a class index; it is the record
+        beq     @done                   ;   countdown now
+        lda     LVL_ROCKLO,x
+        sta     T0
+        lda     LVL_ROCKHI,x
+        sta     T1
+
+@plp:   ldy     #$05                    ; stage the record first: Y has to be the
+:       lda     (T0),y                  ;   record cursor here and the object
+        sta     LVREC,y                 ;   slot below, and it cannot be both
+        dey
+        bpl     :-
+        ldy     SLOT
+        lda     LVREC+0
+        sta     OBJXL,y
+        lda     LVREC+1
+        sta     OBJXH,y
+        lda     LVREC+2
+        sta     OBJYL,y
+        lda     LVREC+3
+        sta     OBJYH,y
+        lda     LVREC+4
+        sta     OBJSHP,y
+        lda     LVREC+5
+        sta     OBJTYPE,y
+        jsr     rock_kin
+        inc     SLOT
+        clc                             ; ...and on to the next six bytes
+        lda     T0
+        adc     #$06
+        sta     T0
+        bcc     :+
+        inc     T1
+:       dec     SCATC
+        bne     @plp
+
+@done:  lda     SLOT                    ; what the two passes came to. Enemies
+        sta     NROCK                   ;   are authored in levels.s but not read
+                                        ;   here — that is the next bench.
+        ; fall through: the field is placed, so bucket it. NOTHING may be put
+        ; between this and init_cells - rock_kin sits ABOVE load_level for
+        ; exactly that reason.
 
 ; -----------------------------------------------------------------------------
 ; init_cells — bucket the whole field into the sector grid, once.
 ; -----------------------------------------------------------------------------
-; This is the only full pass over NOBJ in the program. Afterwards the grid is
-; maintained incrementally by the handful of rocks that are actually moving.
+; This is the only full pass over the field in the program. Afterwards the grid
+; is maintained incrementally by the handful of rocks that are actually moving.
+;
+; It walks NROCK, what load_level actually placed, not NOBJ, which is only how
+; many slots exist. That is the whole reason a level can be smaller than the
+; array: an unplaced slot is never linked into a cell, and the cell lists are
+; the only way anything in the frame reaches an object.
 ; -----------------------------------------------------------------------------
 init_cells:
         lda     #$FF                    ; every cell empty
@@ -1040,19 +1161,19 @@ init_cells:
         stz     PENDN
         stz     GPENDMX
 
-        ldx     #NOBJ-1
-@lp:    jsr     cell_of                 ; A = this rock's cell
+        ldx     NROCK                   ; count down from it rather than up to
+        beq     @none                   ;   it: dex-then-body needs no compare
+@lp:    dex                             ;   against a variable, and an empty
+        jsr     cell_of                 ;   field still has to be legal
         sta     OBJCEL,x
         tay
         lda     CELLHD,y                ; push at the head
         sta     OBJNXT,x
         txa
         sta     CELLHD,y
-        dex
-        bpl     @lp
-        cpx     #$FF                    ; (NOBJ may exceed 128, so bpl alone
-        bne     @lp                     ;  is not the whole loop)
-        rts
+        cpx     #$00                    ; (the count can exceed 128, so bne on
+        bne     @lp                     ;  the compare, not bpl on the dex)
+@none:  rts
 
 ; -----------------------------------------------------------------------------
 ; cell_of — X = object, A = its cell index. Y is clobbered.
@@ -1180,8 +1301,14 @@ cart_frame:
         jsr     do_ship                 ; velocity from tier + heading, integrate
         jsr     do_objects              ; move and spin the rocks, transform them
         jsr     emit_asteroids          ; ...which also registers their occluder
-        jsr     do_stars                ;   discs, which do_stars needs: it is the
-        jsr     do_motes                ;   one pass that has to run after them
+                                        ;   discs, which do_stars needs: it is the
+                                        ;   one pass that has to run after them
+        jsr     emit_landmark           ; TEMPORARY - see landmark.s. It goes here
+                                        ;   because it takes the rocks' cull, and
+                                        ;   it registers no disc, so stars show
+                                        ;   through the square
+        jsr     do_stars
+        jsr     do_motes
         jsr     emit_ship
 .if HUD_ON
         jsr     do_hud
@@ -1990,7 +2117,9 @@ do_objects:
         sta     CULHI2
         stz     OCCN
         stz     VISN
-        jsr     add_ship_occluder
+        jsr     col_begin               ; physics.s: clear this frame's hit
+        jsr     add_ship_occluder       ;   counters before anything can raise
+                                        ;   one
 
         ; The sector walk. CULHI is the coarse window in position-high-byte
         ; units and a cell is 16 of those, so the window reaches (CULHI >> 4)
@@ -2177,6 +2306,15 @@ do_objects:
         lda     OBJYH,x
         sbc     SHYH
         sta     PYH
+
+        ; COLLIDE, here and not a line later. This object has moved, its cell
+        ; cursor is parked in GCELL, and the ship delta above is exactly what
+        ; the ship test wants - the one point in the frame where all three are
+        ; in hand at once. It runs for everything past the COARSE window, not
+        ; just what survives the cull below: a rock must finish bouncing while
+        ; it is still off screen, or it arrives already inside its neighbour.
+        ; See physics.s - it clobbers X and leaves PXL..PYH and OBJI alone.
+        jsr     do_collide
 
         lda     PXL                     ; cull well outside the screen, so the
         ldy     PXH                     ;   transform only runs on what matters
@@ -4333,6 +4471,14 @@ smul16q7:
         sta     MAH
 @done:  rts
 
+        .include "landmark.s"           ; TEMPORARY: one fixed square, so the
+                                        ; size of the world can be read off the
+                                        ; screen. Delete the file and its two
+                                        ; references when it has done its job.
+        .include "physics.s"            ; rock against rock: the sector-grid pair
+                                        ; walk, the circle test and the impulse.
+                                        ; See that file's header.
+
 ; =============================================================================
 ; Data
 ; =============================================================================
@@ -4362,6 +4508,13 @@ SPRDEF:
 
         .include "shapes.s"             ; every vertex table - rocks, ship. See
                                          ; that file's header and tools/shape_editor.py
+        .include "levels.s"             ; ...and every level's opening state. See
+                                         ; that file's header and tools/level_editor.py
+
+; The ceiling on the array itself. That every level FITS in it is asserted from
+; levels.s, per level, off sums the assembler makes out of that file's own
+; constants - so a count edited there by hand is checked too.
+        .assert NOBJ <= 128, error, "OBJSHP and OBJTYPE are only 128 bytes apart"
 
 ; =============================================================================
 ; Asteroids
@@ -4371,9 +4524,9 @@ SPRDEF:
 ; not read as stamped from one mould. The outlines themselves, the per-shape
 ; radii and the authored reduced (LOD) outlines all live in shapes.s now - see
 ; its header - so the shape editor (tools/shape_editor.py) has one file to
-; read and write. Only the two RANDOM PICKS that choose a rock's size and
-; variant stay here, next to the rest of a rock's behaviour (AST_VEL/AST_SPIN
-; below): they are population mix, not geometry.
+; read and write. How MANY of each size a field holds lives in levels.s, per
+; level. What stays here is a rock's BEHAVIOUR - how it drifts and how it spins
+; - which is a property of the size class and not of either file.
 ;
 ; The vertex COUNT falls with the size - 12, 10, 8, 6, 5 - because a rock 16 px
 ; across cannot show more than about five corners anyway, and the small classes
@@ -4381,15 +4534,14 @@ SPRDEF:
 ; reads as a diamond, which the eye recognises as a shape rather than as a rock.
 ; At ~530 cycles a vertex this is also the cheapest LOD knob in the file.
 
-; The size mix, drawn with three bits of the LFSR: eight tickets over five
-; classes, weighted away from the two biggest. Edit this to change how the field
-; feels without touching any code.
-SHAPE_PICK: .byte  0, 1, 2, 3, 4, 2, 3, 4
-
-; Which authored variant of whatever size was just picked - independent of the
-; above, same eight-ticket trick, evenly over AST_TYPES (shapes.s). Must have
-; exactly AST_TYPES distinct values across its eight entries or a variant goes
-; unused.
+; Which authored variant a scattered rock wears - eight tickets drawn with three
+; bits of the LFSR, spread evenly over AST_TYPES (shapes.s). Must have exactly
+; AST_TYPES distinct values across its eight entries or a variant goes unused;
+; tools/shape_editor.py rewrites this line when a variant is added.
+;
+; The SIZE mix used to be a table just like it, SHAPE_PICK. It is gone: eight
+; tickets only ever gave a mix in expectation, and a level wants to state a
+; count. See LVL_N192..LVL_N16 in levels.s, and load_level, which pours them.
 TYPE_PICK:  .byte  0, 1, 2, 0, 1, 2, 0, 1
 
 ; Drift velocities, signed 8.8 world units per frame. 16 units = 1 full-res pixel

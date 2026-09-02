@@ -689,14 +689,28 @@ Exact layout is settled when the pools are written. The pool is
 ### 6.3 Broad phase: sector grid
 
 Testing every pair of 96 objects is 4560 tests — too many. The world is divided
-into a **16 x 16 grid of sectors** (256 x 256 reference pixels each), objects are
-bucketed by the high bits of their position, and only same-sector and
-adjacent-sector pairs are tested. The sector index wraps by masking, which is again
-free on a torus. Grid resolution **(TBD)** — a sector should be somewhat larger
-than the biggest asteroid.
+into a **16 x 16 grid of sectors**, objects are bucketed by the high bits of their
+position, and only same-sector and adjacent-sector pairs are tested. The sector
+index wraps by masking, which is again free on a torus.
+
+**Resolution: settled at 4096 world units a sector** — the top nibble of each
+position byte, so `cell = (YH & $F0) | (XH >> 4)` and there is no arithmetic in
+it. The rule that picks it is sharper than "larger than the biggest asteroid":
+a sector must be at least the **largest sum of two collision radii**, because
+that is the distance at which two bodies can still touch. At 4096 units (128
+collision units) against a largest sum of 78, it holds with room to spare, and
+proto 02 asserts it at assembly time.
+
+That rule is what makes the pair walk cheap. With it, each body needs its own
+cell and **four** of the eight neighbours (E, S, SE, SW) — the other four are
+covered from the far side — and every pair comes up exactly once with no
+"already tested" bookkeeping. See [`physics.md`](physics.md) 3.
 
 The same grid provides render culling: only sectors overlapping the visible window
-are visited.
+are visited. Note the two uses want different resolutions and the render side is
+the loose one: at full zoom-out the cell window is 11x11 of the 16x16 grid, and
+that coarseness is paid by the cull, not by the collision pass, which sees only
+what survives the precise coarse window inside it.
 
 ---
 
@@ -706,11 +720,21 @@ are visited.
 document, [`physics.md`](physics.md), so parameters can be tuned without touching
 the architecture. The design commitments:
 
+**Built, in [`proto/02_rocks/physics.s`](../proto/02_rocks/physics.s):** detection,
+the elastic response, separation and the ship test. Not built: spin transfer,
+break-up, shot split. `physics.md` says which is which and why.
+
 - **Simplified elastic collision.** On contact the relative velocity is split into
   normal and tangential components. The normal component is exchanged according to
   mass (mass tracks size class), with a restitution coefficient below 1 so energy
   bleeds out of the system and the field does not become a perpetual-motion pinball
   table.
+- **Every mass is a power of two**, halving with each size class down. That is not
+  a tuning choice, it is what collapses the mass-ratio table to nine bytes indexed
+  by the *difference* of two exponents, makes the ratios sum to exactly 128 (so
+  momentum is conserved to the bit), and turns the positional separation into a
+  shift. Anything that wants to collide — enemy, debris, the ship — buys into the
+  whole response by having a power-of-two mass and a radius, and nothing else.
 - **Spin transfer.** The tangential component feeds the spin of both bodies — a
   glancing blow sets rocks tumbling, a head-on one does not.
 - **Break-up on impact.** Above a relative-normal-speed threshold one or both
@@ -762,6 +786,19 @@ mix, the enemy roster, physics parameter overrides and the music.
 Level scripts are data, read straight out of the cartridge window (the CETAS
 pattern), not copied to RAM.
 
+The **population** half of that plan now exists, in
+[`proto/02_rocks/levels.s`](../proto/02_rocks/levels.s), authored with
+`tools/level_editor.py` the way shapes are authored with `tools/shape_editor.py`.
+Per level it carries a **count per size class** — which the loader scatters over
+the torus from a per-level LFSR seed, so a field is random in shape but identical
+on every run — plus **hand-placed rocks** for set-pieces, **enemy positions**
+(carried but not yet read; see `open_questions.md` E6), and the ship's start.
+World size, physics overrides and music are still to come, and go in the same
+per-level tables. Nothing about a level is a literal in that file: the tables are
+built out of named constants and the per-level totals are summed from them, so
+the assembler refuses to build a level asking for more rocks than there are
+object slots.
+
 ---
 
 ## 10. Cartridge bank map (draft)
@@ -802,7 +839,13 @@ These are settled and should not be re-opened without a reason:
 9. Sprites are a **level-of-detail optimisation** for small on-screen objects, not
    the primary art form.
 10. TATE, clockwise, per the MAD-65 house convention.
-11. **Closed outlines are drawn by the GPU, not transformed by CPU1.** The
+11. Every **collidable body has a power-of-two mass** and a radius, and those two
+    numbers are its entire physical identity. See 7 and `physics.md` 4.2 for what
+    that buys; the cost is that a size class cannot be given an arbitrary mass.
+12. The **collision circle is the star-occlusion disc** — one radius, `SHAPE_OCC`,
+    the mean-vertex one. Restated here because it is now load-bearing in two
+    subsystems rather than an aesthetic preference in one. See 5.4.
+13. **Closed outlines are drawn by the GPU, not transformed by CPU1.** The
     `$4C` / `$4D` / `$4E` polygon family takes a centre, an angle, a scale and
     the shape *as authored*; CPU1 copies two bytes a vertex and does nothing
     else. This settles the old D3 ("would a clipped polyline opcode be worth

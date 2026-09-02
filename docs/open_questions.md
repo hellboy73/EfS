@@ -195,23 +195,43 @@ at **70% in its worst frame** and uses 250 bytes of the 2047-byte PPRAM list.
 That makes ~250 the working ceiling unless the per-object cost comes down. Levers,
 cheapest first: reject on the high byte of the delta before the precise cull
 (done, ~7%); drop the fraction byte from positions that do not need sub-unit
-drift; amortise the cull across frames. The collision broad phase has not been
-measured at all yet and will add to this.
+drift; amortise the cull across frames.
 
-**E2. Sector grid resolution (TBD).** 16 x 16 sectors of 256 px is the baseline; a
-sector must be larger than the biggest asteroid or the adjacency test misses
-contacts.
+~~The collision broad phase has not been measured at all yet~~ — **measured, in
+proto 02**: the whole collision pass (broad phase, narrow phase and response)
+costs **+7,100 cycles in the median frame and +16,600 in the worst**, taking that
+worst frame from 63.7% of budget to 70.7%, over a 120-rock field. It is cheaper
+than the integrate-and-cull it rides on. The lever left, if the object count grows
+past what that can absorb, is a collision window narrower than the cull's — one
+compare per body.
 
-**E3. Size classes (TBD).** How many asteroid sizes, their radii, and the mass
-curve across them. Drives both physics and the LOD table.
+**E2. ~~Sector grid resolution~~ — SETTLED: 4096 world units, 16 x 16.** The rule
+turned out to be sharper than "larger than the biggest asteroid": a sector must be
+at least the **largest sum of two collision radii**, since that is the distance at
+which two bodies can still touch. That is what lets the pair walk visit four
+neighbours instead of eight and see every pair exactly once. Moved to
+`design_technical.md` 6.3, where it is asserted at assembly time.
+
+**E3. ~~Size classes~~ — SETTLED: five, and the mass curve is powers of two.**
+192/128/64/32/16 px across, radii 39/26/13/7/3 collision units (`SHAPE_OCC`, the
+mean-vertex radius, which is also the star-occlusion disc), each class **half the
+mass of the one above**. The halving is not a feel decision — it is what collapses
+the mass-ratio table to nine bytes and makes momentum conserve to the bit. See
+`design_technical.md` 11.11 and `physics.md` 4.2.
 
 **E4. Restitution, spin gain, split impulse, break-up threshold (TBM).** The whole
-tuning surface. These get their own iteration loop once the physics runs at all —
-see [`physics.md`](physics.md).
+tuning surface, and still entirely open — the physics *runs* now, which means the
+iteration loop this question was waiting for can start. Restitution and the
+separation constant have first-cut values in [`physics.md`](physics.md) 4; spin
+gain and the break-up threshold have no code behind them yet.
 
-**E5. Do asteroids collide with each other every frame, or on a budget (TBD)?**
-If E1 grows, pair testing may have to be amortised across frames (test half the
-sectors per frame). Acceptable only if it does not produce visible pass-through.
+**E5. ~~Every frame, or on a budget~~ — SETTLED: every frame, with a deferral
+cap.** Pairs are tested every frame for every body inside the coarse window, and
+the *response* is capped at `COL_MAX` per frame. Past the cap a pair is still
+detected and simply waits — the overlap does not go away, so nothing is lost by
+deferring it, and one pathological frame cannot eat the budget. That is deferral,
+not the amortisation this question feared: there is no pass-through, because the
+detection is never the thing that gets skipped.
 
 **E6. Enemy roster (TBD).** Types and behaviours. The story fixes the *shape* of
 what is needed (see `story.md`): a **cloak state** (visible/invisible while still

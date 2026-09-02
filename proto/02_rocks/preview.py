@@ -37,6 +37,7 @@ OUT = "preview.png"
 ROMS = "../../roms"
 PPRAM = 0x7800
 VRAM_IMG = 0x8000
+CART_BANK_REG = 0xBF60           # WO: bit7 = CART_EN, bits6-0 = bank
 IMG_END = 0xBA98
 SENTINEL = 0x1000
 
@@ -61,7 +62,13 @@ ZP_ABS = {"TPCNT": 0x0CB3,          # teleports so far
           "ZOOMH": 0x62F8,          # ...and the one snapped to a ZQ rung,
                                     #    which is what the frame actually uses
           "SHOFXH": 0x0CA1,         # the cross-axis camera lean, signed 8.8
-          "OVRCNT": 0x62E4, "ABUDGET": 0x62E5}
+          "OVRCNT": 0x62E4, "ABUDGET": 0x62E5,
+          # physics.s - what the collision pass found this frame, and the
+          # running totals since boot
+          "COL_N": 0x6238, "COL_HITS": 0x6239,
+          "COL_TOTL": 0x623A, "COL_TOTH": 0x623B,
+          "SHIPHIT": 0x623C, "SHIPHITN": 0x623D,
+          "SHIPHITCL": 0x623E, "SHIPHITCH": 0x623F}
 
 
 def s16(lo, hi):
@@ -245,6 +252,14 @@ def cart_const(name):
     return int(m.group(1))
 
 
+def phys_const(name):
+    """Same again, out of physics.s - the collision budget and the tunables."""
+    m = re.search(rf"^{re.escape(name)}\s*=\s*(-?\d+)", open("physics.s").read(), re.M)
+    if not m:
+        raise RuntimeError(f"{name} not found in physics.s")
+    return int(m.group(1))
+
+
 def shapes_const(name):
     """Same as cart_const, but out of shapes.s - AST_TYPES and SHIP_VN, whose
     values the shape editor changes, not just main.s's own switches."""
@@ -324,6 +339,7 @@ SHAPE_LODN_FULL = shapes_array("SHAPE_LODN")    #   see shapes.s
 SHAPE_R = tuple(SHAPE_R_FULL[i * AST_TYPES] for i in range(5))  # per CLASS -
                                                  # constant across a class's variants
 HUD_ON = cart_const("HUD_ON")   # read from main.s, never typed - see below
+COL_MAX = phys_const("COL_MAX")  # ...and the collision budget, from physics.s
 # Both valves are DERIVED in main.s rather than typed, so mirror the arithmetic
 # and not the answers - a stale constant here is how finding 49 stayed invisible.
 AST_VCOST = (1564, 1749, 1873)[ROCK_FAMILY]     # GPU cycles a vertex, measured
@@ -368,7 +384,8 @@ CPU_ROM = open(f"{ROMS}/cpu_os.bin", "rb").read()
 GPU_ROM = open(f"{ROMS}/gpu_os.bin", "rb").read()
 CART = open("proto02.bin", "rb").read()
 assert len(CPU_ROM) == 0x4000 and len(GPU_ROM) == 0x4000
-assert len(CART) == 0x2000, f"cartridge must be one 8 KB bank, got {len(CART)}"
+assert len(CART) % 0x2000 == 0, f"cartridge must be whole 8 KB banks, got {len(CART)}"
+NBANKS = len(CART) // 0x2000
 assert CART[:5] == b"MAD65", "cartridge signature missing"
 
 CART_INIT = CART[5] | (CART[6] << 8)
@@ -400,7 +417,7 @@ def call(mpu, addr, limit=5_000_000):
 cpu_mem = ObservableMemory()
 for i, b in enumerate(CPU_ROM):
     cpu_mem[0xC000 + i] = b
-for i, b in enumerate(CART):                    # bank 0 in the $8000 window
+for i, b in enumerate(CART[:0x2000]):           # bank 0 in the $8000 window
     cpu_mem[0x8000 + i] = b
 # Count every read that lands in the cartridge window. Real hardware charges 3
 # wait states on each of them (the cart is banked and cannot be shadowed), and
@@ -409,12 +426,25 @@ for i, b in enumerate(CART):                    # bank 0 in the $8000 window
 # boot and these reads become RAM reads at full speed.
 cart_reads = [0]
 
+# ...and the BANK the window is showing. The cart is two banks now (cart.cfg),
+# so the window is not the whole image any more: bootstrap.s asks the OS to copy
+# CODE out of bank 0 and RODATA out of bank 1, and cart_load does that by writing
+# CART_BANK. Watching that one register is the whole of bank emulation here -
+# nothing in this bench re-banks after init, because Model B has already moved
+# everything it will ever read into RAM.
+cart_bank = [0]
+
+
+def bank_write(addr, value):
+    cart_bank[0] = value & 0x7F
+
 
 def cart_read(addr):
     cart_reads[0] += 1
-    return CART[addr - 0x8000]
+    return CART[cart_bank[0] * 0x2000 + addr - 0x8000]
 
 
+cpu_mem.subscribe_to_write([CART_BANK_REG], bank_write)
 cpu_mem.subscribe_to_read(range(0x8000, 0xA000), cart_read)
 
 cpu = MPU(memory=cpu_mem)
@@ -458,6 +488,7 @@ TURN_UNTIL = 70                 # half a revolution - enough to sweep the whole
 
 frames = []
 cycles = []
+momentum = []                   # the field's mass-weighted momentum per frame
 trace = []
 rot = []                        # ROTC_I / ROTS_I + the sample, for the pivot check
 objs = []                       # object screen positions by index, for the swim test
@@ -503,6 +534,17 @@ for f in range(FRAMES):
     trace.append(t)
     bases.append([(cpu_mem[0x0B00 + i], cpu_mem[0x0B80 + i],
                    cpu_mem[0x0D00 + i]) for i in range(STAR_N)])
+    # The whole field's LINEAR MOMENTUM, mass-weighted, every frame. Integration
+    # never touches a velocity, so the only thing in the machine that can move
+    # this number is physics.s's impulse - which is why it is the one measurement
+    # that says whether the response is physics or just motion.
+    nrock = cpu_mem[0x0CB8]
+    px = py = 0
+    for i in range(nrock):
+        m = 1 << (4 - cpu_mem[0x1F00 + i])          # OBJSHP -> mass 16..1
+        px += m * s16(cpu_mem[0x1600 + i], cpu_mem[0x1700 + i])
+        py += m * s16(cpu_mem[0x1800 + i], cpu_mem[0x1900 + i])
+    momentum.append((px, py))
     rot.append(([cpu_mem[0x0400 + i] for i in range(256)],
                 [cpu_mem[0x0600 + i] for i in range(256)],
                 cpu_mem[0xA2], cpu_mem[0xA3]))
@@ -1474,6 +1516,40 @@ print(f"        visible list: {max(visn)} entries at its fullest, of "
       f"{VIS_MAX}")
 check("the visible list never overflowed", max(visn) < VIS_MAX,
       f"{max(visn)} of {VIS_MAX} - objects past the end are silently not drawn")
+
+# --- physics.s ---------------------------------------------------------------
+# The collision pass runs inside do_objects' cell walk, for every rock past the
+# COARSE window - so on a flight this long it should fire, and it should fire
+# without ever hitting the per-frame budget. A run that reports zero means the
+# pair walk is not reaching anything, which no amount of staring at the picture
+# would show: rocks pass through each other silently.
+col_tot = trace[-1]["COL_TOTL"] | (trace[-1]["COL_TOTH"] << 8)
+col_peak = max(t["COL_HITS"] for t in trace)
+col_capped = sum(1 for t in trace if t["COL_HITS"] > t["COL_N"])
+ship_tot = trace[-1]["SHIPHITCL"] | (trace[-1]["SHIPHITCH"] << 8)
+ship_peak = max(t["SHIPHITN"] for t in trace)
+print(f"        collisions: {col_tot} detected over {FRAMES} frames, worst frame "
+      f"{col_peak} (budget {COL_MAX}), budget reached on {col_capped} frames; "
+      f"ship touched a rock on {ship_tot} frames, worst {ship_peak} at once")
+check("the rocks are colliding at all", col_tot > 0,
+      "no pair was ever found - the sector walk in physics.s is reaching nothing")
+# Momentum. The mass factors are a table of pairs that sum to exactly 128, so
+# the impulse is equal and opposite BY CONSTRUCTION and the only thing that can
+# move this total is rounding in the Q0.7 multiply - a fraction of a unit per
+# collision, and unbiased. A real drift means the two halves of the impulse do
+# not match, which on a torus with no walls would show up as the whole field
+# slowly sailing one way over a long game and as nothing at all in 30 seconds.
+p0, p1 = momentum[0], momentum[-1]
+dp = max(abs(p1[0] - p0[0]), abs(p1[1] - p0[1]))
+scale = max(1, max(abs(p0[0]), abs(p0[1])))
+print(f"        field momentum: ({p0[0]:+d},{p0[1]:+d}) -> ({p1[0]:+d},{p1[1]:+d}), "
+      f"drift {dp} over {col_tot} collisions ({100*dp/scale:.2f}% of |p|)")
+check("the impulse conserves momentum", dp <= 4 * max(1, col_tot),
+      f"drift {dp} over {col_tot} collisions is more than rounding can explain - "
+      f"the two halves of the impulse are not equal and opposite")
+check("no frame ran out of collision budget", col_capped == 0,
+      f"{col_capped} frames had more overlaps than COL_MAX={COL_MAX} could "
+      f"answer; they are deferred, not lost, but the cap wants raising")
 check("asteroids are being drawn at all", len(all_chains) > 20,
       f"{len(all_chains)} polygon commands in {FRAMES} frames")
 check("the GPU's clipper is exercised", len(straddle) > 0,

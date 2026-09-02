@@ -47,24 +47,32 @@ VERTEX_MAX = 127                          # qmul's |x|+|cos| has to stay in a by
 # parsing
 # =============================================================================
 def parse_value(tok):
-    """'<-16' -> -16, '44' -> 44, anything else (a label ref, an expression)
-    -> None, meaning "not a plain number, ignore it"."""
+    """'<-16' -> -16, '44' -> 44, '$3C' -> 60, anything else (a label ref, an
+    expression) -> None, meaning "not a plain number, ignore it"."""
     tok = tok.strip()
     if not tok:
         return None
+    m = re.match(r'^<?\$([0-9A-Fa-f]+)$', tok)
+    if m:
+        return int(m.group(1), 16)
     m = re.match(r'^<?-?\s*(\d+)$', tok)
     if not m:
         return None
     return -int(m.group(1)) if tok.replace('<', '').strip().startswith('-') else int(m.group(1))
 
 
-def parse_generated_block(text):
+def parse_generated_block(text, start_marker=SENTINEL_START, end_marker=SENTINEL_END):
     """Returns (scalars: {name: int}, blocks: {label: [values]}) for
     everything between the sentinels. A value list drops non-numeric tokens
     (label refs in the pointer tables) - callers that need those just don't
-    ask for that block."""
-    start = text.index(SENTINEL_START) + len(SENTINEL_START)
-    end = text.index(SENTINEL_END)
+    ask for that block.
+
+    The markers are arguments because levels.s has the same GENERATED-block
+    shape and tools/level_editor.py reads it with this same function; only the
+    sentinel text differs.
+    """
+    start = text.index(start_marker) + len(start_marker)
+    end = text.index(end_marker)
     body = text[start:end]
 
     scalars, blocks = {}, {}
