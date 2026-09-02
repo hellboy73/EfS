@@ -36,57 +36,102 @@ wrap, so the bar is high.
 
 ---
 
-## B. Ship handling — proto 01 is built, now it has to be flown
+## B. Ship handling — the benches are built, now it has to be flown
 
-[`proto/01_flight`](../proto/01_flight/) puts all of B1-B3 on a joystick with a
-live readout. **These stay open until someone flies it and says which values are
-right.**
+[`proto/01_flight`](../proto/01_flight/) put all of B1-B3 on a joystick with a
+live readout, and [`proto/02_rocks`](../proto/02_rocks/) carries them forward with
+a continuous throttle, a boost and a teleport on top. **These stay open until
+someone flies it and says which values are right** — and where `cart_init` calls a
+value "the settled-on default", someone already has.
 
-**B1. Number of speed tiers and their values (TBM).** The single most important
-unknown. The bench now ships eleven, chosen by hand while flying it: `-150, -100,
--50, 0, +50, +100, +150, +200, +250, +300, +350` px/s. Still being felt out.
+**B1. Speed range, and how the throttle moves through it (TBM).** The eleven
+values are still the ones flown by hand — `-150, -100, -50, 0, +50, +100, +150,
++200, +250, +300, +350` px/s — but they are no longer *tiers the player steps
+between*. `THRTL` is a continuous position over that table (`THRTL_ACCEL`: full
+range in ~1.3 s), and a "tier" is now just how finely the curve is authored —
+speed, ship offset, zoom and camera lean are all read at the swept position.
 
-**B2. Turn rate (TBM, narrowed).** Flying the bench settled the band: **1 to 3
-brad per frame is usable**, and the original "1/32 of a turn per frame" (8
-brad/frame, 531 ms per revolution) is far too fast. Whole-brad steps inside that
-band turned out to be too coarse to choose between, so the heading now carries a
-fraction and the ladder is `5659, 4244, 3396, 2830, 2425, 2122, 1698, 1415` ms per
-revolution. Still open: which one, and whether the ladder wants finer steps still.
+Two mechanics ride on top, and neither has been judged yet:
 
-**B6. How strongly should the turn rate follow flight speed (TBM)?** Turn radius
-is `v/omega`, so a constant omega makes the radius grow in proportion to speed -
-at +350 the ship sweeps a circle seven times wider than at +50. Doubling the rate
-at top speed (the first cut) **rose too fast to fly**, so proto 01 now has a
-strength dial on joystick 2's button: OFF / x1.12 / x1.25 / x1.50 at the top
-tier. Open: which, if any. Full proportionality (constant radius) is certainly
-too much - it leaves the ship barely able to turn at low speed.
+- **BOOST** (`TIER_BOOST`): a twelfth row the throttle cannot reach — 700 px/s for
+  `BOOST_FRAMES = 90` (1.5 s), on joystick 2 UP. 482.5 px/s is the ceiling of a
+  signed 8.8 velocity, so it is authored as the top tier *doubled* (`TIER_SHL`)
+  rather than typed; typing 500 into the speed table fires the ship backwards.
+- **TELEPORT** (joystick 2 DOWN): a jump along the heading whose length is not
+  authored at all. The ship lands on a fixed screen point (`TP_OFF = 120`), so the
+  distance falls out of the geometry as `SHOFF - landing`: 246 px at +350, 160 px
+  at a standstill, and backwards in reverse.
 
-**B3. Camera lag constant (TBM).** Half of it is now in proto 01: the ship's
-screen offset eases toward its tier's target by 1/16 of the gap per frame
-(`SHOFF_LAG`). The zoom half is still missing because there is no zoom yet. Too
-fast is nauseating; too slow disconnects the throttle from the view, and both
-halves should probably share one constant.
+Open: the eleven values, the throttle's ramp rate, and whether boost and teleport
+belong in the game at all.
+
+**B2. Turn rate (SETTLED — rung 3, 2830 ms per revolution).** Flying the bench
+settled the band first: **1 to 3 brad per frame is usable**, and the original
+"1/32 of a turn per frame" (8 brad/frame, 531 ms per revolution) is far too fast.
+Whole-brad steps inside that band were too coarse to choose between, so the
+heading carries a fraction and the ladder is quarter-brad: `5659, 4244, 3396,
+2830, 2425, 2122, 1698, 1415` ms per revolution. `cart_init` picks **rung 3**
+(2830 ms) as the settled default; the ladder stays as a bench control, not a game
+one. **Move to `design_technical.md` 11.**
+
+**B7. Turn wind-up (SETTLED — ramp 2).** The stick sets a *target* angular
+velocity and the real one eases toward it by `1/(2^RAMP_SHIFT)` of the gap each
+frame, so a turn winds up and unwinds instead of switching on and off. Ramp 0 is
+an instant ease — the old on/off behaviour — kept so the two can be flown back to
+back. `cart_init` picks **ramp 2** and it no longer changes at runtime.
+
+This knob did not exist when B2 and B6 were written and is not a restatement of
+either: B6 scales *how fast* the ship turns, this decides *how quickly it gets
+there*. **Move to `design_technical.md` 11.**
+
+**B6. How strongly should the turn rate follow flight speed (SETTLED — x1.25 at
+the top tier).** Turn radius is `v/omega`, so a constant omega makes the radius
+grow in proportion to speed — at +350 the ship would sweep a circle seven times
+wider than at +50. Doubling the rate at top speed (the first cut) **rose too fast
+to fly**, so the coupling became a dial — OFF / x1.12 / x1.25 / x1.50, three
+shifts of one `TURN_XTRA` table — and `cart_init` now picks **x1.25**. The dial is
+no longer bound to a control: joystick 2 carries boost and the turn ramp instead.
+Full proportionality (constant radius) stays rejected — it leaves the ship barely
+able to turn at low speed. **Move to `design_technical.md` 11.**
+
+**B3. Camera lag constant (TBM — narrowed to one number).** Half of this question
+is answered: the ship's screen slide and the zoom **do** share a constant. Both
+ease by `1/(2^SHOFF_LAG)` of the remaining gap each frame with `SHOFF_LAG = 4`,
+i.e. 1/16, and the camera's lean into a turn (C5) eases the same way on its own
+constant, `CAMX_LAG = 5`. What is left is flying it: too fast is nauseating, too
+slow disconnects the throttle from the view.
 
 **B4. Visual bank angle while turning (TBD).** How much the ship tilts, and whether
 it is a sprite swap (cheap, a handful of frames) or a real small rotation.
 
-**B5. 32 headings or 256 (TBD).** The design assumes 32. Proto 01 deliberately
-runs at 256 so the difference can be seen: with the ship always drawn nose-up,
-the only place the choice shows is the smoothness of the world's rotation. If 32
-is not visibly steppy it is free; if it is, the design should say 256.
+**B5. 32 headings or 256 (TBD).** The design assumes 32. The bench deliberately
+runs at 256 — *with a fraction*, since the turn ladder is quarter-brad (B2), so
+the heading is 8.8 and the world is rotated by its integer part. With the ship
+always drawn nose-up, the only place the choice shows is the smoothness of the
+world's rotation. If 32 is not visibly steppy it is free; if it is, the design
+should say 256.
+
+The fractional heading is a separate matter and does not settle this: it exists to
+make the *rate* selectable in quarter-brad steps, and would still be wanted at 32.
 
 ---
 
 ## C. Camera and zoom
 
-**C1. Zoom range (TBM — 2x is in and flying).** Reference zoom is 16 units/px
-at standstill. Proto 01 now ramps to **2x out at the top tier**, per speed tier
-and eased, and the whole curve is one line (`ZOOM_RZ` in `main.s`), so 3x or a
-step at +150 is an edit and not a rewrite. What that costs is measured: the
-visible-object count scales as the **square** of the zoom, so 2x out means ~4x
-the objects through the cull, and it took `NOBJ` from 200 down to 120 to keep the
-worst frame under budget (218,200 cycles, 92%). 3x would be ~9x and needs the
-spatial bucketing of E1 first. Constrained by C2.
+**C1. Zoom range (TBM — 2x is in and flying, and 3x is no longer blocked).**
+Reference zoom is 16 units/px at standstill. The camera ramps to **2x out at the
+top tier**, eased, and the whole curve is one line (`ZOOM_RZ`), so 3x or a later
+ramp is an edit and not a rewrite. What that costs is measured: the visible-object
+count scales as the **square** of the zoom, so 2x out means ~4x the objects
+through the cull.
+
+The slot cap is now `NOBJ = 120`. It was 250 while rocks were dotted half-res
+figures, and what took it down was the move to full-res solid outlines (D11) as
+much as the zoom.
+
+The blocker this entry used to name is gone: "3x would be ~9x and needs the
+spatial bucketing of E1 first" — the bucketing is built (E2), so 3x is now a
+measurement rather than a prerequisite. Constrained by C2.
 
 **C2. Legibility floor (TBM).** At maximum zoom-out, is a small asteroid still
 readable in 1-bit at 300 x 400? This sets the hard limit on C1 and is a
@@ -106,22 +151,65 @@ that sample nearer the star layer's 128-unit reach and measurably increases the
 churn at the park boundary (wrong-way star sweeps went from 8 to 13 in 1,900).
 Small, but it is the reason a bigger rest offset is not simply better.
 
-**C4. Zoom quantisation (TBD).** Zoom is conceptually smooth, but if the sprite LOD
-set is small the *sprite* scale must snap to the available sizes while vector
-geometry stays continuous. Decide whether mixed continuous/snapped scaling looks
-wrong on screen.
+**C4. Zoom quantisation (ANSWERED in the bench — and the mix is deliberate).** The
+bench runs exactly the mixed scheme this question was worried about, and it looks
+right.
+
+The **view scale is quantised**: the reciprocal snaps to `ZQ_LADDER`'s geometric
+rungs, because the ZS table is rebuilt whenever its integer part moves (~10,000
+cycles) and an un-quantised ease crosses all 64 values of the reciprocal instead
+of 16 rungs.
+
+The **object scale stays continuous**: rocks are sent the smooth ease (`ZEASH`),
+never the rung (`ZOOMH`). Reading the rung there was a visible defect — a rock's
+size has no per-frame motion of its own to hide a step in, the way its position
+does, so the scale popped while everything else was smooth.
+
+What is still open is the case the question was really about: **sprites**. When a
+pre-scaled sprite set exists (D2) its steps are coarser than either of these, and
+whether a snapped sprite beside a continuous outline reads wrong is a
+look-at-the-screen decision.
+
+**C5. How hard the camera leans into a turn (TBM).** The camera lags a turning
+ship, which slides the ship sideways across the screen: target cross-offset =
+turn velocity x `CAMX_TIER` (Q0.7, per tier), eased with `CAMX_LAG = 5`, with the
+turn velocity clamped at `CAMX_CLAMP = 768` (3.0 brad/frame) so the speed coupling
+cannot push it past what the arithmetic holds. That puts the target at **+/-80
+full-res px** at full lean and top speed. The first cut was a quarter of that and
+read as almost nothing, the second a half — and all three leaned just as hard
+standing still, which is where it looked wrong, hence the per-tier gain that is
+zero at rest. Reverse leans too: the camera lags whichever way you are going.
+
+The reason this is a question and not a taste judgement is the **cull**. The world
+pivots on the ship (4.2), so sliding the ship across the screen moves the pivot
+with it. The cross-axis reach goes from 150 + 96 to 150 + 80 + 96, the worst-case
+vector from 483 to 534 px, and both cull tables are regenerated from that number —
+a 4.7% bigger `CULL_R` is **9.6% more area through the precise cull**. Leaning
+harder is not free.
+
+Open: whether +/-80 is right, and the **sign** — which way it leans is the only
+thing about it that was ever a guess.
 
 ---
 
 ## D. Rendering
 
-**D1. Vector/sprite LOD crossover (TBM).** The on-screen size below which an object
-stops being a transformed polygon and becomes a pre-scaled sprite. Depends on the
-measured cost of both paths. Current plan: everything stays vector-drawn first,
-including the smallest size class (which already costs few vertices, so it is
-cheap even fully vector). Only fall back to sprites for the smallest rocks if
+**D1. Vector/sprite LOD crossover (TBM).** The on-screen size below which an
+object stops being a transformed polygon and becomes a pre-scaled sprite. Depends
+on the measured cost of both paths. Current plan: everything stays vector-drawn
+first, including the smallest size class (which already costs few vertices, so it
+is cheap even fully vector). Only fall back to sprites for the smallest rocks if
 proto testing hits the vertex/render budget (E1) under real fragment density —
 not before.
+
+Note that the LOD which actually exists is **vector-to-vector**, not
+vector-to-sprite: below `LOD_R` (16 half-res px of on-screen radius) a shape swaps
+to an *authored* reduced outline if its id has one (`SHAPE_LODN`), and a shape
+with none simply stays at full detail. This replaced "use every second vertex",
+which is not a level of detail but a coincidence that happens to work on a 12-gon
+and destroys an 8-gon: the census found 174 of 483 outlines drawn were 4-gons, all
+of them reduced octagons. So the sprite crossover is one rung further down than
+this entry assumes, and may not be needed at all.
 
 **D2. Number of pre-scaled sprite steps (TBD).** How many sizes per object type,
 which multiplies sprite ROM.
@@ -133,6 +221,11 @@ would give full-res placement at 5 PPRAM bytes per star and one dispatch each,
 against 2 bytes in a single batched call. Only worth it if the lattice reads as
 chunky on a real screen.
 
+This is no longer only about stars: the radar's blips ride the same primitive and
+the same lattice (G3), so whatever is decided here decides how a contact reads
+too — and the radar has less room to lose, since a blip is a single point where a
+star is one of eighty-eight.
+
 **D9. Star layer size (SETTLED — park, do not fold).** A 256 × 256 layer rotates
 to a view radius of up to 181, which does not fit the byte the view position is
 stored in; folded stars are drawn at the wrong screen edge sweeping against the
@@ -141,11 +234,13 @@ refresh un-parks them before the field scrolls past the 27-pixel margin. See
 `design_technical.md` 5.3. What stays open is whether a *denser* layer is wanted
 (see D4) — that is a separate question from this one.
 
-**D10. Mote count and look (TBD).** The near layer runs 16 specks (about 7 on
-screen) at twice the ship's speed. They are single pixels, exactly like stars, and
-are told apart only by how fast they move - a short streak would read as speed
-more strongly but costs a line instead of a point. Open: how many, and whether
-they should be streaks.
+**D10. Mote count and look (TBD).** The near layer runs `MOTE_N = 10` specks
+(about 5 on screen) at twice the ship's speed. They are single pixels, exactly
+like stars, and are told apart only by how fast they move — a short streak would
+read as speed more strongly but costs a line instead of a point. 4x was tried and
+is too fast: at the top tier it moves them ~12 half-res pixels a frame, and specks
+that quick stop reading as depth and start reading as noise. Open: how many, and
+whether they should be streaks.
 
 **D4. Star layers (TBM).** How many parallax layers, how many stars per layer, and
 their parallax factors. Cost is one `DOT_PIXELS` call per layer plus the point-list
@@ -160,57 +255,117 @@ background write per frame plus a cooldown frame**. With two HUD lines and a
 message line that is a **6-frame round-robin, ~10 Hz per line**. Folded into
 `design_technical.md` 5.5.
 
+Two things the bench has since put numbers on. The HUD costs **~48,700 GPU cycles
+in seven `VTEXT` commands**, and that is now wired into the rock budget
+(`AST_NONROCK`) rather than being an anecdote: turning the HUD on takes ~26
+vertices a frame away from the asteroids. And the bench draws it on the **image
+layer** with `HUD_ON = 0` by default — precisely because that is not where the
+real game puts it. The bench HUD is there to be measured, not to be copied.
+
 What is still open: **how many lines** (each one added slows every other line
 down — a fourth makes it 8 frames), and **where** they go, since 300 x 400 is
 tall and narrow and the HUD competes with look-ahead.
 
-**D6. Star occlusion behind asteroids (SETTLED for now — naive disc test).**
-Rocks are dot-line outlines and are therefore hollow; stars must be suppressed
-where a rock covers them or the rock reads as a wire hoop. Proto 01 does the
-naive per-star × per-rock test, with a clamped bounding box as the cheap reject
-and the quarter-square table doing the squares, and it costs **~3,000 cycles on
-a median frame, ~6,000 on the worst** — 1.3% and 2.5% of budget at 40 stars and
-up to 13 occluders. Good enough; folded into `design_technical.md` 5.4 along
-with the leak/halo measurement that sets the suppression radius at the shape's
-**mean vertex radius**, not its bound.
+**D6. Star occlusion behind asteroids (SETTLED for now — disc test, inverted onto
+row bands).** Rocks are **outlines**, so they are hollow whichever opcode draws
+them, and stars must be suppressed where a rock covers them or the rock reads as
+a wire hoop. (This entry used to say "dot-line outlines"; they are solid full-res
+now — see D11 — which changes nothing about the hollowness.) The suppression
+radius is the shape's **mean vertex radius**, not its bound; the leak/halo
+measurement behind that is folded into `design_technical.md` 5.4.
+
+What changed since is the *shape* of the pass, not the test. "For each star, for
+every occluder" is O(stars x occluders) and grows with exactly the thing that
+overloads the frame — 40 survivors times up to 16 boxes is 640 tests. It is
+inverted now: an occluder registers itself in the screen **row bands** its box
+spans (`OCCB_SH = 4`, so 16 half-res rows a band, `OCCB_N = 10` bands over FBY
+0..149) and a star tests only the occluders in its own band. 16 slots a band is
+the `OCCN` maximum, so a band can never overflow and the build needs no capacity
+test. The old figure — ~3,000 cycles on a median frame, ~6,000 on the worst — was
+taken before that inversion and before the object count moved, so it needs
+retaking.
 
 What stays open: the **coarse occlusion mask** (rocks + stars instead of rocks
-× stars, 60 bytes at 8 × 8 half-res pixels per cell). It only starts to pay
-when the product grows — zoom-out puts more rocks on camera and fragments
-multiply them — so it is a **(TBM at 20+ rocks)**, and its resolution is a
-**(TBD)**. Also open: whether the suppression radius and the **collision radius**
-are literally the same number (5.4 argues they should be).
+x stars, 60 bytes at 8 x 8 half-res pixels per cell). It only starts to pay when
+the product grows — zoom-out puts more rocks on camera and fragments multiply
+them — so it is a **(TBM at 20+ rocks)**, and its resolution is a **(TBD)**.
+
+Closed since: whether the suppression radius and the **collision radius** are
+literally the same number. They are — `design_technical.md` 11.12 — and the bench
+asserts it (`SHAPE_OCC` is read by both).
+
+**D11. What opcode draws a rock (TBM — full-res solid is in, and it cost half the
+field).** `ROCK_FAMILY` picks between `$4C DOT_POLYGON` (dotted, half-res), `$4D
+POLYGON` (solid, half-res) and `$4E POLYGON16` (solid, full-res). The bench ships
+**2**, and the trade is not the one it looks like.
+
+What full-res buys is mostly the **centre**, not the raster: at half-res a rock's
+screen position is the full-res one `>> 1`, so it steps two pixels at a time and a
+slow drift stutters — the same defect that was found on the ship and fixed with
+`LINE16`. What it takes away is the **dotted rim**, because there is no dotted
+full-res figure — and a dotted rim was chosen deliberately once, as the thing that
+reads as "rock" and as the reason a rock gets a suppression disc rather than an
+occluder box. So this is an art decision riding on a resolution one, and it should
+be looked at rather than assumed.
+
+The price is in the budget and it is not small: `AST_VCOST` is 1,564 GPU cycles a
+vertex dotted, 1,749 solid half-res, **1,873 solid full-res**. Both valves are
+derived from it (`AST_BUDGET`, `AST_MAX`), so changing family re-derives them —
+but `NOBJ` is hand-set, and 120 is where full-res solid put it (C1).
+
+Also open, and cheaper than it sounds: the shapes are still the **half-res tables
+doubled** (`SHAPE_16X`), which is an exact scale-up that lands every vertex on an
+even full-res pixel. A genuinely full-res shape cannot be derived — it has to be
+authored — and it matters most on `SHP16`, where one half-res pixel is a quarter
+of the whole rock.
 
 ---
 
 ## E. Objects and physics
 
-**E1. Object pool size (TBM, now with a real number).** Proto 01 measures
-**~290 cycles per object per frame** for integrate + cull alone — ten times this
-document's first estimate, because a 16.8 position plus an 8.8 velocity makes one
-axis a 24-bit add. So 250 objects cost about **70k cycles, 30% of one CPU**, and
-the whole bench (110 stars, 250 objects, a five-line HUD, the occlusion pass) runs
-at **70% in its worst frame** and uses 250 bytes of the 2047-byte PPRAM list.
+**E1. Object pool size (TBM — and the cost has moved to the other CPU).** The
+first measurement was **~290 cycles per object per frame** for integrate + cull
+alone, ten times this document's original estimate, because a 16.8 position plus
+an 8.8 velocity makes one axis a 24-bit add. Two things have happened since, and
+between them they change what the answer is bounded by.
 
-That makes ~250 the working ceiling unless the per-object cost comes down. Levers,
-cheapest first: reject on the high byte of the delta before the precise cull
-(done, ~7%); drop the fraction byte from positions that do not need sub-unit
-drift; amortise the cull across frames.
+**The sector grid landed** (E2). `do_objects` no longer walks all `NOBJ` every
+frame — it walks only the cells overlapping the cull window, so the cost is
+proportional to what is *near* rather than to how many rocks exist. A far rock now
+costs one coarse high-byte reject, ~40 cycles instead of ~160, and is frozen
+rather than integrated.
 
-~~The collision broad phase has not been measured at all yet~~ — **measured, in
-proto 02**: the whole collision pass (broad phase, narrow phase and response)
-costs **+7,100 cycles in the median frame and +16,600 in the worst**, taking that
-worst frame from 63.7% of budget to 70.7%, over a 120-rock field. It is cheaper
-than the integrate-and-cull it rides on. The lever left, if the object count grows
-past what that can absorb, is a collision window narrower than the cull's — one
-compare per body.
+**The transform moved to the GPU** (`design_technical.md` 11.13). A vertex used to
+be ~530 cycles of CPU1 work; it is now ~30 of copying, plus 1,500-1,900 GPU cycles
+of transform, clip and raster. So the budget the object count runs into is the
+**GPU's** frame, not CPU1's — and it is derived rather than typed:
+`AST_BUDGET = (209,000 - AST_NONROCK) / AST_VCOST`, with `AST_MAX` a count cap
+that must never bind before the budget does. Hand-picking that cap at 10 fired
+with budget still unspent and abandoned every remaining rock in the visible list,
+wherever they happened to be on screen (proto 01 finding 49).
+
+The slot cap is `NOBJ = 120`, and it is a budget number rather than a world one:
+the world is about 140 screens, so 120 is a bit over one rock per screen by
+centre, which at up to 192 px across comes out as 3 to 6 actually on camera.
+**Every slot still costs the coarse reject whether or not it is anywhere near**,
+and that remains the single largest item in the frame — which is exactly what
+makes `NOBJ` the lever it is.
+
+The collision pass is measured and rides cheaply on top of all this: **+7,100
+cycles in the median frame and +16,600 in the worst**, taking that worst frame
+from 63.7% of budget to 70.7% over a 120-rock field. It is cheaper than the
+integrate-and-cull it rides on. The lever left, if the object count grows past
+what that can absorb, is a collision window narrower than the cull's — one compare
+per body.
 
 **E2. ~~Sector grid resolution~~ — SETTLED: 4096 world units, 16 x 16.** The rule
 turned out to be sharper than "larger than the biggest asteroid": a sector must be
 at least the **largest sum of two collision radii**, since that is the distance at
 which two bodies can still touch. That is what lets the pair walk visit four
 neighbours instead of eight and see every pair exactly once. Moved to
-`design_technical.md` 6.3, where it is asserted at assembly time.
+`design_technical.md` 6.3; the assembly-time assertion that enforces it lives in
+`physics.s` (`2*COL_RMAX <= CELL_CU`, beside the one that keeps `2*rsum` inside
+the quarter-square table's index).
 
 **E3. ~~Size classes~~ — SETTLED: five, and the mass curve is powers of two.**
 192/128/64/32/16 px across, radii 39/26/13/7/3 collision units (`SHAPE_OCC`, the
@@ -220,10 +375,19 @@ the mass-ratio table to nine bytes and makes momentum conserve to the bit. See
 `design_technical.md` 11.11 and `physics.md` 4.2.
 
 **E4. Restitution, spin gain, split impulse, break-up threshold (TBM).** The whole
-tuning surface, and still entirely open — the physics *runs* now, which means the
-iteration loop this question was waiting for can start. Restitution and the
-separation constant have first-cut values in [`physics.md`](physics.md) 4; spin
-gain and the break-up threshold have no code behind them yet.
+tuning surface, and still largely open — the physics *runs* now, which means the
+iteration loop this question was waiting for can start.
+
+What has code behind it: **restitution**, spent as shifts rather than a multiply
+(the `(1+e)` block), so retuning it costs nothing; and the **separation push**,
+`n >> PHYS_SEP_SH` with `PHYS_SEP_DP` less shift for the heavier body of a pair —
+both at first-cut values, `physics.md` 4. Separation is never skipped even when
+the per-frame response cap (E5) is hit, because it is the only thing that can
+resolve a pair.
+
+What still has none: **spin gain** and the **break-up threshold** (the relative
+normal speed a hit has to exceed to split a rock, `physics.md` 5). Splitting
+itself does not exist yet, so E3's size classes have no ladder to fall down.
 
 **E5. ~~Every frame, or on a budget~~ — SETTLED: every frame, with a deferral
 cap.** Pairs are tested every frame for every body inside the coarse window, and
@@ -235,9 +399,16 @@ detection is never the thing that gets skipped.
 
 **E6. Enemy roster (TBD).** Types and behaviours. The story fixes the *shape* of
 what is needed (see `story.md`): a **cloak state** (visible/invisible while still
-simulated), and **patrol / detect / pursue / lose-track** behaviour with a detection
-radius. Still open: how many distinct alien types, whether they obey the same
-collision physics as rocks or fly under their own control, and how they are armed.
+simulated), and **patrol / detect / pursue / lose-track** behaviour with a
+detection radius. Still open: how many distinct alien types, whether they obey the
+same collision physics as rocks or fly under their own control, and how they are
+armed.
+
+The *format* already exists even though the roster does not: `levels.s` carries
+enemy placements as `XL, XH, YL, YH, kind` — five bytes each, placed by hand in
+the level editor beside the rocks — and nothing reads them yet. So the bench that
+takes E6 on inherits a level format instead of inventing one, and the radar (G3)
+needs the smallest possible reader for it — positions and nothing else.
 
 **E7. Cloak semantics (TBD).** When an enemy is cloaked, is it only invisible, or
 also non-collidable and non-targetable? Different answers make level 2 either eerie
@@ -301,10 +472,18 @@ quarter-square table already built for rotation — `x*x = f(2x)`, so this is
 two lookups and a compare, not a real multiply) confirms what's left. Only
 survivors get rotated and scaled for display.
 
-Candidates still have to come from somewhere — the sector grid (6.3/6.2) is
-the natural source, walking the ring of sectors covering the admission
-radius around the ship's own sector, independent of whatever cull window the
-camera currently has (see the correction below).
+**The candidates do NOT come from the sector grid, and that is a reversal.**
+This entry used to say the grid (6.3/6.2) was the natural source, walking a ring
+of cells around the ship's own. That was right at a reach of 12,800, where the
+ring is 9 x 9 of a 16 x 16 grid. It is wrong at 25,600, where the ring is
+**15 x 15** - the index would be walking 88% of the world to avoid looking at
+12% of it, and paying per-cell overhead for the privilege. A spatial index earns
+its keep when the query is small against the world; this query is not, any more.
+
+What replaced it is a flat scan of the object array with the **class window
+tested first** (G8) - one subtract and one compare, and five sixths of the field
+ends there before its position has even been read. Measured, the flat scan with
+the window costs less than the cell ring did at half the reach.
 
 **The radius itself is a performance knob, not a fixed number yet.** It will
 be tuned down until the frame budget is comfortable. It should **not**
@@ -316,19 +495,25 @@ breathe with the camera again, and reusing anything close to a screen's
 worth of world units is pointless anyway — that's already visible without a
 radar.
 
-**First cut: 1/4 of the world's coordinate width (`65536 / 4 = 16384` world
-units).** Expressed as a fraction of the coordinate range rather than an
-absolute pixel distance, so it stays meaningful however A1 (the
-unit-to-pixel mapping) is eventually settled. Three things make this a good
-starting number, not just a round one: it lands on an exact **4 sectors**
-(4096 each, E2), so the sector ring to walk is a clean -4..+4 around the
-ship's own sector with no fractional edge case; it sits safely under 32768,
-so it never approaches the point where a wrap-correct signed subtract
-becomes ambiguous; and as a circle rather than the square that "1/4 of the
-world" suggests, its actual coverage is `π·16384² / 65536² ≈ 19.6%` of the
-world's area — a bit less than a quarter, which is expected for a circle
-inscribed in that square. This is where tuning starts, not where it has to
-land. **(TBM.)**
+**The reach is 25,600 world units, and the class window is what pays for it.**
+12,800 was the first cut and it read as short: the instrument told you about a
+neighbourhood when what you want from a radar is a region. Doubling it took the
+covered area from 12% of the world to **48%** - a circle of 25,600 in a 65,536
+torus is very nearly half of everywhere - and it cost nothing on screen,
+because radius and footprint are only related through the scale: `RAD_SH` went
+from 1 to 2 and the box stayed at the 100 x 100 G4 settled on.
+
+What it did cost is objects, and that is answered by **G8**: the instrument
+shows only the two largest size classes that still exist. Between them, the
+reach doubled and the frame got *cheaper* per contact considered.
+
+Two things bound any further doubling. 25,600 is 78% of the **32,768** at which
+a wrap-correct signed subtract stops being unambiguous, so there is one more
+step in this and not two. And `RAD_RH` is 100 in high-byte units, where the box
+test needs `2*RAD_RH+1` to fit an unsigned byte and the round test needs
+`2*RAD_RH` to index the quarter-square table - both assert at assembly time.
+
+**(TBM - flown, but not judged.)**
 
 *Correction carried from the previous round:* the physics-active set is
 **not** larger than the camera's cull window (6.1 ties "frozen vs simulated"
@@ -347,19 +532,29 @@ widen the simulated window just for this. Revisit only if playtesting says
 otherwise; note it also happens to sit comfortably next to **E8**'s eventual
 deliberate deception rather than fighting it.
 
-**G3. Blip shape (SETTLED for v1 — single pixels via the batched cloud
-call).** Every rock is **one point**, regardless of size class; an enemy is
-one point too, toggled by a **global blink counter at 10 frames dark / 10
-frames lit** (a 20-frame, ~3 Hz cycle) — skipped at list-build time on the
-off phase, no extra cost. All points for a frame go through **one**
-`gpu_dotpixels_clip` call (5.2) — the batched point-cloud primitive, not the
-full-res single-point `PIXEL` op (D8), which would cost 5 PPRAM bytes plus a
-dispatch *per point* instead of 2 batched bytes. `gpu_dotpixels_clip` places
-points on the half-res, 2-pixel lattice (D8); that rules out any tight
-multi-point "stamp" for size differentiation (offsets of 1 px don't land on
-distinct cells — see the previous round's dead end), which is why size
-differentiation is dropped for v1 rather than attempted with stamps. The
-ship stays a **static** icon on the background (G5) and does not blink.
+**G3. Blip shape (SETTLED for v1 — single points through one batched call).**
+Every rock is **one point**, regardless of size class; an enemy is one point too,
+toggled by a **global blink counter at 10 frames dark / 10 frames lit** (a
+20-frame, ~3 Hz cycle) — skipped at list-build time on the off phase, so the blink
+costs nothing. Points go through `DOT_PIXELS` (`$FF24`), the batched point-cloud
+primitive, at 2 bytes each — not the full-res `PIXEL` op (D8), which would cost 5
+PPRAM bytes plus a dispatch *per point*. `DOT_PIXELS` places points on the
+half-res, 2-pixel lattice (D8); that rules out any tight multi-point "stamp" for
+size differentiation (offsets of 1 px do not land on distinct cells), which is why
+size differentiation is dropped for v1 rather than attempted with stamps — size
+survives as *priority* instead (G7).
+
+Two notes for whoever builds it. There is a **clipping** twin,
+`gpu_dotpixels_clip` (`$FF99`), which drops off-screen points from a signed-16
+cloud; the radar does not need it, because a circular admission test (G2)
+guarantees every surviving blip lands inside the box. `proto/02_rocks`'s
+`mad65.inc` has `$FF24` already (the starfield uses it) but not `$FF99` or
+`$FF27` — that file lists only what the cartridge actually calls, so the bench
+that takes this on adds the equates it needs.
+
+The blink needs enemies to exist. `levels.s` carries them and nothing reads them
+(E6), so the radar bench is where the smallest possible reader gets written:
+positions and a kind byte, no behaviour.
 
 **G4. Radar shape & footprint (SETTLED — a circle in a 100x100 px box,
 bottom-left corner).** Simpler than the earlier rectangle proposal in every
@@ -367,42 +562,102 @@ way that matters here: the catchment test is rotation-invariant (G2), and
 because the radar's scale never changes (G1), the on-screen result is
 exactly a circle too — no ellipse correction, no separate per-axis bound.
 
-**G5. Ship icon & frame (TBD, cheap either way).** A static 3x3 ship icon at
-the centre of the radar box, always pointing "up" like the main ship (4.3),
-drawn once on the VRAM background together with the radar's outline — same
-free redraw as the rest of the HUD (5.5). No per-frame cost, and no
-per-frame update needed since the ship is definitionally always at the
-radar's centre.
+**G5. Ship icon & frame (SETTLED — a background bitmap, and it is built).** The
+plan was to *draw* a static ring and ship icon onto the VRAM background. **The
+background cannot be drawn on.** The GPU OS is explicit: there is no `_BG`
+variant of any line or pixel opcode, because setting an individual bit needs a
+read-modify-write and the background window is write-only. Background layers are
+built from whole-byte writes only — `LOAD`, `TEXT_BG`, `TILE_BG`, `CLEAR_BG`.
 
-**G6. Fallback: background-bitmap radar at a lower refresh (TBD, backup
-idea).** The radar does not need 60 Hz — unlike the main view, nothing about
-it needs to feel responsive frame-to-frame. If the live per-frame
-`gpu_dotpixels_clip` path ever busts the budget, the alternative is CPU1
-rasterising the radar into a RAM bitmap and uploading it to the VRAM
-background as a bitmap (5.1 already allows bitmaps there), refreshed less
-often than every frame instead of every frame. Two things to check before
-leaning on this: (1) whether a background bitmap write is bound by the same
-"one write + cooldown frame" replay rule as `TEXT_BG`/`CLEAR_BG` (5.5) — if
-so the achievable refresh is roughly every other frame, not a free choice;
-(2) the actual GPU primitive for a background bitmap blit isn't named in
-this document and likely lives in the MAD-65 firmware docs (the separate
-repo, per `CLAUDE.md`). Keep this as the backup path — build the live
-image-layer version first and measure before reaching for it.
+So the furniture is a **bitmap**, and it is now built: `assets/png/radar100.png`
+is a 100 x 100 ring with a small ship at its centre, authored upright and stored
+turned by `tools/bggen.py` (the TATE convention the ship sprite already follows).
+It is uploaded with `LOAD` at start-up and after that costs **nothing at all** —
+the hardware re-copies the background under the image every frame.
 
-**G7. Graceful degradation under load — biggest first (TBD, follows the
-existing 5.3a rule).** If the radius (G2) admits more objects than the frame
-can afford to draw, build the point list **largest size class first**. That
-is exactly `design_technical.md` 5.3a's "list order is a priority order":
-the GPU walks a PPRAM list in order and drops whatever is at the end if a
-frame runs long, so ordering by size means small debris is what silently
-stops appearing under load, and it starts reappearing on its own the moment
-the list is short enough again — no explicit cap or hysteresis needed, the
-existing drop-the-tail behaviour does the work. What is still open is where
-the radar's block sits in the **whole** frame's PPRAM list relative to
-gameplay objects, stars and motes (5.3a again) — it is information, not
-decoration, so it likely wants to rank above the backdrop layers, but that
-is a placement decision for when the full per-frame list is actually being
-assembled.
+Three things fell out of building it that the entry did not anticipate:
+
+- **It is a strip, not pages.** A `LOAD` writes a whole 256-byte page and a
+  framebuffer row is 50 bytes, so a page is 5.12 rows of the *whole screen's*
+  width: the corner takes 20 pages, 5,120 bytes, almost all zeros. The cartridge
+  stores the 13 columns the art occupies — 1,300 bytes — and expands them into a
+  staging page. The expansion is one cursor and no division.
+- **It takes 40 frames.** One page every other frame, because of 5.5's two-frame
+  rule. ~0.7 s at start-up, and it repaints itself after an overrun `CLEAR_BG`
+  rather than leaving a hole for the session.
+- **The instrument suppresses the starfield inside its own disc**, through the
+  occluder list the rocks already use (5.4). Without that the field shines
+  through the ring and a contact is one more speck among the specks. The disc is
+  one cell wider than the blip radius, because the two axes round independently
+  and a contact on the rim at 45 degrees lands just outside a disc of exactly
+  that radius.
+
+**G6. Fallback: background-bitmap radar at a lower refresh (TBD, backup idea —
+and its mechanism is now proven).** The radar does not need 60 Hz. If the live
+per-frame `DOT_PIXELS` path ever busts the budget, the alternative is CPU1
+rasterising the *contacts* into a RAM bitmap and uploading that, refreshed less
+often than every frame.
+
+Both of the things this entry said needed checking are now answered, because
+G5's furniture uses exactly that path. **The primitive is `LOAD`** (`$30`), one
+256-byte page at a time into pages `$C0-$FF`. **And it does obey the two-frame
+rule**, so the achievable refresh is one page every other frame — and a 100 x
+100 corner is 20 pages, not one. That settles the fallback's real cost: a full
+redraw of the contact layer would be ~0.7 s, which is not a refresh rate, it is
+a scene transition.
+
+So the fallback is weaker than it looked. If the live path ever needs relief,
+the lever to reach for first is the class window (G8), not this.
+
+**G7. Graceful degradation under load — biggest first, decided on CPU1 (TBD).**
+If the radius (G2) admits more contacts than there are slots for, the **largest
+size classes go on the radar and the smaller ones only if slots are left**, so
+small debris is what silently stops appearing under load and starts reappearing
+on its own when the field thins.
+
+The earlier version of this entry proposed getting that for free from
+`design_technical.md` 5.3a — the GPU drops the tail of a PPRAM list that runs long
+— and **that does not work here**. The drop is per *command*, and every blip in a
+frame is one batched `DOT_PIXELS`: ordering points inside a single command buys
+nothing, because the command either runs whole or not at all.
+
+So the priority is CPU1's own. One point buffer per size class plus one for
+enemies, filled during the sector walk and emitted **largest first** against a
+global slot cap; the class the cap lands in is truncated and the rest are not
+emitted. That costs one dispatch per non-empty class instead of one for the frame,
+and no copying at all — the priority *is* the order of the emit calls.
+
+Still open: where the radar's block sits in the **whole** frame's PPRAM list
+relative to gameplay objects, stars and motes (5.3a again). It is information, not
+decoration, so it likely wants to rank above the backdrop layers — but that is a
+placement decision for when the full per-frame list is actually being assembled.
+
+**G8. Radar sensitivity — which size classes it hunts (SETTLED for v1 — the two
+largest that still exist).** The instrument does not show every rock. It shows
+the **`RAD_CLASSES` largest size classes that still have a member**, and ignores
+everything smaller: at the start of a level that is the 192s and the 128s, and
+as the player clears a class out the window steps down of its own accord —
+192/128, then 128/64, and so on down to the 16s. **Enemies are never subject to
+it**; a contact is a contact whatever else is on the screen.
+
+It is a gameplay rule first. An instrument that quietly retunes itself to
+whatever is left tells the player something about the state of the field without
+a line of HUD text, and it sits naturally beside **E8**'s eventual deception —
+one is the radar being honest about a changing world, the other is it lying
+about an unchanged one.
+
+It is also what pays for G2's reach. Two classes of a 120-rock field is 30
+rocks, so five sixths of the scan ends at one subtract and one compare, before a
+position is read. Doubling the radius and adding this together left the frame
+cheaper per contact than the narrow radar was.
+
+The mechanism is a per-class population count taken when the level loads
+(`RKLIVE`), and a window that is recomputed from it every frame. Nothing has to
+raise an event when the last 192 dies: whatever destroys it decrements the count
+and the instrument follows on the next frame. **Open:** whether the window is
+two classes or one, and whether the step down should be announced — a silent
+retune is elegant but a player who does not notice it may read the emptier
+screen as a broken radar.
 
 Ties to **E8** (instrument deception): everything above is the honest v1
 pipeline. The lying radar from level 5 on is a filter/parameter set applied
