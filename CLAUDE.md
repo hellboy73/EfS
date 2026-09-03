@@ -18,7 +18,15 @@ and **recopy** `cpu_os.bin` + `gpu_os.bin` into `EfS/roms/`.
 structural template for this one (cart.cfg / Model B bootstrap / asset tooling /
 Makefile shape). Read it before inventing a new pattern.
 
-**Status: design only.** No game code yet.
+**Status: the game is real code and lives in `src/`,** built from the repo root
+with `make` (`make run` for madsim, `make preview` for the headless check). It
+began as a byte-for-byte promotion of `proto/03_radar`, so it already flies,
+collides and draws a radar.
+
+**`proto/` is FROZEN.** The three benches are records of what each question
+cost, not living code, and no build reads them. Never edit a bench, never fork a
+`proto/04` — a new question is answered in `src/` unless it genuinely cannot be,
+and everything under `tools/` points at `src/` on purpose.
 
 ## Where the design lives
 

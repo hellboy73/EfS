@@ -12,6 +12,11 @@ proto/*/*.bin
 assets/*.bin
 assets/vgm/*_stream.bin
 
+# ...and the picture `make preview` draws, for the same reason. The one in each
+# proto/ IS tracked: a frozen bench's picture is part of its record, while this
+# one is redrawn on every check.
+/preview.png
+
 # Python tool caches
 __pycache__/
 *.pyc

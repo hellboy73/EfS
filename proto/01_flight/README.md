@@ -1,5 +1,13 @@
 # proto 01 — flight model bench
 
+> **FROZEN.** This bench is a record, not living code. The game is in
+> [`src/`](../../src/) and is built from the repo root with `make`; nothing in
+> the build reads this directory. Do not fix things here, do not fork it into a
+> `proto/04`, and if a number here disagrees with the game, the game is right.
+> What a bench is still good for is being *read* — it is the smallest complete
+> thing that answered its question, and its findings below are cited from
+> `docs/`.
+
 The first thing built for Escape from Saturn, and deliberately not a game. It
 exists to answer one question — **what does flying this ship have to feel like**
 — and to put real numbers under the assumptions in

@@ -2,7 +2,7 @@
 """PNG -> MAD-65 VRAM-BACKGROUND strip, as an assembler source file.
 
     python tools/bggen.py --make-ring assets/png/radar100.png
-    python tools/bggen.py assets/png/radar100.png proto/03_radar/radar_bg.s RING \
+    python tools/bggen.py assets/png/radar100.png src/radar_bg.s RING \
            --at 11,288
 
 WHY THIS EXISTS AND NOT sprgen.py. A sprite is drawn by the blitter and can go

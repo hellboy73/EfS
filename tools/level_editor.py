@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Level editor for EfS - reads and writes proto/02_rocks/levels.s directly.
+"""Level editor for EfS - reads and writes src/levels.s directly.
 
     python tools/level_editor.py [path/to/levels.s]
 
@@ -60,9 +60,11 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from shape_editor import parse_generated_block          # noqa: E402  same block shape
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-DEFAULT_LEVELS = ROOT / "proto" / "02_rocks" / "levels.s"
-DEFAULT_SHAPES = ROOT / "proto" / "02_rocks" / "shapes.s"
-DEFAULT_MAIN = ROOT / "proto" / "02_rocks" / "main.s"
+# The GAME's files, in src/ - see the note in shape_editor.py on why these
+# stopped pointing at a bench.
+DEFAULT_LEVELS = ROOT / "src" / "levels.s"
+DEFAULT_SHAPES = ROOT / "src" / "shapes.s"
+DEFAULT_MAIN = ROOT / "src" / "main.s"
 
 SENTINEL_START = "; === GENERATED (tools/level_editor.py) - rewritten whole on Save ============="
 SENTINEL_END = "; === END GENERATED ==="

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Vertex editor for EfS's asteroids and ship - reads and writes
-proto/02_rocks/shapes.s directly.
+"""Vertex editor for EfS's asteroids and ship - reads and writes src/shapes.s
+directly.
 
     python tools/shape_editor.py [path/to/shapes.s]
 
@@ -30,8 +30,12 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-DEFAULT_SHAPES = ROOT / "proto" / "02_rocks" / "shapes.s"
-DEFAULT_MAIN = ROOT / "proto" / "02_rocks" / "main.s"
+# The GAME's files, in src/ - not a bench's. This pointed at proto/02_rocks
+# until the game existed, and the cost of that showed: a hull authored here
+# landed in a frozen bench and had to be hand-carried into the live code,
+# arriving one vertex different. A path with two copies behind it is a bug.
+DEFAULT_SHAPES = ROOT / "src" / "shapes.s"
+DEFAULT_MAIN = ROOT / "src" / "main.s"
 
 SENTINEL_START = "; === GENERATED (tools/shape_editor.py) - rewritten whole on Save ============"
 SENTINEL_END = "; === END GENERATED ==="

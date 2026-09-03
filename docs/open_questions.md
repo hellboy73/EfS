@@ -39,10 +39,12 @@ wrap, so the bar is high.
 ## B. Ship handling — the benches are built, now it has to be flown
 
 [`proto/01_flight`](../proto/01_flight/) put all of B1-B3 on a joystick with a
-live readout, and [`proto/02_rocks`](../proto/02_rocks/) carries them forward with
-a continuous throttle, a boost and a teleport on top. **These stay open until
-someone flies it and says which values are right** — and where `cart_init` calls a
-value "the settled-on default", someone already has.
+live readout and [`proto/02_rocks`](../proto/02_rocks/) added a continuous
+throttle, a boost and a teleport on top; both benches are frozen now and the
+knobs came forward into [`src/main.s`](../src/main.s), which is where they are
+flown. **These stay open until someone flies it and says which values are
+right** — and where `cart_init` calls a value "the settled-on default", someone
+already has.
 
 The *turning* half of the section has been flown and has left: how fast the ship
 turns, how quickly it gets there, and how hard that follows speed are now

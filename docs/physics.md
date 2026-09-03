@@ -1,7 +1,7 @@
 # Escape from Saturn — game physics
 
 > **Status: COLLISION AND RESPONSE ARE BUILT.** Sections 3, 4 and 7 describe
-> code that exists — [`proto/02_rocks/physics.s`](../proto/02_rocks/physics.s) —
+> code that exists — [`src/physics.s`](../src/physics.s) —
 > and every number in them is what that file actually uses. Sections 5 and 6
 > (break-up, shot split) are still spec, and the tuning values are still
 > placeholders: built is not the same as tuned. This file remains the single
@@ -284,7 +284,8 @@ and obvious after ten minutes.
 
 ### What is measured so far
 
-`proto/02_rocks/preview.py` runs the real cartridge against the real CPU1 ROM in
+`tools/preview.py` (`make preview`) runs the real cartridge against the real
+CPU1 ROM in
 py65 and reports these every build. From a 200-frame flight over the level-0
 field (120 rocks):
 

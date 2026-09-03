@@ -7,10 +7,12 @@ physics model where rocks collide with each other, transfer spin, and break apar
 Played in **TATE (portrait) mode**: the monitor stands on its side, giving a
 300 x 400 screen.
 
-> **Status: design, plus the first bench.** No game code yet — but
-> [`proto/01_flight`](proto/01_flight/) flies. The technical assumptions are
-> written down in [`docs/design_technical.md`](docs/design_technical.md); the
-> undecided parts are tracked in [`docs/open_questions.md`](docs/open_questions.md).
+> **Status: the game is code.** [`src/`](src/) flies, collides and draws a
+> radar — it is [`proto/03_radar`](proto/03_radar/) promoted whole, and the
+> benches under [`proto/`](proto/) are now frozen records rather than living
+> code. `make` builds it. The technical assumptions are written down in
+> [`docs/design_technical.md`](docs/design_technical.md); the undecided parts
+> are tracked in [`docs/open_questions.md`](docs/open_questions.md).
 
 ---
 
@@ -36,6 +38,21 @@ Played in **TATE (portrait) mode**: the monitor stands on its side, giving a
 
 ```
 EfS/
+  Makefile                `make` -> cart.bin, `make run` -> madsim,
+  cart.cfg                `make preview` -> the headless check. THE build.
+  src/                    THE GAME - the only living code in the repo
+    main.s                the frame: camera, input, objects, the draw list
+    physics.s             rock against rock, over the sector grid
+    radar.s               the HUD radar walk
+    radar_bg.s            its ring and ship icon, as a background bitmap
+    shapes.s              every vertex table          ] authored by the
+    levels.s              every level's opening state ] editors in tools/
+    landmark.s            TEMPORARY: one fixed square to judge motion against
+    bootstrap.s           Model B: copy both banks to RAM, then never read
+    header.s              the $8000 signature and the two vectors
+    ship32.s              the ship sprite, kept for SHIP_SPRITE = 1
+    mad65.inc             OS jump table + RAM/ZP equates (the cart's interface
+                          to the console firmware)
   docs/
     design_technical.md   the technical design: world model, camera, transform,
                           rendering, object model, bank map, fixed decisions
@@ -45,16 +62,19 @@ EfS/
     story_intro.md        the narrative itself: the opening text,
     story_levels.md       the 5-level working script,
     story_full.md         and the full back story with the reveal
-  src/
-    mad65.inc             OS jump table + RAM/ZP equates (the cart's interface
-                          to the console firmware)
+  tools/                  the tooling, all of it pointed at src/
+    preview.py            the headless end-to-end check, and preview.png
+    shape_editor.py       authors src/shapes.s
+    level_editor.py       authors src/levels.s
+    sprgen.py             PNG -> sprite blobs
+    bggen.py              PNG -> background bitmaps
   assets/
     png/                  source art (sprites, bitmaps)
     vgm/                  source music
-  proto/
-    01_flight/            flight model bench: camera, speed tiers, starfield.
-                          `make run` to fly it, `python preview.py` to check it
-  tools/                  asset compilers (PNG -> sprite blobs, VGM -> streams)
+  proto/                  FROZEN benches - the record of what each question
+    01_flight/            cost, and nothing the build reads. None of them is to
+    02_rocks/             be edited or forked again; each README says so at the
+    03_radar/             top. src/ began as a byte-for-byte copy of 03.
   roms/
     cpu_os.bin            MAD-65 CPU1 firmware  ] bundled so the repo is
     gpu_os.bin            MAD-65 GPU firmware   ] self-contained
@@ -79,39 +99,52 @@ redone once assets have real sizes. The bank register reaches 1 MB, so growing t
 
 ---
 
-## Prototypes
+## The benches
 
-Before the game there are benches. [`proto/01_flight`](proto/01_flight/) is the
-first: the camera, the speed tiers, the starfield and a field of 200 drifting,
-spinning asteroids on a joystick, with a live readout, so the handling can be
-decided by flying it rather than by guessing. Nothing collides with anything
-yet — the point is to look at it.
+Before the game there were three benches, and they are why the game starts as
+something that already flies. Each forked from the last, answered one question
+with measurements rather than opinion, and is now **frozen**:
 
-It has already settled several things — Model B is worth 2.5x on this workload,
-the text opcodes erase what is under them, and the quarter-square multiply the
-design assumed costs about twice what the design assumed — and it leaves the
-handling numbers open for exactly the reason it exists.
+| bench | its question | what it left behind |
+|---|---|---|
+| [`proto/01_flight`](proto/01_flight/) | what does flying this ship feel like? | the camera, the speed tiers, the starfield - and Model B, worth 2.5x on this workload |
+| [`proto/02_rocks`](proto/02_rocks/) | what does a colliding asteroid field cost? | the sector grid, the mass/radius model, the two authoring tools |
+| [`proto/03_radar`](proto/03_radar/) | what is near, on a scale that does not move? | the HUD radar - and the code that became `src/` |
+
+They stay in the tree because `docs/` cites their findings and because a bench
+is the smallest complete thing that ever answered its question. They are not to
+be edited, and a new question gets answered in `src/` rather than in a
+`proto/04` - see the banner at the top of each.
+
+---
 
 ## Building
-
-The game itself is not started yet. When it is:
 
 ```bash
 make
 ```
 
-will regenerate assets and assemble `cart.bin` with `cl65 -t none --cpu 65C02`, and
+assembles `cart.bin` from `src/` with `cl65 -t none`, two 8 KB banks, and
 
 ```bash
 make run
 ```
 
-will launch it in `madsim.exe`. Press `F12` in madsim to stand the monitor on its
-side.
+launches it in `madsim.exe` with the monitor already on its side (`F12`
+toggles that, `F3` shows the CPU/GPU utilisation meter). Then
 
-Build outputs (`cart.bin`, generated `assets/*.bin`) are **not** tracked — they are
-regenerated from tracked sources. `madsim.exe` and `roms/*.bin` *are* tracked, on
-purpose, per the note above.
+```bash
+make preview
+```
+
+runs the whole cartridge headless in a 65C02 emulator - CPU1 and the GPU
+against each other, no window - checks a few hundred assertions about what
+reached the framebuffer, reports the frame's cycle budget and writes
+`preview.png`. That is the test suite.
+
+Build outputs (`cart.bin`, `preview.png`, generated `assets/*.bin`) are **not**
+tracked - they are regenerated from tracked sources. `madsim.exe` and
+`roms/*.bin` *are* tracked, on purpose, per the note above.
 
 ---
 

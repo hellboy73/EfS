@@ -1,5 +1,13 @@
 # proto 03 — radar bench
 
+> **FROZEN — and this is the one the game grew out of.** [`src/`](../../src/)
+> started as a byte-for-byte copy of this directory: the promotion commit
+> proved it by building the root `cart.bin` and comparing it to `proto03.bin`
+> here, which matched exactly. So this is a record, not living code. The game
+> is built from the repo root with `make`; nothing in that build reads this
+> directory. Do not fix things here and do not fork it into a `proto/04` —
+> changes belong in `src/`. The findings below stay because `docs/` cites them.
+
 Forked from [`proto/02_rocks`](../02_rocks/), which answered what a colliding
 asteroid field costs. Everything that bench does, this one still does. What it
 adds is the **HUD radar**: what is near, on a scale that does not move, in the

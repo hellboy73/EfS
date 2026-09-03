@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """PNG -> MAD-65 sprite blob, as an assembler source file.
 
-    python tools/sprgen.py assets/png/ship32.png proto/01_flight/ship32.s ship32 --tate
+    python tools/sprgen.py assets/png/ship32.png src/ship32.s ship32 --tate
 
 `--tate` pre-rotates the art for a monitor on its side: a sprite's width axis
 runs DOWN the player's screen and its height axis runs LEFT, so art drawn

@@ -720,7 +720,7 @@ what survives the precise coarse window inside it.
 document, [`physics.md`](physics.md), so parameters can be tuned without touching
 the architecture. The design commitments:
 
-**Built, in [`proto/02_rocks/physics.s`](../proto/02_rocks/physics.s):** detection,
+**Built, in [`src/physics.s`](../src/physics.s):** detection,
 the elastic response, separation and the ship test. Not built: spin transfer,
 break-up, shot split. `physics.md` says which is which and why.
 
@@ -787,7 +787,7 @@ Level scripts are data, read straight out of the cartridge window (the CETAS
 pattern), not copied to RAM.
 
 The **population** half of that plan now exists, in
-[`proto/02_rocks/levels.s`](../proto/02_rocks/levels.s), authored with
+[`src/levels.s`](../src/levels.s), authored with
 `tools/level_editor.py` the way shapes are authored with `tools/shape_editor.py`.
 Per level it carries a **count per size class** — which the loader scatters over
 the torus from a per-level LFSR seed, so a field is random in shape but identical

@@ -1,5 +1,13 @@
 # proto 02 — rocks & collisions bench
 
+> **FROZEN.** This bench is a record, not living code. The game is in
+> [`src/`](../../src/) and is built from the repo root with `make`; nothing in
+> the build reads this directory. Do not fix things here, do not fork it into a
+> `proto/04`, and if a number here disagrees with the game, the game is right.
+> What a bench is still good for is being *read* — it is the smallest complete
+> thing that answered its question, and its findings below are cited from
+> `docs/`.
+
 Forked from [`proto/01_flight`](../01_flight/), which answered what flying has to
 feel like and, along the way, already draws a full field of asteroids — real
 world positions, velocities, spins, LOD, budget-capped emission. What it does
