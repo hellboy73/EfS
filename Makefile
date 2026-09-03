@@ -16,9 +16,10 @@ CART  = cart.bin
 UNITS = src/header.s src/bootstrap.s src/main.s
 
 # What cl65 READS. Everything main.s includes, so touching any of it rebuilds.
-MODULES = src/math.s src/input.s src/camera.s src/ship.s src/objects.s \
-          src/physics.s src/stars.s src/occlude.s src/hud.s src/radar.s
-DATA    = src/shapes.s src/levels.s src/radar_bg.s src/ship32.s
+MODULES = src/math.s src/input.s src/camera.s src/ship.s src/thrust.s \
+          src/objects.s src/physics.s src/stars.s src/occlude.s src/hud.s \
+          src/radar.s
+DATA    = src/shapes.s src/levels.s src/radar_bg.s src/ship32.s src/flames.s
 DEPS    = $(UNITS) $(MODULES) $(DATA) src/mad65.inc cart.cfg
 
 all: $(CART)

@@ -835,6 +835,11 @@ cart_frame:
         jsr     upload_step
 :
 .endif
+        lda     FLSTEP                  ; same shape, for the flames - see
+        cmp     #$05                    ;   upload_flames_step. Unconditional:
+        bcs     :+                      ;   the ship is a vector outline, but
+        jsr     upload_flames_step      ;   its flames are sprites regardless.
+:
         lda     BGDONE                  ; one-shot: wipe the boot screen off the
         bne     :+                      ;   background. The OS replays background
         jsr     API_GPU_CLEARBG         ;   commands on the next frame for us, so
@@ -882,6 +887,8 @@ cart_frame:
         jsr     do_stars
         jsr     do_motes
         jsr     emit_ship
+        jsr     do_flames                ; the side thruster flames, riding the
+                                        ; screen centre emit_ship just placed
         jsr     do_radar                ; the contact lists - built BEFORE the HUD
                                         ;   because the HUD reads the count, and
                                         ;   emitted AFTER it because the list
@@ -928,6 +935,9 @@ cart_frame:
                                         ; integration, the screen slide and the
                                         ; zoom that ride the throttle - and the
                                         ; outline that draws it.
+        .include "thrust.s"             ; the four side thruster flames -
+                                        ; sprites riding the vector ship. See
+                                        ; that file's header.
         .include "objects.s"            ; the field: the level's opening state,
                                         ; the sector grid, the per-frame walk
                                         ; that culls, moves and transforms it,
