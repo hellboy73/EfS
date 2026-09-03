@@ -71,6 +71,18 @@ API_GPU_CIRCLE16    = $FFDB     ; OS_ARG+0..1 = CX, +2..3 = CY (signed 16, FULL-
                                 ;   R=50 ~27,500, R=100 ~54,000 (a quarter of a frame).
                                 ;   Off screen: 200 cycles flat.
 
+; --- the transport block: a rectangle on the background, streamed compressed
+;     straight from the cartridge. XB/WB/GAP/H are armed once as job state and
+;     then fed one band at a time; radar.s uses one band for the whole ring.
+API_GPU_RECT_BG_BEGIN = $FFDE   ; OS_ARG+0..3 = XB, WB, GAP, H - arm the job,
+                                ;   emits nothing. XB/WB are BYTE columns.
+API_GPU_RECT_BG_CART  = $FFE1   ; OS_ARG+0 = source bank, +1..2 = window
+                                ;   address of the band's length-prefixed blob
+                                ;   (roms/rle.py format), +3..4 = destination
+                                ;   row Y (signed 16). Carry SET on return =
+                                ;   PPRAM was full this frame, nothing emitted
+                                ;   or recorded - just call again next frame.
+
 ; --- published OS RAM ---------------------------------------------------------
 OS_ARG            = $20         ; $20-$2F - builder argument block
 OVERRUN_FLAG      = $03         ; the OS sets this when a VSYNC fired before

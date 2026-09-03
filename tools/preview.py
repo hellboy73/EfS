@@ -90,6 +90,27 @@ def sb8(v):
     return v - 256 if v > 127 else v
 
 
+def rle_decode(stream, i, count):
+    """Decode exactly `count` output bytes from stream[i:], MAD-65's RLE format
+    (mirrors gpu_os.s rle_next / roms/rle.py decompress). Returns (bytes,
+    bytes_consumed) - there is no end marker, so the caller has to know the
+    output count, exactly as the GPU's own decoder does for RECT_BG_RLE."""
+    out = bytearray()
+    j = i
+    while len(out) < count:
+        ctrl = stream[j]
+        j += 1
+        if ctrl & 0x80:
+            run = (ctrl - 0x80) + 2
+            b = stream[j]
+            j += 1
+            out.extend([b] * run)
+        else:
+            out.extend(stream[j:j + ctrl])
+            j += ctrl
+    return bytes(out[:count]), j - i
+
+
 def decode(stream):
     """Walk a PPRAM command list. Returns [(opcode, payload_bytes), ...].
 
@@ -123,6 +144,15 @@ def decode(stream):
         elif op == 0x30:                        # LOAD: the page, THEN the page's
             out.append((op, stream[i + 1:i + 258]))      #   256 bytes - which
             i += 258                                     #   the ring check reads
+        elif op == 0x32:                        # RECT_BG_RLE: XB,Y16,WB,H,GAP,
+            xb = stream[i + 1]                  #   then an RLE stream decoding
+            y = s16(stream[i + 2], stream[i + 3])   # to WB*H bytes. There is NO
+            wb = stream[i + 4]                  #   length in the command itself
+            h = stream[i + 5]                   #   - the decoder has to run to
+            gap = stream[i + 6]                 #   find where it stops, exactly
+            payload, clen = rle_decode(stream, i + 7, wb * h)   # as the GPU does
+            out.append((op, (xb, y, wb, h, gap, payload)))
+            i += 7 + clen
         elif op == 0x50:                        # SPRITE: id, X16, Y16
             out.append((op, stream[i + 1:i + 6]))
             i += 6
@@ -1922,47 +1952,52 @@ if cart_const("HUD_ON"):
 # =============================================================================
 # The harness does not model the VRAM background (it is double-buffered and this
 # does not simulate VSYNC), so the ring cannot be checked by looking at it. What
-# CAN be checked is everything up to that point: which pages were written, when
-# they were written, and - the real test - whether the bytes that went out
-# reconstruct the PNG. That last one covers the whole chain at once: the strip
-# tools/bggen.py emitted, the page arithmetic in ring_page, and the TATE
-# rotation, all against the artwork itself.
-RING_PG0 = ring_const("RING_PG0")
-RING_PGN = ring_const("RING_PGN")
-RING_COL0 = ring_const("RING_COL0")
-RING_W = ring_const("RING_W")
+# CAN be checked is everything up to that point: which command went out, when,
+# and - the real test - whether the bytes it carries reconstruct the PNG. That
+# last one covers the whole chain at once: the RLE blob tools/bggen.py emitted,
+# rle_decode() undoing it exactly as the GPU does, and the TATE rotation, all
+# against the artwork itself.
+RING_XB = ring_const("RING_XB")
+RING_Y0 = ring_const("RING_Y0")
+RING_WB = ring_const("RING_WB")
 RING_ROWS = ring_const("RING_ROWS")
-RING_FBY0 = ring_const("RING_R0") + ring_const("RING_RR0")
+RING_GAP = ring_const("RING_GAP")
 
 bgw = []                                # every VRAM-background write, in order
 for f, fr in enumerate(frames):
     for op, pl in decode(fr):
         if op == 0x20:
             bgw.append((f, "CLEAR_BG", None))
-        elif op == 0x30 and pl[0] >= 0xC0:      # $02-$77 is GPU RAM, not the bg
-            bgw.append((f, "LOAD", pl[0], bytes(pl[1:257])))
+        elif op == 0x32:                        # RECT_BG_RLE: the ring, one band
+            xb, y, wb, h, gap, payload = pl
+            bgw.append((f, "RECT_BG_RLE", (xb, y, wb, h, gap), payload))
 
 # EVERY BACKGROUND WRITE APPEARS TWICE, on consecutive frames, and that is the
 # OS doing its job rather than the cartridge doing it wrong: the background is
 # double-buffered and the OS replays each write on the following frame so it
 # lands in both halves. So the stream is read as RUNS - one run is one thing the
 # cartridge asked for - and it is the runs that have to obey 5.5.
-runs = []                               # (first frame, what, page, payload, len)
+runs = []                               # [first frame, what, key, payload, len]
 for w in bgw:
     if runs and runs[-1][1] == w[1] and runs[-1][2] == w[2] \
             and w[0] == runs[-1][0] + runs[-1][4]:
         runs[-1][4] += 1
     else:
         runs.append([w[0], w[1], w[2], w[3] if len(w) > 3 else None, 1])
-loads = [r for r in runs if r[1] == "LOAD"]
+rects = [r for r in runs if r[1] == "RECT_BG_RLE"]
 print(f"\n        background: {len(bgw)} writes over {FRAMES} frames = "
-      f"{len(runs)} commands x the OS's 2-frame replay; {len(loads)} ring pages "
-      f"(${RING_PG0:02X}..${RING_PG0 + RING_PGN - 1:02X}), "
-      f"up by frame {loads[-1][0] + 1 if loads else '-'}")
+      f"{len(runs)} commands x the OS's 2-frame replay; the ring is "
+      f"{len(rects)} RECT_BG_RLE command(s), up by frame "
+      f"{rects[0][0] + 1 if rects else '-'}")
 
-check("every ring page was uploaded, once, in order",
-      [r[2] for r in loads] == list(range(RING_PG0, RING_PG0 + RING_PGN)),
-      f"pages sent: {[hex(r[2]) for r in loads]}")
+check("the whole ring went out as ONE RECT_BG_RLE command",
+      len(rects) == 1,
+      f"{len(rects)} commands: {[r[2] for r in rects]}")
+
+check("its geometry matches what bggen.py generated",
+      not rects or rects[0][2] == (RING_XB, RING_Y0, RING_WB, RING_ROWS, RING_GAP),
+      f"got {rects[0][2] if rects else None}, want "
+      f"{(RING_XB, RING_Y0, RING_WB, RING_ROWS, RING_GAP)}")
 
 check("each background command was replayed exactly twice",
       all(r[4] == 2 for r in runs),
@@ -1984,13 +2019,19 @@ check("the cartridge never asks for two background writes inside the replay wind
       not too_close,
       f"{len(too_close)} pairs too close, first {too_close[0] if too_close else ''}")
 
-# AND THE PICTURE ITSELF. Replay the LOADs into a model of the background, pull
-# the art's rows and columns back out, undo the TATE turn, and compare with the
-# PNG on disk pixel for pixel.
+# AND THE PICTURE ITSELF. The payload IS the decoded rectangle (rle_decode()
+# already undid the RLE for decode()'s caller above) - lay it into a model of
+# the background at (RING_XB, RING_Y0), pull the art's rows and columns back
+# out, undo the TATE turn, and compare with the PNG on disk pixel for pixel.
 bg = bytearray(0x4000)
-for r in loads:
-    assert len(r[3]) == 256, f"LOAD payload is {len(r[3])} bytes, not 256"
-    bg[(r[2] - 0xC0) * 256:(r[2] - 0xC0) * 256 + 256] = r[3]
+if rects:
+    payload = rects[0][3]
+    assert len(payload) == RING_WB * RING_ROWS, \
+        f"decoded {len(payload)} bytes, want {RING_WB * RING_ROWS}"
+    for r in range(RING_ROWS):
+        fby = RING_Y0 + r
+        row = payload[r * RING_WB:(r + 1) * RING_WB]
+        bg[fby * 50 + RING_XB:fby * 50 + RING_XB + RING_WB] = row
 
 art = Image.open(ROOT / "assets/png/radar100.png").convert("RGBA")
 aw, ah = art.size
@@ -1998,11 +2039,11 @@ ap = art.load()
 PX0, PY0 = 1, 298                       # where the Makefile puts it, portrait
 wrong = 0
 for r in range(RING_ROWS):
-    fby = RING_FBY0 + r
-    for c in range(RING_W):
-        byte = bg[fby * 50 + RING_COL0 + c]
+    fby = RING_Y0 + r
+    for c in range(RING_WB):
+        byte = bg[fby * 50 + RING_XB + c]
         for bit in range(8):
-            fbx = (RING_COL0 + c) * 8 + bit
+            fbx = (RING_XB + c) * 8 + bit
             py, px = fbx - PY0, 299 - PX0 - fby
             got = (byte >> (7 - bit)) & 1
             if 0 <= px < aw and 0 <= py < ah:

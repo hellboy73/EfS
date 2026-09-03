@@ -199,25 +199,16 @@ FOEYH       = $6F30             ;   MOVES an enemy will need them, and a radar
 FOEKIND     = $6F40             ;   only stored what it draws would have to be
                                 ;   unpicked to get them back
 
-RINGBUF     = $7000             ; one staging page for the ring upload. Page
-                                ;   aligned, so the fill's write index is a byte
-RGRR        = $6E1D             ; the upload's cursor: framebuffer row, relative
-RGCOL       = $6E1E             ;   to the first page's first row; the column
-RGDST       = $6E1F             ;   within that row; and the byte within the page
-RGPG        = $6E20             ; which VRAM-background page is next...
-RGPGN       = $6E21             ; ...and how many are left, 0 = done
-RGWAIT      = $6E22             ; frames to sit out before the next background
+RGWAIT      = $6E1D             ; frames to sit out before the next background
                                 ;   write is allowed - see 5.5
-RGIN        = $6E23             ; 1 while the cursor is on a row the art covers
+RGDONE      = $6E1E             ; 1 once the ring's one RECT_BG_RLE command has
+                                ;   landed - see ring_frame
 
 ; The bootstrap's scratch at $F0-$F4 is dead by the first frame, and this is
 ; the only thing in the cartridge that wants a zero-page POINTER - every other
-; buffer in the program has a fixed address. Two of the five bytes, used only
-; inside a frame.
+; buffer in the program has a fixed address.
 RPTRL       = $F0
 RPTRH       = $F1
-RGSRCL      = $F2               ; ...and the ring upload's read cursor over the
-RGSRCH      = $F3               ;   strip, which wants one too
 
 ; =============================================================================
 ; THE FURNITURE — the ring and the ship icon, as a background bitmap
@@ -225,10 +216,10 @@ RGSRCH      = $F3               ;   strip, which wants one too
 ; The instrument's outline cannot be DRAWN. MAD65_GPU_OS.md is explicit: there
 ; is no _BG variant of any line or pixel opcode, because setting one bit needs a
 ; read-modify-write and the VRAM-background window is write-only (reads return
-; ROM). Whole-byte writes are all there is - LOAD, TEXT_BG, TILE_BG, CLEAR_BG -
-; so the ring is a BITMAP, uploaded once, and after that the hardware re-copies
-; it under the image every frame for nothing. Zero per-frame cost, which is what
-; a thing that never changes should cost.
+; ROM). Whole-byte writes are all there is, so the ring is a BITMAP, uploaded
+; once, and after that the hardware re-copies it under the image every frame for
+; nothing. Zero per-frame cost, which is what a thing that never changes should
+; cost.
 ;
 ; THE ART is assets/png/radar100.png, authored upright and stored turned by
 ; tools/bggen.py - the TATE convention, the same one the ship sprite follows.
@@ -236,119 +227,85 @@ RGSRCH      = $F3               ;   strip, which wants one too
 ; up, because the ship is definitionally at the radar's middle and it is the
 ; world that turns (4.3).
 ;
-; WHY IT IS A STRIP AND NOT PAGES. A LOAD writes a whole 256-byte page and a
-; framebuffer row is 50 bytes, so a page is 5.12 rows of the WHOLE screen's
-; width: covering a 100 x 100 corner takes 20 pages, 5,120 bytes, almost all of
-; it zeros. radar_bg.s stores the 13 columns the art actually occupies - 1,300
-; bytes - and ring_page expands them into RINGBUF. The saving is 3,820 bytes of
-; a bank that had 6,254 left.
+; ONE COMMAND, NOT TWENTY PAGES. This used to be a LOAD strip: a page is 256
+; bytes of a 50-byte row pitch, so a 100 x 100 corner took 20 pages, one every
+; other frame, ~40 frames (~0.7 s) to appear. MAD-65's V1.0 transport block adds
+; RECT_BG_RLE ($32, API_GPU_RECT_BG_CART) - a byte-aligned rectangle of ANY
+; height, RLE-compressed, streamed straight from the cartridge - which needs no
+; page alignment at all. bggen.py now emits the ring as one RLE band covering
+; the whole 100 rows (a one-pixel ring is sparse; it roughly halves), so the
+; whole furniture is ONE command instead of twenty, and the two-frame replay
+; rule (below) is paid once instead of twenty times: it lands in ~3 frames, not
+; 40.
 ;
-; WHY IT TAKES 40 FRAMES. Every VRAM-background write must be the only one on
+; STILL TWO FRAMES, THOUGH. Every VRAM-background write must be the only one on
 ; its frame with an idle frame after it (5.5): the background is double-buffered
 ; and the OS replays each write across two frames so it lands in both halves. A
 ; second write inside that window stomps the replay, and the result blinks every
-; other displayed frame. So it is one page every OTHER frame, 20 pages, ~0.7 s -
-; and it starts two frames after the boot CLEAR_BG for the same reason.
+; other displayed frame. ring_restart waits two frames clear of the boot
+; CLEAR_BG for the same reason before ring_frame makes its one attempt.
+;
+; RGWAIT ALSO COVERS PPRAM PRESSURE. API_GPU_RECT_BG_CART returns carry SET and
+; does nothing at all when the frame's PPRAM is already full - RGDONE simply
+; stays clear and ring_frame tries again next frame, with no state to unwind.
 ;
 ; AND WHY IT CAN COME BACK. cart_frame re-issues CLEAR_BG after a frame the OS
 ; reported as overrun, which wipes the ring along with the damage. ring_restart
 ; is called there too, so the furniture repaints itself instead of vanishing for
-; the rest of the session.
+; the rest of the session. Re-arming the job (gpu_rect_bg_begin) on that path is
+; safe even if a replay were still pending, because the geometry it arms with is
+; always the same RING_XB/WB/GAP/ROWS constants - unlike a job whose rectangle
+; moves, there is no "new geometry" for a stale pending replay to pick up.
 ; -----------------------------------------------------------------------------
 ring_restart:
-        stz     RGRR
-        lda     #RING_C0                ; the first page does not begin at a row
-        sta     RGCOL                   ;   boundary, and this is the column it
-        stz     RGDST                   ;   does begin at - worked out by
-        lda     #RING_PG0               ;   bggen.py, so there is no division
-        sta     RGPG                    ;   anywhere in here
-        lda     #RING_PGN
-        sta     RGPGN
+        stz     RGDONE
         lda     #$02                    ; two frames clear of the CLEAR_BG that
         sta     RGWAIT                  ;   has just gone out
-        lda     #<RING_STRIP
-        sta     RGSRCL
-        lda     #>RING_STRIP
-        sta     RGSRCH
-        ; fall through
-
-; RGIN — is the cursor's row one that the art covers?
-ring_setin:
-        lda     RGRR
-        sec
-        sbc     #RING_RR0
-        cmp     #RING_ROWS
-        lda     #$00
-        bcs     :+
-        lda     #$01
-:       sta     RGIN
-        rts
+        lda     #RING_XB
+        sta     OS_ARG+0
+        lda     #RING_WB
+        sta     OS_ARG+1
+        lda     #RING_GAP
+        sta     OS_ARG+2
+        lda     #RING_ROWS
+        sta     OS_ARG+3
+        jmp     API_GPU_RECT_BG_BEGIN   ; arms the job; emits nothing, so doing
+                                        ;   this immediately (ahead of RGWAIT's
+                                        ;   settle) costs nothing - the actual
+                                        ;   PPRAM write waits for ring_frame
 
 ; -----------------------------------------------------------------------------
-; ring_frame — one page every other frame, until there are none left.
+; ring_frame — the one API_GPU_RECT_BG_CART call, retried until it lands.
 ; -----------------------------------------------------------------------------
-; Called FIRST in the frame, for the same reason upload_step is: a background
-; page dropped for want of PPRAM would leave a hole in the instrument for the
-; rest of the session, where a dropped star is gone for one frame.
+; Called FIRST in the frame, for the same reason upload_step is: a command
+; dropped for want of PPRAM would leave the instrument blank for a lot longer
+; than one frame if this ran after everything else had already spent the
+; frame's budget.
 ; -----------------------------------------------------------------------------
 ring_frame:
-        lda     RGPGN
-        beq     @done                   ; the furniture is up
+        lda     RGDONE
+        bne     @done                   ; the furniture is up
         lda     RGWAIT
         beq     @go
-        dec     RGWAIT                  ; ...the cooldown frame
+        dec     RGWAIT                  ; ...the settle after CLEAR_BG
         rts
-@go:    jsr     ring_page
-        lda     RGPG
+@go:    lda     #RING_BANK
         sta     OS_ARG+0
-        lda     #<RINGBUF
+        lda     #<RING_BLOB
         sta     OS_ARG+1
-        lda     #>RINGBUF
+        lda     #>RING_BLOB
         sta     OS_ARG+2
-        jsr     API_GPU_LOAD
-        inc     RGPG
-        dec     RGPGN
+        lda     #<RING_Y0
+        sta     OS_ARG+3
+        lda     #>RING_Y0
+        sta     OS_ARG+4
+        jsr     API_GPU_RECT_BG_CART
+        bcs     @done                   ; PPRAM was full this frame - nothing
+                                        ;   emitted or recorded; RGWAIT is
+                                        ;   already zero, so next frame retries
         lda     #$01
-        sta     RGWAIT
+        sta     RGDONE                  ; one command was the whole picture
 @done:  rts
-
-; -----------------------------------------------------------------------------
-; ring_page — expand the strip into one 256-byte page.
-; -----------------------------------------------------------------------------
-; One pass, one cursor, no division. The page is walked byte by byte; a running
-; (row, column) pair follows it, wrapping the column at the 50-byte row pitch;
-; and a byte comes from the strip only where that pair lands inside the art. The
-; strip pointer advances only when a byte is CONSUMED, which is what keeps it in
-; step across a page boundary falling in the middle of a row - the common case,
-; since 256 is not a multiple of 50.
-; -----------------------------------------------------------------------------
-ring_page:
-@byte:  lda     RGIN
-        beq     @zero
-        lda     RGCOL
-        sec
-        sbc     #RING_COL0
-        cmp     #RING_W
-        bcs     @zero
-        lda     (RGSRCL)
-        inc     RGSRCL
-        bne     @put
-        inc     RGSRCH
-        bra     @put
-@zero:  lda     #$00
-@put:   ldy     RGDST
-        sta     RINGBUF,y
-        inc     RGDST
-        inc     RGCOL
-        lda     RGCOL
-        cmp     #50                     ; the framebuffer's row pitch
-        bcc     :+
-        stz     RGCOL
-        inc     RGRR
-        jsr     ring_setin
-:       lda     RGDST                   ; wrapped to 0: the page is full
-        bne     @byte
-        rts
 
 ; -----------------------------------------------------------------------------
 ; add_radar_occluder — put the radar's disc in the star-suppression list.

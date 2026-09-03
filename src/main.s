@@ -846,8 +846,8 @@ cart_frame:
         lda     #$01                    ;   issuing this once is the whole job.
         sta     BGDONE
         jsr     ring_restart            ; ...and the radar's ring goes on top of
-                                        ;   the cleared background, one LOAD page
-                                        ;   every other frame - see radar.s
+                                        ;   the cleared background, one
+                                        ;   RECT_BG_RLE command - see radar.s
 :
         ; ---- repair after a frame we failed to deliver ----------------------
         ; OVERRUN_FLAG is set by the OS when a VSYNC fired before gpu_end. It is
@@ -871,10 +871,10 @@ cart_frame:
                                         ;   it, so paint it again rather than
                                         ;   leave a hole for the session
 :
-        jsr     ring_frame              ; the radar's furniture, one background
-                                        ;   page every other frame until it is
-                                        ;   up. FIRST in the frame for the same
-                                        ;   reason upload_step is: a page dropped
+        jsr     ring_frame              ; the radar's furniture, one
+                                        ;   RECT_BG_RLE command, retried until
+                                        ;   it lands. FIRST in the frame for the
+                                        ;   same reason upload_step is: dropped
                                         ;   for want of PPRAM leaves a permanent
                                         ;   hole, not a one-frame blink
         jsr     do_input
