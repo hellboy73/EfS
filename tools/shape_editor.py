@@ -380,15 +380,21 @@ class ShapeEditor(tk.Tk):
         left.pack(side="left", fill="both", expand=True)
         tk.Label(left, text="Edit (drag a point; double-click an edge to add one; "
                              "select + Delete to remove)", bg=BG, fg="#888").pack(anchor="w")
-        self.edit_canvas = tk.Canvas(left, bg=BG, highlightthickness=0)
+        self.edit_canvas = tk.Canvas(left, bg=BG, highlightthickness=0, takefocus=1)
         self.edit_canvas.pack(fill="both", expand=True)
         self.edit_canvas.bind("<Configure>", lambda e: self._draw_edit())
         self.edit_canvas.bind("<ButtonPress-1>", self._edit_press)
         self.edit_canvas.bind("<B1-Motion>", self._edit_drag)
         self.edit_canvas.bind("<ButtonRelease-1>", self._edit_release)
         self.edit_canvas.bind("<Double-Button-1>", self._edit_dblclick)
-        self.bind("<Delete>", self._delete_selected)
-        self.bind("<BackSpace>", self._delete_selected)
+        # Bound to the CANVAS, not the root window: a root-level binding fires
+        # on every Backspace/Delete anywhere in the app, including while
+        # typing a coordinate into the X/Y fields below, silently deleting
+        # the point being edited. Scoping it to the canvas - and giving the
+        # canvas focus on click - means it only fires when that is where
+        # keyboard input is actually going.
+        self.edit_canvas.bind("<Delete>", self._delete_selected)
+        self.edit_canvas.bind("<BackSpace>", self._delete_selected)
 
         # right column: two true-scale previews + numeric fields
         right = tk.Frame(mid, bg=BG, width=300)
@@ -699,6 +705,9 @@ class ShapeEditor(tk.Tk):
         return None
 
     def _edit_press(self, ev):
+        self.edit_canvas.focus_set()       # so Delete/BackSpace go here, not
+                                            #   wherever focus last was (e.g. a
+                                            #   coordinate field)
         i = self._hit_test(ev.x, ev.y)
         self.sel_idx = i
         self._drag_active = i is not None
