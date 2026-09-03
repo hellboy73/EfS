@@ -36,6 +36,8 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 # arriving one vertex different. A path with two copies behind it is a bug.
 DEFAULT_SHAPES = ROOT / "src" / "shapes.s"
 DEFAULT_MAIN = ROOT / "src" / "main.s"
+# TYPE_PICK lives with the code that reads it, not with the frame.
+DEFAULT_OBJECTS = ROOT / "src" / "objects.s"
 
 SENTINEL_START = "; === GENERATED (tools/shape_editor.py) - rewritten whole on Save ============"
 SENTINEL_END = "; === END GENERATED ==="
@@ -557,13 +559,13 @@ class ShapeEditor(tk.Tk):
             self.model.shapes[(c, new_letter)] = Shape(c, new_letter, src.r, src.occ, pts, lod)
         self.model.ast_types += 1
         self.dirty = True
-        synced = sync_type_pick(DEFAULT_MAIN, self.model.ast_types)
+        synced = sync_type_pick(DEFAULT_OBJECTS, self.model.ast_types)
         self._rebuild_type_row()
         self.type_var.set(new_letter)
         self.cur_type = new_letter
         msg = f"Added variant {new_letter} to every size class."
-        msg += " Updated TYPE_PICK in main.s." if synced else (
-            " Could not update TYPE_PICK in main.s automatically - "
+        msg += " Updated TYPE_PICK in objects.s." if synced else (
+            " Could not update TYPE_PICK in objects.s automatically - "
             "add a value there by hand or the new variant will never be picked.")
         messagebox.showinfo("New variant", msg)
         self._refresh_all()

@@ -65,6 +65,8 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 DEFAULT_LEVELS = ROOT / "src" / "levels.s"
 DEFAULT_SHAPES = ROOT / "src" / "shapes.s"
 DEFAULT_MAIN = ROOT / "src" / "main.s"
+# ...and the rock tables sit beside the code that reads them.
+DEFAULT_OBJECTS = ROOT / "src" / "objects.s"
 
 SENTINEL_START = "; === GENERATED (tools/level_editor.py) - rewritten whole on Save ============="
 SENTINEL_END = "; === END GENERATED ==="
@@ -410,8 +412,8 @@ class LevelEditor(tk.Tk):
 
         self.scr_hx, self.scr_hy, self.zoom_out = read_screen(DEFAULT_MAIN)
         self.ast_types, self.shape_r = read_shapes(DEFAULT_SHAPES)
-        self.type_pick = read_type_pick(DEFAULT_MAIN)
-        self.ast_vel = read_ast_vel(DEFAULT_MAIN)
+        self.type_pick = read_type_pick(DEFAULT_OBJECTS)
+        self.ast_vel = read_ast_vel(DEFAULT_OBJECTS)
         main_text = DEFAULT_MAIN.read_text(encoding="utf-8") if DEFAULT_MAIN.exists() else ""
         self.nobj = read_int(main_text, "NOBJ", 120)
 

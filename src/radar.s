@@ -1,9 +1,9 @@
 ; =============================================================================
 ; radar.s — the HUD radar: what is near, on a fixed scale, in the corner
 ; =============================================================================
-; The bench's one question. Everything here is the honest v1 pipeline of
-; open_questions.md G; the lying radar of E8 is a filter applied on top of it
-; later, not a second renderer.
+; Everything here is the honest v1 pipeline of open_questions.md G; the lying
+; radar the story needs (E8) is a filter applied on top of it later, not a
+; second renderer.
 ;
 ; THE ONE IDEA. The radar's catchment is a CIRCLE in world space, and a circle
 ; is invariant under both of the transforms that follow it: the camera's
@@ -194,8 +194,8 @@ NFOE        = $6E1C             ; enemies the level actually placed
 
 FOEXL       = $6F00             ; the enemies, FOE_MAX of each. Only the high
 FOEXH       = $6F10             ;   bytes are read by anything here; the low
-FOEYL       = $6F20             ;   bytes are carried because the bench after
-FOEYH       = $6F30             ;   this one will move them, and a radar that
+FOEYL       = $6F20             ;   bytes are carried because whatever finally
+FOEYH       = $6F30             ;   MOVES an enemy will need them, and a radar
 FOEKIND     = $6F40             ;   only stored what it draws would have to be
                                 ;   unpicked to get them back
 
@@ -736,7 +736,7 @@ emit_radar:
 ; load_foes — the enemies out of levels.s, once.
 ; -----------------------------------------------------------------------------
 ; Called by cart_init after load_level, which has already left LVLIX pointing
-; at the level. Nothing else in the cartridge reads an enemy yet: this bench
+; at the level. Nothing else in the cartridge reads an enemy yet: the radar
 ; needs positions to put blips on and nothing more, and E6 has not settled what
 ; a KIND is - so the byte is carried and not interpreted.
 ; -----------------------------------------------------------------------------

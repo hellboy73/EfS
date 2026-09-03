@@ -9,8 +9,8 @@
 ; design_technical.md 9 calls this a level's MISSION PLAN and lists what one
 ; eventually has to carry: world size, initial population, size-class mix, the
 ; enemy roster, physics overrides and the music. What is here is the population
-; half of that - the part proto 02 can actually act on. The rest is added to
-; these same per-level tables as the benches that need it are built.
+; half of that - the part load_level can actually act on. The rest is added to
+; these same per-level tables as the code that reads it is built.
 ; =============================================================================
 ; HOW A FIELD IS BUILT (load_level, main.s)
 ;
@@ -69,10 +69,11 @@
 ; ENEMIES
 ;
 ; LVL_FOEN records of five bytes: a world position and a KIND byte. Nothing in
-; proto 02 reads them - enemies are the next bench, and open_questions E6 has
-; not yet settled how many alien types there are or how they behave - but the
-; positions are authored here now so that bench inherits a level format instead
-; of inventing one, and so the editor has somewhere to put them. The KIND byte
+; the game reads them YET - radar.s carries them so they can be drawn as blips,
+; and open_questions E6 has not settled how many alien types there are or how
+; they behave - but the positions are authored here now so that the code which
+; finally flies an enemy inherits a level format instead of inventing one, and
+; so the editor has somewhere to put them. The KIND byte
 ; is deliberately just a number until E6 says what the numbers are.
 ; =============================================================================
 ; Hand edits are fine anywhere in this file. Everything between the GENERATED
@@ -86,7 +87,7 @@
 NLEVELS     = 1
 
 ; Level names. A comment, not a table - no level has anything to print them
-; on yet, and a string per level is ROM the bench cannot spend. The editor
+; on yet, and a string per level is ROM with nothing to spend it on. The editor
 ; reads and rewrites these lines, so keep the format.
 ;   NAME 0 "MINING ZONE"
 

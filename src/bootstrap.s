@@ -4,9 +4,9 @@
 ; Everything except this stub is STORED in the cartridge window and RUN from
 ; RAM. That is not a style choice: the cartridge is banked and cannot be
 ; shadowed, so the hardware charges 3 wait states on every read in the
-; $8000-$9FFF window — instruction fetches included. Measured on this bench,
+; $8000-$9FFF window — instruction fetches included. Measured in proto 01,
 ; running in place costs 2.5x, which is the difference between a frame at 30%
-; of budget and one at 77%. `preview.py` prints both numbers.
+; of budget and one at 77%. `make preview` prints both numbers.
 ;
 ; So: boot_init copies the image out of the window into RAM once, then hands
 ; over. Everything after that runs at full speed.

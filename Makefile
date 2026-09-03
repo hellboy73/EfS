@@ -8,20 +8,18 @@
 # The sources live in src/ and the build happens HERE, at the root, because the
 # cartridge is one image and the paths it needs — roms/, assets/ — hang off the
 # root too. proto/ is frozen; nothing in this build reads from it.
-#
-# The command line is deliberately the one proto 03 used, unchanged: the same
-# sources through the same cart.cfg have to produce the same image, and that
-# byte-identity is what says the move to src/ moved nothing else.
 
 CART  = cart.bin
 
-# What cl65 is HANDED. main.s pulls the rest in with .include, so only these
-# three are translation units.
+# What cl65 is HANDED. main.s pulls every module in with .include, so only
+# these three are translation units.
 UNITS = src/header.s src/bootstrap.s src/main.s
 
 # What cl65 READS. Everything main.s includes, so touching any of it rebuilds.
-DEPS  = $(UNITS) src/shapes.s src/levels.s src/physics.s src/radar.s \
-        src/radar_bg.s src/landmark.s src/ship32.s src/mad65.inc cart.cfg
+MODULES = src/math.s src/input.s src/camera.s src/ship.s src/objects.s \
+          src/physics.s src/stars.s src/occlude.s src/hud.s src/radar.s
+DATA    = src/shapes.s src/levels.s src/radar_bg.s src/ship32.s
+DEPS    = $(UNITS) $(MODULES) $(DATA) src/mad65.inc cart.cfg
 
 all: $(CART)
 

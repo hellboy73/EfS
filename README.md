@@ -41,13 +41,21 @@ EfS/
   Makefile                `make` -> cart.bin, `make run` -> madsim,
   cart.cfg                `make preview` -> the headless check. THE build.
   src/                    THE GAME - the only living code in the repo
-    main.s                the frame: camera, input, objects, the draw list
-    physics.s             rock against rock, over the sector grid
+    main.s                cart_init and cart_frame, and the state they run on:
+                          every tunable, the zero page and the whole RAM map
+    math.s                the quarter-square multiply, the LFSR, the shifts
+    input.s               the joystick, and the only file that reads one
+    camera.s              the heading, the rotation tables, the transform
+    ship.s                the player's motion, and the outline that draws it
+    objects.s             the field: the level, the sector grid, the walk
+    physics.s             rock against rock, over that same grid
+    stars.s               the two parallax layers, sampled not simulated
+    occlude.s             what the star layers are NOT drawn behind
     radar.s               the HUD radar walk
-    radar_bg.s            its ring and ship icon, as a background bitmap
+    hud.s                 the text readout - assembles to nothing, HUD_ON = 0
     shapes.s              every vertex table          ] authored by the
     levels.s              every level's opening state ] editors in tools/
-    landmark.s            TEMPORARY: one fixed square to judge motion against
+    radar_bg.s            the radar's ring, as a background bitmap
     bootstrap.s           Model B: copy both banks to RAM, then never read
     header.s              the $8000 signature and the two vectors
     ship32.s              the ship sprite, kept for SHIP_SPRITE = 1

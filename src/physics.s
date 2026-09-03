@@ -12,7 +12,7 @@
 ;   - SPIN TRANSFER (physics.md 4.3). A glancing hit should set a rock
 ;     tumbling, and it cannot: spin is AST_SPIN[class] today, a property of the
 ;     size class, not of the rock. That needs two OBJSPN pages and a two-line
-;     change in do_objects' integrator, and it is a separate bench.
+;     change in do_objects' integrator, and it is a separate piece of work.
 ;   - BREAK-UP (physics.md 5). The threshold it wants is the relative normal
 ;     speed, which this file already computes and leaves in COL_VNL/COL_VNH -
 ;     but the fragments it wants come out of the shot-split routine, which does
