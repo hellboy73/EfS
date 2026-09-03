@@ -188,6 +188,14 @@ a quarter fewer, because the radar now owns a corner that used to be sky. That
 paid for the radar and about 550 cycles over: the worst frame is *below* proto
 02's, with the instrument on it.
 
+That column now measures a version with the ship still on `LINE16`. It has
+since moved onto the same `$4E POLYGON16` a rock uses, CPU1 side, and rocks
+stopped falling back to an authored reduced outline at small sizes (both
+`design_technical.md` 11.9 and 11.14) - together worth another ~10,900 cycles
+off the worst frame (164,619, 69.3%). Not re-run as a controlled A/B against
+proto 02 the way the table above was, so it is not a fourth column, but it is
+what `preview.py` reports today.
+
 The **worst** frame is the one that matters, and the radar adds 4.4% of budget
 to it — flat, because the reach does not move with the zoom, so unlike
 everything else in the frame its cost does not get worse at speed. The median

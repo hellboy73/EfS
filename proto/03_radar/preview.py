@@ -227,9 +227,17 @@ def chains(stream):
     GPU cuts the figure at the edge, so what this returns is the true silhouette
     the rock would have if the screen were bigger, which is what the span and
     shape checks below want to measure.
+
+    ROCKS ONLY: the ship draws through the same $4E POLYGON16 opcode now
+    (design_technical.md 11.14), so its command is excluded here by its
+    vertex count (SHIP_LINES, unique among authored shapes) rather than
+    leaking into every rock-outline statistic below. It gets its own check,
+    against `polys()` directly, further down.
     """
     out = []
     for p in polys(stream):
+        if p["n"] == SHIP_LINES:
+            continue
         C, sgc, S, sgs = pg_matrix(p["ang"], p["scale"])
         pts = [pg_vertex(dx, dy, p["cx"], p["cy"], C, sgc, S, sgs)
                for dx, dy in p["offs"]]
@@ -355,7 +363,9 @@ SHIP_SPRITE = 0                 # mirrors main.s: 0 = the vector outline
 SHIP_SHAPE = shapes_points("SHIP_SHAPE")        # (dx, dy) vertices, FULL-res,
                                                  #   from shapes_const("SHIP_VN")
 SHIP_SHAPE = SHIP_SHAPE[:shapes_const("SHIP_VN")]
-SHIP_LINES = len(SHIP_SHAPE)    # ...drawn as that many solid LINE16 ops, closed
+SHIP_LINES = len(SHIP_SHAPE)    # ...the vertex count POLYGON16 carries, and
+                                 #   the one authored shape with this many -
+                                 #   see the ship check below
 STAR_N = cart_const("STAR_N")   # read, not typed: the mirror below drifted
                                 #   the moment this number was tuned
 MOTE_N = 10
@@ -883,57 +893,59 @@ check('the zoom settles on its target instead of creeping',
       f'last five {rzs[-5:]}, tier {trace[-1]["TIER"]} wants '
       f'{ZOOM_RZ[trace[-1]["TIER"]]}')
 
-# --- the ship: an authored N-vertex outline, solid LINE ops ------------------
+# --- the ship: an authored N-vertex outline, a GPU polygon like a rock's -----
 # The sprite is assembled out (SHIP_SPRITE = 0 in main.s) while the vector
-# version is measured. LINE takes half-res BYTES and validates nothing, so the
-# points have to be in range on every frame - and they have to be the right
-# outline in the right place, which is what pins the TATE axis convention: the
-# nose vertex (a negative dx, shapes.s's own convention) is the SMALLER fb_x,
-# because up on the player's screen is fb_x decreasing.
-def zscale(v, rz):
-    """qmul's rounding: round(v * rz / 128)."""
-    return (v * rz + 64) >> 7
-
-
-def zscale_signed(v, rz):
-    """emit_ship's sscale: the SIGN is stripped before qmul and reapplied
-    after, not folded into a single signed multiply - that rounds differently
-    for a negative v than zscale(v, rz) would (floor vs magnitude-then-sign),
-    so this mirrors sscale exactly rather than plain-scaling a signed input."""
-    return -zscale(-v, rz) if v < 0 else zscale(v, rz)
-
-
-# The ship is drawn with LINE16 ($43) at FULL resolution - see the note in
-# emit_ship. Everything here is therefore on the 400x300 grid, not 200x150.
+# version is measured. It moved off CPU1-transformed LINE16 onto the same $4E
+# POLYGON16 a rock uses (design_technical.md 11.14): CPU1 sends the centre,
+# ANGLE = 0 (the ship never spins) and SCALE = ZEASH - the same eased
+# reciprocal a rock's SCALE reads (4.4), not the snapped ZOOMH the rock span
+# check below normalises against, because there is only one ship shape to
+# check exactly rather than many variants to check approximately - and the GPU
+# rotates, scales and draws SHIP_SHAPE as authored. SHIP_LINES (its vertex
+# count) is unique among authored shapes, which is what tells the ship's
+# polygon apart from a rock's in the same frame's command list.
 shipx = ship_fbx(trace[-1]['SHOFFH'])           # the full-res centre
 shipy = FBCY + sb8(trace[-1]['SHOFXH'])         # ...and the cross-axis lean
-RZ = trace[-1]['ZOOMH']
-tri = [tuple(pl) for op, pl in decode(frames[-1]) if op == 0x43]
-check('the ship is SHIP_LINES solid lines', len(tri) == SHIP_LINES,
-      f'{len(tri)} LINE commands in the frame, {SHIP_LINES} authored vertices')
+scale = trace[-1]['ZEASH']
+ship_polys = [p for p in polys(frames[-1]) if p['n'] == SHIP_LINES]
+check('the ship draws exactly one polygon a frame', len(ship_polys) == 1,
+      f'{len(ship_polys)} candidates with {SHIP_LINES} vertices')
 check('no sprite is emitted while the vector outline is in',
       not any(op == 0x50 for op, _ in decode(frames[-1])))
 
-want_ordered = [(shipx + zscale_signed(dx, RZ), shipy + zscale_signed(dy, RZ))
+p = ship_polys[0]
+check('the ship polygon is centred where SHOFF/SHOFX put it',
+      (p['cx'], p['cy']) == (shipx, shipy),
+      f'polygon centre {(p["cx"], p["cy"])}, wanted {(shipx, shipy)}')
+check('the ship never rotates - ANGLE is 0', p['ang'] == 0, f'ANGLE {p["ang"]}')
+check('the ship SCALE is ZEASH, the same field a rock reads',
+      p['scale'] == scale, f'SCALE {p["scale"]}, ZEASH {scale}')
+check('the ship offsets are SHIP_SHAPE, unrotated and unscaled, as authored',
+      p['offs'] == SHIP_SHAPE, f'{p["offs"]} != {SHIP_SHAPE}')
+
+# want_ordered feeds the framebuffer solidity check below, so it has to stay
+# in SHIP_SHAPE's own winding order, not the sorted-set comparison the old
+# LINE16 check used (POLYGON16 has no per-edge commands left to sort).
+C, sgc, S, sgs = pg_matrix(p['ang'], p['scale'])
+want_ordered = [pg_vertex(dx, dy, shipx, shipy, C, sgc, S, sgs)
                 for dx, dy in SHIP_SHAPE]
-pts = sorted({(g[0], g[1]) for g in tri} | {(g[2], g[3]) for g in tri})
-want = sorted(want_ordered)
-check(f'the outline is nose up on the ship point, scaled by RZ {RZ}',
-      pts == want, f'corners {pts}, wanted {want}')
 
-allpts = [(g[0], g[1]) for f in frames for op, g in decode(f) if op == 0x43]
-allpts += [(g[2], g[3]) for f in frames for op, g in decode(f) if op == 0x43]
-check('every ship line stays inside the FULL-res field',
-      len(allpts) == 2 * SHIP_LINES * FRAMES
-      and all(0 <= x < 400 and 0 <= y < 300 for x, y in allpts),
-      f'{len(allpts)} endpoints over {FRAMES} frames')
+allpolys = [p for f in frames for p in polys(f) if p['n'] == SHIP_LINES]
+check('the ship draws exactly one polygon every frame',
+      len(allpolys) == FRAMES, f'{len(allpolys)} of {FRAMES} frames')
+allpts = [pg_vertex(dx, dy, p['cx'], p['cy'], *pg_matrix(p['ang'], p['scale']))
+          for p in allpolys for dx, dy in p['offs']]
+check('every ship vertex stays inside the FULL-res field',
+      all(0 <= x < 400 and 0 <= y < 300 for x, y in allpts),
+      f'{len(allpts)} vertices over {FRAMES} frames')
 
-# The whole point of $43 over $42: distinct positions in MOTION. With half-res
-# endpoints the nose lands on even pixels only, so consecutive frames repeat.
-nosex = [min(g[0], g[2]) for f in frames for op, g in decode(f) if op == 0x43]
-odd = sum(1 for v in nosex if v & 1)
+# The whole point of a full-res centre: distinct positions in MOTION. A
+# half-res one would land the ship on even pixels only, so consecutive frames
+# would repeat.
+cxs = [p['cx'] for p in allpolys]
+odd = sum(1 for v in cxs if v & 1)
 check('the ship is drawn on odd pixels too, not just even ones',
-      odd > 0, f'{odd} of {len(nosex)} nose endpoints land on an odd pixel')
+      odd > 0, f'{odd} of {len(cxs)} centres land on an odd pixel')
 
 
 # ...and SOLID on the framebuffer, not a row of specks - every AUTHORED edge,

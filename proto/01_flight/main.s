@@ -745,7 +745,7 @@ cart_init:
         stz     SHOFFL
         stz     SHOFFH
         lda     #3                      ; 2.83 s per revolution - the settled-on
-        sta     TURNIX                  ;   default; see open_questions.md B2
+        sta     TURNIX                  ;   default; see design_technical.md 11.15
         stz     TURNVL
         stz     TURNVH
         lda     #2                      ; the settled-on wind-up; ramp/tscale no

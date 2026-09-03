@@ -44,6 +44,12 @@ a continuous throttle, a boost and a teleport on top. **These stay open until
 someone flies it and says which values are right** — and where `cart_init` calls a
 value "the settled-on default", someone already has.
 
+The *turning* half of the section has been flown and has left: how fast the ship
+turns, how quickly it gets there, and how hard that follows speed are now
+[`design_technical.md`](design_technical.md) 11.15-11.17. What stays here is the
+throttle's range, the camera's lag behind it, and what the ship looks like doing
+it.
+
 **B1. Speed range, and how the throttle moves through it (TBM).** The eleven
 values are still the ones flown by hand — `-150, -100, -50, 0, +50, +100, +150,
 +200, +250, +300, +350` px/s — but they are no longer *tiers the player steps
@@ -65,35 +71,6 @@ Two mechanics ride on top, and neither has been judged yet:
 Open: the eleven values, the throttle's ramp rate, and whether boost and teleport
 belong in the game at all.
 
-**B2. Turn rate (SETTLED — rung 3, 2830 ms per revolution).** Flying the bench
-settled the band first: **1 to 3 brad per frame is usable**, and the original
-"1/32 of a turn per frame" (8 brad/frame, 531 ms per revolution) is far too fast.
-Whole-brad steps inside that band were too coarse to choose between, so the
-heading carries a fraction and the ladder is quarter-brad: `5659, 4244, 3396,
-2830, 2425, 2122, 1698, 1415` ms per revolution. `cart_init` picks **rung 3**
-(2830 ms) as the settled default; the ladder stays as a bench control, not a game
-one. **Move to `design_technical.md` 11.**
-
-**B7. Turn wind-up (SETTLED — ramp 2).** The stick sets a *target* angular
-velocity and the real one eases toward it by `1/(2^RAMP_SHIFT)` of the gap each
-frame, so a turn winds up and unwinds instead of switching on and off. Ramp 0 is
-an instant ease — the old on/off behaviour — kept so the two can be flown back to
-back. `cart_init` picks **ramp 2** and it no longer changes at runtime.
-
-This knob did not exist when B2 and B6 were written and is not a restatement of
-either: B6 scales *how fast* the ship turns, this decides *how quickly it gets
-there*. **Move to `design_technical.md` 11.**
-
-**B6. How strongly should the turn rate follow flight speed (SETTLED — x1.25 at
-the top tier).** Turn radius is `v/omega`, so a constant omega makes the radius
-grow in proportion to speed — at +350 the ship would sweep a circle seven times
-wider than at +50. Doubling the rate at top speed (the first cut) **rose too fast
-to fly**, so the coupling became a dial — OFF / x1.12 / x1.25 / x1.50, three
-shifts of one `TURN_XTRA` table — and `cart_init` now picks **x1.25**. The dial is
-no longer bound to a control: joystick 2 carries boost and the turn ramp instead.
-Full proportionality (constant radius) stays rejected — it leaves the ship barely
-able to turn at low speed. **Move to `design_technical.md` 11.**
-
 **B3. Camera lag constant (TBM — narrowed to one number).** Half of this question
 is answered: the ship's screen slide and the zoom **do** share a constant. Both
 ease by `1/(2^SHOFF_LAG)` of the remaining gap each frame with `SHOFF_LAG = 4`,
@@ -105,11 +82,11 @@ slow disconnects the throttle from the view.
 it is a sprite swap (cheap, a handful of frames) or a real small rotation.
 
 **B5. 32 headings or 256 (TBD).** The design assumes 32. The bench deliberately
-runs at 256 — *with a fraction*, since the turn ladder is quarter-brad (B2), so
-the heading is 8.8 and the world is rotated by its integer part. With the ship
-always drawn nose-up, the only place the choice shows is the smoothness of the
-world's rotation. If 32 is not visibly steppy it is free; if it is, the design
-should say 256.
+runs at 256 — *with a fraction*, since the turn ladder is quarter-brad
+(`design_technical.md` 11.15), so the heading is 8.8 and the world is rotated by
+its integer part. With the ship always drawn nose-up, the only place the choice
+shows is the smoothness of the world's rotation. If 32 is not visibly steppy it
+is free; if it is, the design should say 256.
 
 The fractional heading is a separate matter and does not settle this: it exists to
 make the *rate* selectable in quarter-brad steps, and would still be wanted at 32.
@@ -194,25 +171,13 @@ thing about it that was ever a guess.
 
 ## D. Rendering
 
-**D1. Vector/sprite LOD crossover (TBM).** The on-screen size below which an
-object stops being a transformed polygon and becomes a pre-scaled sprite. Depends
-on the measured cost of both paths. Current plan: everything stays vector-drawn
-first, including the smallest size class (which already costs few vertices, so it
-is cheap even fully vector). Only fall back to sprites for the smallest rocks if
-proto testing hits the vertex/render budget (E1) under real fragment density —
-not before.
-
-Note that the LOD which actually exists is **vector-to-vector**, not
-vector-to-sprite: below `LOD_R` (16 half-res px of on-screen radius) a shape swaps
-to an *authored* reduced outline if its id has one (`SHAPE_LODN`), and a shape
-with none simply stays at full detail. This replaced "use every second vertex",
-which is not a level of detail but a coincidence that happens to work on a 12-gon
-and destroys an 8-gon: the census found 174 of 483 outlines drawn were 4-gons, all
-of them reduced octagons. So the sprite crossover is one rung further down than
-this entry assumes, and may not be needed at all.
-
-**D2. Number of pre-scaled sprite steps (TBD).** How many sizes per object type,
-which multiplies sprite ROM.
+**D2. Number of pre-scaled sprite steps (TBD).** Settled that sprites are not a
+level-of-detail fallback for the ship or for rocks — both stay vector at every
+on-screen size, closing D1 (see `design_technical.md` 11.9). Sprites are for art
+that is not an outline: **thruster flames and shots**, player and enemy. Flames
+will be authored at several sizes so the right one is picked for the current
+zoom level; how many steps, and whether shots need more than one size, is still
+open.
 
 **D8. Star size and lattice (TBD).** `DOT_PIXELS` draws single pixels but takes
 half-res coordinates, so stars land only on even framebuffer pixels - a 2-pixel

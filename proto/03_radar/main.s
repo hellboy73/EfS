@@ -220,48 +220,37 @@ OCCB_N      = 10                ; bands covering FBY 0..149
 ; rock crosses a 4096-unit boundary about once in 300 frames.
 PEND_MAX    = 16                ; deferred cell moves per frame; overflow is safe
                                 ;   - it just relinks on a later frame instead
-; The ship is a VECTOR OUTLINE for now, not the sprite. Set SHIP_SPRITE = 1 to
-; put ship32.png back: the asset, the converter and the whole upload path are
+; The ship is a VECTOR OUTLINE, not the sprite. Set SHIP_SPRITE = 1 to put
+; ship32.png back: the asset, the converter and the whole upload path are
 ; still here, just assembled out. The outline is here to be measured against a
 ; sprite once zoom exists - it scales for nothing, where a sprite would need a
 ; pre-scaled frame per zoom step, and the ship is the one object in the game
 ; that never rotates so the usual argument for sprites does not apply to it.
+; Settled that it never will (design_technical.md 11.9): sprites are for
+; thruster flames and shots, not for the ship or for rocks.
 SHIP_SPRITE = 0
 
 ; The outline itself - SHIP_SHAPE, up to 13 signed byte (dx,dy) vertices, and
 ; SHIP_VN, how many of them are used - lives in shapes.s next to the rock
 ; outlines, so the shape editor has one file for every drawable shape. It was
-; a fixed triangle (SHIP_NOSE/TAIL/HALFW) until it moved to an authored N-gon;
-; emit_ship still draws it as solid FULL-res LINE16 segments for the same
-; reason as before - see the note there. qmul indexes its table with
-; |x| + |y|, so a vertex has the same +/-127 ceiling as a rock's does.
+; a fixed triangle (SHIP_NOSE/TAIL/HALFW), then an authored N-gon still drawn
+; as CPU1-transformed LINE16 segments (one sscale per axis per vertex). Now
+; that it is 14 vertices rather than 3, that transform was the one outline
+; left costing CPU1 instead of the GPU (design_technical.md 11.14), so
+; emit_ship builds the same argument block a rock does and lets the GPU
+; rotate (by 0 - the ship never spins), scale and draw it instead.
 
 SPR_SHIP    = 1                 ; the slot the ship art is installed into. Slot 0
                                 ;   is left as the ROM test sprite so that a
                                 ;   forgotten id draws something recognisable
 SHIP_PAGE   = $10               ; ...and the GPU RAM page its 256 bytes land on
-LOD_R       = 16                ; below this ON-SCREEN radius (half-res) a rock
-                                ;   switches to its AUTHORED reduced outline, if
-                                ;   its shape id has one (shapes.s SHAPE_LODN). A
-                                ;   rock that small cannot show its corners, and
-                                ;   the zoom makes every rock small at speed -
-                                ;   which is exactly when the frame is tightest.
-                                ;
-                                ; This used to be "every SECOND vertex of the
-                                ; full outline", gated by a vertex-count floor
-                                ; (LOD_MIN_N, was 8 then 10): every second vertex
-                                ; of an octagon is a QUADRILATERAL, not a rock -
-                                ; the shape census said so before the eye did, no
-                                ; 8-gon or 12-gon ever reached the screen
-                                ; unhalved, and 174 of 483 outlines drawn were
-                                ; 4-gons, all of them reduced octagons. The
-                                ; lesson was about the REDUCTION, not the
-                                ; threshold - striding is not a level of detail,
-                                ; it is a coincidence that happens to work on a
-                                ; 12-gon and destroys an 8-gon - so reduced
-                                ; shapes are now authored, same as the full ones,
-                                ; and a shape with none (SHAPE_LODN = 0) simply
-                                ; stays at full detail rather than being struck.
+; LOD_R and the per-rock switch to an authored reduced outline (SHAPE_LODN,
+; shapes.s) are retired (design_technical.md 11.9): rocks draw at full
+; authored detail at every on-screen size now. The GPU is the resource that
+; vertex count was ever a budget against (AST_BUDGET/AST_VCOST below), and
+; every proto bench so far finds it with headroom while CPU1 is the tighter
+; side. The authored reduced shapes are left in shapes.s, unused rather than
+; deleted, in case that balance moves back the other way.
 ; THE FRAME CANNOT BE ALLOWED TO OVERRUN, and the reason is far worse than a
 ; dropped frame. The ping-pong SRAMs swap owner at EVERY VSYNC, unconditionally,
 ; in hardware. If CPU1 is still building when that happens, the rest of its list
@@ -547,9 +536,6 @@ GCELL       = $62F7             ; the run cursor, parked while a rock is drawn
 ETIER       = $62F9             ; the tier the frame actually uses: TIER, except
                                 ;   while boosting, when it is TIER_BOOST
 BOOSTN      = $62FA             ; frames of boost left, 0 = not boosting
-SHIP_TMP    = $62DC             ; emit_ship's own scratch: one scaled vertex
-SHIP_EXT    = $62DD             ;   axis, and its sign-extension byte for the
-                                ;   16-bit add into the centre
 SOCCW       = $62DF             ; the ship's occluder box, half-extents
 SOCCH       = $62E0
 OBJXL       = $1000             ; object world positions, 16.8, structure-of-arrays
@@ -630,25 +616,16 @@ OBJTYPE     = $1F80             ; NOBJ bytes: which authored variant of that siz
 OBJANG      = $6000             ; NOBJ bytes: its spin angle, brad (integer part)
 OBJANGF     = $6100             ; ...and the fraction, so a spin can be far slower
                                 ;   than one brad a frame
-SHIP_PVX    = $6200             ; emit_ship's own scratch, FULL-res signed 16 -
-SHIP_PVY    = $6202             ;   the PREVIOUS vertex placed this frame, the
-SHIP_FVX    = $6204             ;   FIRST one (so the last edge can close the
-SHIP_FVY    = $6206             ;   loop back to it) and the one just computed.
-SHIP_CURX   = $6208             ;   Fixed size regardless of SHIP_VN (shapes.s)
-SHIP_CURY   = $620A             ;   - the outline is walked and drawn a vertex
-                                ;   at a time, nothing needs to hold all of it
-                                ;   at once, so there is no per-vertex array to
-                                ;   size and no cap tied to one - see emit_ship.
-SHIP_VI     = $620C             ; the vertex counter - zero page, not X: see
-                                ;   emit_ship for why nothing here trusts a
-                                ;   register to survive a JSR
-SHIP_SIGN   = $620D             ; sscale's own scratch: the original signed
-                                ;   value, re-tested after qmul clobbers A
 PBUF        = $6280             ; the POLYGON argument block: 7 header bytes and
-                                ;   then 2*AVN of shape, 31 at the largest rock.
-                                ;   $6200-$627F and $62A0-$62BF used to hold the
-                                ;   transformed outline and its outcodes; the GPU
-                                ;   owns both now, so 160 bytes came back.
+                                ;   then 2*AVN of shape - 31 at the largest
+                                ;   rock, 35 for the ship's 14 vertices - and
+                                ;   emit_ship's block too now, the two never
+                                ;   being live at once. $6200-$627F and
+                                ;   $62A0-$62BF used to hold the transformed
+                                ;   outline and its outcodes, and then
+                                ;   emit_ship's own per-vertex scratch; the GPU
+                                ;   owns the whole ship outline now too, so
+                                ;   those bytes came back as well.
 DEFPG       = $6300             ; one page of the GPU sprite definition table,
                                 ;   staged here and shipped with LOAD
 ROTHEAD     = $62CE             ; the heading the ROT tables were built for
@@ -783,7 +760,7 @@ cart_init:
         stz     SHOFFL
         stz     SHOFFH
         lda     #3                      ; 2.83 s per revolution - the settled-on
-        sta     TURNIX                  ;   default; see open_questions.md B2
+        sta     TURNIX                  ;   default; see design_technical.md 11.15
         stz     TURNVL
         stz     TURNVH
         lda     #2                      ; the settled-on wind-up; ramp/tscale no
@@ -906,40 +883,6 @@ qmul:
         asl     MQR                     ; >>7 is <<1 read as the high byte, and
         rol     a                       ;   the byte is already in A
         rts
-
-; -----------------------------------------------------------------------------
-; sscale — A = a SIGNED byte, scaled by ZEASH through qmul, -> signed A.
-; Clobbers X, same as qmul (which does the actual multiply) - deliberately: a
-; caller that needs a register to survive this should not be trusting a JSR to
-; carry it, it should be keeping its own loop state in zero page. emit_ship
-; used to lean on PHX/PHY/PLX/PLY here to protect a vertex counter and a shape
-; pointer across this call and API_GPU_LINE16 both - measured wrong in
-; madsim (not in the py65 harness, which is exactly the kind of gap a
-; register-preservation trick can hide): the counter is in SHIP_VI now,
-; and the shape pointer walks itself forward instead of riding Y, so nothing
-; here needs a register to still be what it was after a call returns.
-; -----------------------------------------------------------------------------
-; qmul only takes magnitudes, so this strips the sign, scales, and puts it
-; back - the one-vertex-at-a-time version of what a rock's trig does once per
-; rock.
-; -----------------------------------------------------------------------------
-sscale:
-        sta     SHIP_SIGN               ; remember the ORIGINAL value - not just
-        bpl     @scale                  ;   its sign, the whole byte, so it can
-        eor     #$FF                    ;   be re-tested after qmul clobbers A
-        sec                             ;   two's-complement negate - magnitude,
-        adc     #$00                    ;   not assuming anything about the
-                                        ;   incoming carry
-@scale: sta     MQA
-        lda     ZEASH
-        sta     MQB
-        jsr     qmul                    ; A = magnitude * scale, rounded
-        ldx     SHIP_SIGN               ; test the ORIGINAL sign, not anything
-        bpl     @done                   ;   qmul or this routine touched
-        eor     #$FF
-        sec
-        adc     #$00
-@done:  rts
 
 ; -----------------------------------------------------------------------------
 ; init_stars — scatter the layer with the OS RNG.
@@ -3827,26 +3770,12 @@ one_asteroid:
         jsr     qmul
         sta     AOCR
 
-        ; LOD: below LOD_R this shape id may have an AUTHORED reduced outline -
-        ; SHAPE_LODN nonzero - and if so the shape pointer swaps to it outright,
-        ; rather than striding through the full outline (shapes.s explains why:
-        ; an authored reduced shape reads as a rock at any vertex count, where
-        ; every-second-vertex only ever worked on the two biggest classes).
-        lda     ARAD
-        cmp     #LOD_R
-        bcs     :+
-        ldy     ASHP
-        lda     SHAPE_LODN,y
-        beq     :+
-        sta     AVN
-        lda     SHAPE_LODLO,y
-        sta     SHPL
-        lda     SHAPE_LODHI,y
-        sta     SHPH
-:       lda     #$02                    ; AVSTEP: how far apart the vertices we
-        sta     AVSTEP                  ;   use sit in the shape, in bytes - always
-                                        ;   2 now, the shape itself is already the
-                                        ;   right size
+        lda     #$02                    ; AVSTEP: how far apart the vertices we
+        sta     AVSTEP                  ;   use sit in the shape, in bytes -
+                                        ;   always 2. Used to drop to an
+                                        ;   authored reduced outline below
+                                        ;   LOD_R; retired, rocks stay full
+                                        ;   detail at every size now (11.9).
 
         ldy     VISI                    ; half-res centre = the full-res screen
         lda     VSXH,y                  ;   position >> 1, arithmetic (cmp #$80
@@ -4073,7 +4002,9 @@ emit_ship:
         jmp     API_GPU_SPRITE
 .else
         ; The centre is 16-bit because it has to be: FBCX plus a SHOFF of 126
-        ; plus a vertex is past 255 on its own.
+        ; plus a vertex is past 255 on its own. Built straight into PBUF now -
+        ; the same argument block one_asteroid fills, reused here because the
+        ; two never draw at once.
         ldy     #$00                    ; cx = FBCX + SHOFF, signed 16
         bit     SHOFFH
         bpl     :+
@@ -4081,10 +4012,10 @@ emit_ship:
 :       clc
         lda     SHOFFH
         adc     #<FBCX
-        sta     T0
+        sta     PBUF+0
         tya
         adc     #>FBCX
-        sta     T1
+        sta     PBUF+1
 
         ldy     #$00                    ; cy = FBCY + SHOFX, the cross lean
         bit     SHOFXH
@@ -4093,147 +4024,32 @@ emit_ship:
 :       clc
         lda     SHOFXH
         adc     #<FBCY
-        sta     T2
+        sta     PBUF+2
         tya
         adc     #>FBCY
-        sta     T3
+        sta     PBUF+3
 
-        ; Scale every authored vertex by ZEASH (not ZOOMH, same reason as a
-        ; rock's SCALE: qmul is a plain product, nothing here gates a table
-        ; rebuild, so the smooth ease costs nothing and the ship shrinks
-        ; continuously instead of by rungs), place it relative to the centre
-        ; just computed, and draw it - one vertex at a time, no array: SHIP_VN
-        ; has no ceiling tied to a buffer size, the same as a rock's vertex
-        ; count has none. Only SHIP_CURX/Y (the vertex just placed),
-        ; SHIP_PVX/Y (the previous one, so its edge can be drawn) and
-        ; SHIP_FVX/Y (the first one, so the LAST edge can close the loop back
-        ; to it) are ever live - three vertices' worth of state regardless of
-        ; how many are authored.
-        ;
-        ; ALL of that state lives in ZERO PAGE, on purpose, including the
-        ; vertex counter (SHIP_VI) and the shape pointer, which advances
-        ; itself two bytes a vertex instead of riding an index register. This
-        ; used to trust X and Y to survive jsr sscale and jsr API_GPU_LINE16,
-        ; via PHX/PHY/PLX/PLY - measured wrong in real madsim (not in the py65
-        ; harness, which never caught it): every vertex came out with its sign
-        ; discarded, exactly as if the register save had silently failed.
-        ; Nothing here relies on that any more - a JSR's only contract is what
-        ; it returns in A, never what it leaves in X or Y.
-        lda     #<SHIP_SHAPE
-        sta     SHPL
-        lda     #>SHIP_SHAPE
-        sta     SHPH
-        stz     SHIP_VI                 ; vertices placed so far
-@vlp:   ldy     #$00
-        lda     (SHPL),y                ; dx
-        jsr     sscale
-        sta     SHIP_TMP
-        lda     SHIP_TMP
-        bmi     @xneg
-        lda     #$00
-        bra     @xext
-@xneg:  lda     #$FF
-@xext:  sta     SHIP_EXT
-        clc
-        lda     T0
-        adc     SHIP_TMP
-        sta     SHIP_CURX
-        lda     T1
-        adc     SHIP_EXT
-        sta     SHIP_CURX+1
+        stz     PBUF+4                  ; ANGLE: nose fixed up (4.3) - no spin
+                                        ;   to fold in, unlike a rock's
+        lda     ZEASH                   ; SCALE: the same eased zoom reciprocal
+        sta     PBUF+5                  ;   a rock's SCALE reads (4.4) - the GPU
+                                        ;   now does the multiply sscale used to
+                                        ;   do here, one vertex at a time
+        lda     #SHIP_VN
+        sta     PBUF+6
 
-        ldy     #$01
-        lda     (SHPL),y                ; dy
-        jsr     sscale
-        sta     SHIP_TMP
-        lda     SHIP_TMP
-        bmi     @yneg
-        lda     #$00
-        bra     @yext
-@yneg:  lda     #$FF
-@yext:  sta     SHIP_EXT
-        clc
-        lda     T2
-        adc     SHIP_TMP
-        sta     SHIP_CURY
-        lda     T3
-        adc     SHIP_EXT
-        sta     SHIP_CURY+1
+        ldx     #$00                    ; the shape is authored at the scale
+@vlp:   lda     SHIP_SHAPE,x            ;   POLYGON16 wants - unrotated and
+        sta     PBUF+7,x                ;   unscaled, exactly as authored - so
+        inx                             ;   this is a copy, the same as a
+        cpx     #SHIP_VN*2              ;   rock's, not a per-vertex transform
+        bne     @vlp
 
-        lda     SHIP_VI
-        bne     @drawedge
-        ; the FIRST vertex: nothing to draw yet, just remember it twice - as
-        ; the loop's start (FIRST, for the closing edge) and as the running
-        ; PREVIOUS (for the next edge)
-        lda     SHIP_CURX
-        sta     SHIP_FVX
-        sta     SHIP_PVX
-        lda     SHIP_CURX+1
-        sta     SHIP_FVX+1
-        sta     SHIP_PVX+1
-        lda     SHIP_CURY
-        sta     SHIP_FVY
-        sta     SHIP_PVY
-        lda     SHIP_CURY+1
-        sta     SHIP_FVY+1
-        sta     SHIP_PVY+1
-        bra     @next
-@drawedge:
-        lda     SHIP_PVX
+        lda     #<PBUF
         sta     OS_ARG+0
-        lda     SHIP_PVX+1
+        lda     #>PBUF
         sta     OS_ARG+1
-        lda     SHIP_PVY
-        sta     OS_ARG+2
-        lda     SHIP_PVY+1
-        sta     OS_ARG+3
-        lda     SHIP_CURX
-        sta     OS_ARG+4
-        lda     SHIP_CURX+1
-        sta     OS_ARG+5
-        lda     SHIP_CURY
-        sta     OS_ARG+6
-        lda     SHIP_CURY+1
-        sta     OS_ARG+7
-        jsr     API_GPU_LINE16
-        lda     SHIP_CURX               ; PREVIOUS = this vertex, for the edge
-        sta     SHIP_PVX                ;   that follows it
-        lda     SHIP_CURX+1
-        sta     SHIP_PVX+1
-        lda     SHIP_CURY
-        sta     SHIP_PVY
-        lda     SHIP_CURY+1
-        sta     SHIP_PVY+1
-@next:  clc                             ; the shape pointer advances itself,
-        lda     SHPL                    ;   two bytes to the next vertex
-        adc     #$02
-        sta     SHPL
-        bcc     :+
-        inc     SHPH
-:       inc     SHIP_VI
-        lda     SHIP_VI
-        cmp     #SHIP_VN
-        beq     @closeedge              ; the loop body is too long for a plain
-        jmp     @vlp                    ;   branch to reach backward over
-@closeedge:
-        ; ...and the closing edge, the last vertex placed back to the first.
-        lda     SHIP_PVX
-        sta     OS_ARG+0
-        lda     SHIP_PVX+1
-        sta     OS_ARG+1
-        lda     SHIP_PVY
-        sta     OS_ARG+2
-        lda     SHIP_PVY+1
-        sta     OS_ARG+3
-        lda     SHIP_FVX
-        sta     OS_ARG+4
-        lda     SHIP_FVX+1
-        sta     OS_ARG+5
-        lda     SHIP_FVY
-        sta     OS_ARG+6
-        lda     SHIP_FVY+1
-        sta     OS_ARG+7
-        jmp     API_GPU_LINE16          ; tail call: its own rts returns for us
+        jmp     API_GPU_POLYGON16       ; tail call: its own rts returns for us
 .endif
 
 ; -----------------------------------------------------------------------------

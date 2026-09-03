@@ -836,8 +836,14 @@ These are settled and should not be re-opened without a reason:
    cull window is frozen, not simulated. See 6.1.
 7. Broad phase is a **sector grid** indexed by masked high bits of position.
 8. Stars are a **sampled parallax layer**, not simulated objects.
-9. Sprites are a **level-of-detail optimisation** for small on-screen objects, not
-   the primary art form.
+9. Sprites are for art that is not an outline — **thruster flames and shots**
+   (player and enemy) — not a level-of-detail fallback for the ship or for
+   rocks. Both stay vector at every on-screen size: the vertex cost that would
+   justify a fallback lives on the GPU (13), and every proto bench so far finds
+   GPU headroom while CPU1 is the tighter side. This retires the authored
+   reduced-outline LOD proto 02/03 had (`SHAPE_LODN`/`LOD_R`) along with the
+   sprite fallback it stood in for — settles the old D1; see `open_questions.md`
+   D2 for what is still open about the flame sprites themselves.
 10. TATE, clockwise, per the MAD-65 house convention.
 11. Every **collidable body has a power-of-two mass** and a radius, and those two
     numbers are its entire physical identity. See 7 and `physics.md` 4.2 for what
@@ -853,3 +859,37 @@ These are settled and should not be re-opened without a reason:
     well as clips - and it moves the frame-budget question with it: the outline
     budget still counts vertices, but the frame it protects is now the **GPU's**.
     See proto 01 findings 46 and 48.
+14. **The ship's outline is drawn through that same GPU polygon path, not a
+    CPU1-transformed one.** 4.4's "keep it vector rather than pre-scale a
+    sprite" argument costed the ship at three points; proto 03 authors it as a
+    14-vertex shape (`shapes.s SHIP_SHAPE`), so the per-vertex CPU1 loop
+    (`sscale` then `API_GPU_LINE16`) it used to run was no longer the cheap
+    case. `emit_ship` now builds the same centre/angle(0)/scale/shape argument
+    block a rock does and calls `API_GPU_POLYGON16` — measured at ~10,900
+    fewer CPU1 cycles on the worst frame, folded together with 11.9's rock
+    change. See proto 03's README "Cost, measured".
+15. **Turn rate is a quarter-brad ladder, and the ship flies at rung 3 — 2830 ms
+    per revolution.** Flying proto 01 settled the band before it settled the
+    value: **1 to 3 brad per frame is usable**, and this document's original
+    "1/32 of a turn per frame" (8 brad/frame, 531 ms per revolution) is far too
+    fast. Whole-brad steps inside that band were too coarse to choose between,
+    so the heading carries a fraction — it is 8.8, and the world is rotated by
+    its integer part — and the ladder is quarter-brad: `5659, 4244, 3396, 2830,
+    2425, 2122, 1698, 1415` ms per revolution. The ladder stays a bench control;
+    the game gets rung 3. Settles the old B2. The fractional heading is not
+    itself a ruling on 32 headings vs 256 — that is still open, see
+    `open_questions.md` B5.
+16. **The stick sets a TARGET angular velocity, and the real one eases toward it
+    by 1/4 of the gap each frame** (`RAMP_SHIFT = 2`), so a turn winds up and
+    unwinds instead of switching on and off. This is not a restatement of 15 or
+    17: those decide *how fast* the ship turns, this decides *how quickly it
+    gets there*. An instant ease (ramp 0 — the old on/off behaviour) stays in
+    the benches so the two can be flown back to back. Settles the old B7.
+17. **The turn rate rises with flight speed, by x1.25 at the top tier.** Turn
+    radius is `v/omega`, so a constant omega makes the radius grow in proportion
+    to speed — at +350 the ship would sweep a circle seven times wider than at
+    +50. Doubling the rate at the top — the first cut — rose too fast to fly,
+    and full proportionality (a constant turn radius) is rejected at the other
+    end, because it leaves the ship barely able to turn at low speed. The
+    coupling is one `TURN_XTRA` table read at the swept throttle position, and
+    x1.25 is the settled shift of it. Settles the old B6.
