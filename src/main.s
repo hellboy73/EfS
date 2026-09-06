@@ -97,7 +97,7 @@ MOTE_N      = 10                ; motes: a second layer much CLOSER than the
                                 ;   ship's speed. ~5 on screen at a time - they
                                 ;   are there to sell speed when nothing else is
                                 ;   in view, not to be looked at.
-NOBJ        = 120               ; asteroid SLOTS. How many rocks a level puts
+NOBJ        = 255               ; asteroid SLOTS. How many rocks a level puts
                                 ;   in them is the level's own business (see
                                 ;   levels.s); this is the ceiling the arrays
                                 ;   are cut to, and a budget number rather than
@@ -111,6 +111,26 @@ NOBJ        = 120               ; asteroid SLOTS. How many rocks a level puts
                                 ;   not it is anywhere near, which is the single
                                 ;   largest item in the frame - see the budget
                                 ;   note in README.md.
+                                ;
+                                ;   IT WAS 120, AND THE SPLIT IS WHY IT IS NOT.
+                                ;   A destroyed rock becomes two of the next
+                                ;   class down (shots.s rock_split), so the
+                                ;   field MULTIPLIES: one 192 broken all the way
+                                ;   down is sixteen 16s, and a level that starts
+                                ;   with 120 rocks peaks at 570 if every one of
+                                ;   them is taken apart. The slots cannot hold
+                                ;   that and never will - see rock_recycle for
+                                ;   what happens instead - but every slot that
+                                ;   does exist is one less time it has to
+                                ;   happen.
+                                ;
+                                ;   255 IS THE CEILING, not a choice. An object
+                                ;   id is a byte and $FF is the sector grid's
+                                ;   end-of-list marker (CELLHD / OBJNXT), so
+                                ;   there are 255 usable ids and the arrays are
+                                ;   whole pages. Going past it means widening
+                                ;   every index in do_objects, physics.s and the
+                                ;   grid to 16 bits.
 START_LEVEL = 0                 ; which of levels.s's levels cart_init loads.
                                 ;   One level exists; the campaign is five
                                 ;   (design_technical 9), and picking between
@@ -544,6 +564,11 @@ GCELL       = $62F7             ; the run cursor, parked while a rock is drawn
 ETIER       = $62F9             ; the tier the frame actually uses: TIER, except
                                 ;   while boosting, when it is TIER_BOOST
 BOOSTN      = $62FA             ; frames of boost left, 0 = not boosting
+NFREE       = $62DC             ; slots on the free stack (see FREEL)
+NFREEMIN    = $62DD             ; ...and the fewest there have ever been, which
+                                ;   is the only number that says whether the
+                                ;   slot ceiling is anywhere near binding
+NRECYC      = $62DE             ; rocks quietly recycled to make room, likewise
 SOCCW       = $62DF             ; the ship's occluder box, half-extents
 SOCCH       = $62E0
 OBJXL       = $1000             ; object world positions, 16.8, structure-of-arrays
@@ -614,9 +639,42 @@ QRH         = $6500             ;   plain one from THIS one is the rounding: the
 ZSI         = $6600             ; the ZOOM table: ZS[i] = signed(i)*RZ/128, 8.8,
 ZSF         = $6700             ;   the same shape as ROT and read the same way -
                                 ;   see RPROD. Rebuilt when the reciprocal moves
-OBJSHP      = $1F00             ; NOBJ bytes: which of the five sizes each rock is
-OBJTYPE     = $1F80             ; NOBJ bytes: which authored variant of that size
+; The per-rock arrays are ALL whole pages now. Five of them used to share pages
+; on a 128-byte stride - which is what made NOBJ 128 rather than 255 - and the
+; split needed the slots more than the 640 bytes were worth. Everything else was
+; already a full page and did not move.
+OBJSHP      = $1F00             ; NOBJ bytes: which of the five sizes each rock is,
+                                ;   or SHP_DEAD once it has been shot to pieces
+OBJTYPE     = $7500             ; NOBJ bytes: which authored variant of that size
                                 ;   (0..AST_TYPES-1) - see shapes.s and TYPE_PICK
+OBJSPNL     = $7400             ; NOBJ bytes each: this rock's OWN spin rate,
+OBJSPNH     = $7600             ;   signed 8.8 brad per frame. It starts as a
+                                ;   COPY of its class's AST_SPIN and a hit
+                                ;   changes it (shots.s rock_spin) - which is
+                                ;   the whole reason it is an array now and not
+                                ;   the table read the integrator used to do.
+                                ;   It costs nothing: reading two bytes indexed
+                                ;   by the rock is CHEAPER than indexing a table
+                                ;   by its class, so do_objects got faster.
+FREEL       = $7700             ; NOBJ bytes: the FREE SLOT STACK. Which slots are
+                                ;   not carrying a rock, most recently freed on
+                                ;   top - see rock_alloc / rock_free. Without it
+                                ;   a split would have to scan the field for a
+                                ;   hole, and it is the one thing in this program
+                                ;   that has to happen inside a frame where
+                                ;   something else has just been destroyed.
+OBJHP       = $7200             ; NOBJ bytes: hit points left, from ROCK_HP by
+                                ;   size class (objects.s). Kept for EVERY rock,
+                                ;   on camera or not - see the note on ROCK_HP.
+                                ;   $7000-$71FF is thrust.s's block and shots.s's
+SHP_DEAD    = $FF               ; the OBJSHP a destroyed rock is stamped with.
+                                ;   It is not a class, and it does not have to
+                                ;   be tested for anywhere: the rock is unlinked
+                                ;   from the sector grid, which is the only way
+                                ;   the frame reaches an object, and the radar's
+                                ;   flat scan - the one walk that goes by slot -
+                                ;   rejects it through the class window it was
+                                ;   already applying. See shots.s rock_kill.
 ; $6800-$6FFF belongs to radar.s - six DOT_PIXELS pages, its own scalars and
 ; the enemy table - and $F0/$F1 to its one zero-page pointer. Declared there,
 ; beside the code that reads them, exactly as physics.s declares its own. It
@@ -801,6 +859,8 @@ cart_init:
         sta     PRNGH
 
         jsr     init_qs
+        jsr     shots_init              ; ...and every gun and puff slot free -
+                                        ;   nothing zeroes cartridge RAM for us
         jsr     init_stars
         jsr     init_motes
         ldx     #START_LEVEL            ; ...and the field, the ship's place in
@@ -884,6 +944,16 @@ cart_frame:
         jsr     emit_asteroids          ; ...which also registers their occluder
                                         ;   discs, which do_stars needs: it is the
                                         ;   one pass that has to run after them
+        jsr     do_shots                ; the gun: fire, fly, hit, draw. AFTER
+                                        ;   emit_asteroids, because it hits
+                                        ;   against the visible list that pass
+                                        ;   has just finished reading and kills
+                                        ;   rocks out of the sector grid, which
+                                        ;   nothing may be standing on - see
+                                        ;   shots.s rock_kill
+        jsr     do_explosions           ; ...and the pixel puffs its hits threw
+                                        ;   off, which outlive the bullet that
+                                        ;   made them by a few frames
         jsr     do_stars
         jsr     do_motes
         jsr     emit_ship
@@ -963,6 +1033,11 @@ cart_frame:
         .include "radar.s"              ; the HUD radar: a second, wider walk of
                                         ; the same sector grid, on high bytes
                                         ; only. See that file's header.
+        .include "shots.s"              ; the gun: six OPEN POLYGON16 bullets,
+                                        ; and what a hit takes off a rock. Here
+                                        ; rather than in bank 0 for the room,
+                                        ; and after radar.s because rock_kill
+                                        ; decrements that file's census.
 
 ; =============================================================================
 ; Data
@@ -994,7 +1069,9 @@ cart_frame:
 ; The ceiling on the array itself. That every level FITS in it is asserted from
 ; levels.s, per level, off sums the assembler makes out of that file's own
 ; constants - so a count edited there by hand is checked too.
-        .assert NOBJ <= 128, error, "OBJSHP and OBJTYPE are only 128 bytes apart"
+; An object id is a BYTE, and $FF is the sector grid's end-of-list marker, so
+; 255 slots is the ceiling the whole design sits under - not a RAM limit.
+        .assert NOBJ <= 255, error, "$FF is CELLHD's empty marker, so id 255 cannot exist"
 
 ; Speed tiers, signed 8.8 world units per frame. A world unit is 1/16 of a
 ; full-res pixel and the frame is 60.317 Hz, so one unit per frame is 3.77 px/s
@@ -1198,23 +1275,11 @@ ZOOM_RZ:
 ; of rocks in view. Snapping the eased value to 16 rungs an octave cuts that by
 ; 4x for a 4.4% step in scale, which is below what the eye picks up on a rock.
 ;
-; SPRITES, and this is why the rungs are geometric rather than evenly spaced.
-; On-screen radius is R_class * RZ/128. With the rungs at 128*2^(-k/16) and the
-; size classes an octave apart, that becomes
-;
-;       r = R0 * 2^(-(c*S + k)/S)
-;
-; so the on-screen size depends on ONE integer, c*S + k. A rock at the bottom
-; rung of its octave is pixel-identical to the next class down at the top rung:
-; k=16 of class c IS k=0 of class c+1. A sprite atlas is therefore indexed by an
-; ADDITION, not a table, and one sprite serves every (class, zoom) pair that
-; lands on its index. The S=4 sub-ladder the sprites will actually use is every
-; fourth rung - 128, 108, 91, 76, 64 - and it is exact, not approximate, because
-; it is a subset of these same rungs.
-;
-; SHAPE_R's 48 breaks the octave spacing (48, 32, 16, 8, 4 - the first step is
-; 1.5x). It does not matter: the 192 class is far too big to ever be a sprite,
-; and 32/16/8/4 are octaves.
+; SPRITES used to be the second reason, and no longer applies: rocks stay
+; vector polygons at every on-screen size, permanently (design_technical.md
+; 11.9 / 5.1) - there is no rock sprite atlas for a geometric rung to line up
+; with. Geometric spacing here now stands on CYCLES alone; if this ladder
+; grows more rungs, evenly-spaced ones are back on the table too.
 ZQ_LADDER:                              ; 128 * 2^(-k/16), k = 0..16
         .byte    64,  67,  70,  73,  76,  79,  83,  87,  91
         .byte    95,  99, 103, 108, 112, 117, 123, 128

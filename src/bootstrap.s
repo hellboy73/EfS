@@ -51,7 +51,8 @@
 OS_ARG        = $20             ; $20-$2F, the API argument block
 API_CART_LOAD = $FF06           ; OS_ARG: bank8, src16, dst16, len16
 
-RODATA_BANK   = 1               ; must match cart.cfg's MEMORY order
+CODE2_BANK    = 1               ; must match cart.cfg's MEMORY order
+RODATA_BANK   = 2
 
         .segment "BOOT"
 
@@ -72,15 +73,15 @@ boot_init:
         sta     OS_ARG+6
         jsr     API_CART_LOAD
 
-        ; --- bank 1: CODE2 AND RODATA, in ONE copy -------------------------
-        ; Bank 1 holds two segments now (radar.s went there when the HUD pushed
-        ; bank 0 past 8 KB), and they are contiguous in the window and
-        ; contiguous in RAM - cart.cfg lists them in that order and ld65 lays
-        ; both out in list order. So the copy that used to be RODATA's is
-        ; simply longer: it starts at CODE2 and runs to the end of RODATA.
-        ; Two segments, one cart_load, and the only thing that would break it
-        ; is reordering them in cart.cfg.
-        lda     #RODATA_BANK
+        ; --- bank 1: CODE2 ------------------------------------------------
+        ; This used to be one copy covering CODE2 AND RODATA, because the two
+        ; were contiguous in the window as well as in RAM. The split pushed them
+        ; past 8 KB together and RODATA moved to a bank of its own (cart.cfg), so
+        ; it is two copies now. They still land contiguously in RAM - that is
+        ; what makes every absolute reference between them resolve - and the run
+        ; addresses come from the linker, so neither copy has an address in it
+        ; that this file could get wrong.
+        lda     #CODE2_BANK
         sta     OS_ARG+0
         lda     #<__CODE2_LOAD__
         sta     OS_ARG+1
@@ -90,9 +91,26 @@ boot_init:
         sta     OS_ARG+3
         lda     #>__CODE2_RUN__
         sta     OS_ARG+4
-        lda     #<(__CODE2_SIZE__ + __RODATA_SIZE__)
+        lda     #<__CODE2_SIZE__
         sta     OS_ARG+5
-        lda     #>(__CODE2_SIZE__ + __RODATA_SIZE__)
+        lda     #>__CODE2_SIZE__
+        sta     OS_ARG+6
+        jsr     API_CART_LOAD
+
+        ; --- bank 2: RODATA -----------------------------------------------
+        lda     #RODATA_BANK
+        sta     OS_ARG+0
+        lda     #<__RODATA_LOAD__
+        sta     OS_ARG+1
+        lda     #>__RODATA_LOAD__
+        sta     OS_ARG+2
+        lda     #<__RODATA_RUN__
+        sta     OS_ARG+3
+        lda     #>__RODATA_RUN__
+        sta     OS_ARG+4
+        lda     #<__RODATA_SIZE__
+        sta     OS_ARG+5
+        lda     #>__RODATA_SIZE__
         sta     OS_ARG+6
         jsr     API_CART_LOAD
 

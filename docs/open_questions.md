@@ -80,6 +80,24 @@ i.e. 1/16, and the camera's lean into a turn (C5) eases the same way on its own
 constant, `CAMX_LAG = 5`. What is left is flying it: too fast is nauseating, too
 slow disconnects the throttle from the view.
 
+**B8. Does firing slow the ship (TBD)?** Each shot could take a little speed off
+— recoil, or simply a cost for shooting. It is cheap to try: the gun already
+knows the ship's velocity at the moment of the shot (`shots.s shot_fire` copies
+`VELX`/`VELY` into the bullet), so the same place can subtract from it. Two
+things have to be decided together with the number:
+
+- **Where it is taken from.** `do_ship` rebuilds `VELX`/`VELY` from the throttle
+  every frame, so an impulse written into them is gone by the next one. It has
+  to come off the THROTTLE (`THRTL`) to survive, which makes it a real cost the
+  player has to fly back up from — or off `SPD` for one frame, which makes it a
+  visual hitch and nothing more.
+- **Whether it can reverse.** At a standstill, firing repeatedly should probably
+  not push the ship backwards.
+
+Worth flying against B1's speed table rather than settled on paper: at 6 slots
+and one shot per press the rate is already bounded, so the question is whether a
+burst should read as *costing* something.
+
 **B4. Visual bank angle while turning (TBD).** How much the ship tilts, and whether
 it is a sprite swap (cheap, a handful of frames) or a real small rotation.
 
@@ -341,6 +359,29 @@ mass of the one above**. The halving is not a feel decision — it is what colla
 the mass-ratio table to nine bytes and makes momentum conserve to the bit. See
 `design_technical.md` 11.11 and `physics.md` 4.2.
 
+**E9. What the split does to the frame (TBM — and it is the number to watch).**
+The split is built (`physics.md` 6, `shots.s rock_split`) and it costs almost
+nothing *itself*: a few thousand cycles on the frame a rock comes apart. What
+costs is what it leaves behind. Two halves are born in the same place, and their
+halves after that, so a cascade builds a **local cluster** — and a cluster is the
+worst case for everything that is proportional to what is *near* rather than to
+how many rocks exist: `do_objects`' precise pass, `do_collide`'s pair walk, and
+the visible list.
+
+Measured, on a deliberately harsh bench — every hit made lethal, so cascades run
+far faster than a 5/4/3/2/1 hit-point field allows: the worst frame went from
+74.0% to **88.2%**, and the packed visible list from 31 entries to **48 of
+`VIS_MAX` 64**. Making the smallest class sweepable debris (`design_technical.md`
+11.6) took both back down — **83.6%** and **36** — because the 16s were most of
+what was crowding the list. That is the fix, and it is in; what is left open is
+that the same pressure comes back on a level with a bigger population, and the
+levers are still:
+
+- `VIS_MAX` — 5 bytes an entry, and an overflow is *silent*: a rock past the end
+  is neither drawn nor hittable that frame.
+- the collision window, which `E1` already names as the lever left if the object
+  count grows past what the cull can absorb.
+
 **E4. Restitution, spin gain, split impulse, break-up threshold (TBM).** The whole
 tuning surface, and still largely open — the physics *runs* now, which means the
 iteration loop this question was waiting for can start.
@@ -397,9 +438,22 @@ remains open is the implementation of the three mission types the script needs:
 **clear the field**, **survive / traverse**, **reach the exit alive** — and what
 each shows on the HUD.
 
-**F2. Bank map (TBD).** The draft in `design_technical.md` section 10 is a guess.
-Real allocation follows real asset sizes — music is usually the surprise (in CETAS
-one song was 11 banks).
+One piece of "clear the field" is settled and built: **what counts as a rock
+left**. `shots.s rocks_left` is the sum of `RKLIVE` over classes 0 to 3 — the
+smallest class is debris and is excluded (`design_technical.md` 11.6), because
+counting it would make the remaining work jump *upwards* every time the player
+destroyed something and the game itself removes it off camera. Nothing reads the
+number yet; it is there so that all three mission types read the same one.
+
+**F2. Bank map (TBD — but the SIZE is settled: 256 KB).** The draft in
+`design_technical.md` section 10 is a guess. Real allocation follows real asset
+sizes — music is usually the surprise (in CETAS one song was 11 banks).
+
+What is no longer open is how much room there is and what it is worth: **256 KB,
+32 banks, and nothing executes out of any of them** (`design_technical.md`
+11.18). So bank space is not the constraint a new table runs into — the 16 KB
+RAM run area is, and it has about 2,000 bytes left. A table that is only ever
+read, and read rarely, is the one kind of thing that can stay in the window.
 
 **F3. Music: how many tracks, how long (TBD).** The biggest single consumer of a
 256 KB cartridge. If the campaign wants more music than fits, the options are a

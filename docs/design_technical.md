@@ -316,22 +316,23 @@ transform is the bottleneck.
 
 ## 5. Rendering
 
-### 5.1 Vector first, sprites for the small stuff
+### 5.1 Vector first, sprites for what isn't an outline
 
 The look is **vector**: asteroid outlines, the ship, enemies and effects are drawn
-as line / dot-line polygons transformed on CPU1 and emitted to the GPU. Bitmaps and
-sprites appear where they buy something:
+as line / dot-line polygons transformed on CPU1 and emitted to the GPU, at every
+on-screen size. There is no polygon-to-sprite LOD fallback for the ship or for
+rocks — both stay vector however small they draw (11.9; retires the old
+reduced-outline LOD and closes `open_questions.md` D1). Bitmaps and sprites
+appear where they buy something else:
 
-- **Sprites** for objects that have become small on screen. Below a threshold size
-  a transformed polygon costs more CPU than it earns in fidelity, so the object
-  switches to one of a small set of pre-scaled sprites. This is the main CPU/GPU
-  optimisation and the reason sprites exist in a vector game at all.
+- **Sprites** for art that is not an outline to begin with: thruster flames and
+  shots. A raster sprite cannot ride a polygon's continuous scale the way a
+  vertex can, so these are authored at a few pre-scaled sizes and the right one
+  is picked for the current zoom (`open_questions.md` D2 has the open count).
 - **Bitmaps** for title, story, mission-briefing and end screens, drawn to the VRAM
   background (free per frame — the hardware re-copies it).
 - **HUD** as text or tiles on the background layer where it does not change every
   frame.
-
-The vector/sprite crossover size is **(TBM)**.
 
 ### 5.2 GPU primitives available
 
@@ -834,6 +835,40 @@ These are settled and should not be re-opened without a reason:
    only cosmetics are procedurally generated. Physics (integrate, cull, collide)
    runs only for objects near the camera — an object outside the sector grid's
    cull window is frozen, not simulated. See 6.1.
+
+   **AMENDED: the smallest size class is DEBRIS, and debris is not permanent.**
+   The split (`shots.s rock_split`) forced this. A destroyed rock becomes two of
+   the next class down, so the field *multiplies*: one 192 taken all the way apart
+   is sixteen 16s, and a level that starts with 120 rocks peaks at 570 against 255
+   slots — which is the ceiling, because an object id is a byte and `$FF` is the
+   sector grid's end-of-list marker. A fixed-size field was what made "nothing is
+   forgotten" affordable, and the split is exactly what breaks that arithmetic.
+
+   So the 16s stopped being part of the field and became an effect. They exist to
+   give a 32 something to come apart into and a hit something to scatter; they can
+   be shot like anything else; and **the moment one has drifted `RECYC_FAR` from
+   the ship, `rock_sweep` drops it** — every frame, as routine, not as an
+   emergency. `RECYC_FAR` is 1,536 reference pixels, six times the furthest a rock
+   can be and still be on screen, so one is never seen going. The sweep walks
+   `RECYC_STEP` slots a frame, so the whole array comes round in an eighth of a
+   second.
+
+   That is what makes the arithmetic close: the leaf of the cascade is exactly the
+   class the sweep takes back, so the slots a split spends are the slots the sweep
+   returns. Measured on a bench where every hit was made lethal, it holds the live
+   count *below* where the level started, and it takes CPU1's worst frame from
+   88.2% to 83.6% — the 16s were the thing crowding the visible list.
+
+   `rock_recycle` is the same test used as a last resort: when a split has nowhere
+   to put its second half it walks the whole field looking for one speck to take.
+   If it finds none, **the killing blow does not land** and the rock keeps its last
+   hit point. That is the backstop, and it is counted (`NBLOCK`) so that "it never
+   fires" is a number rather than a hope.
+
+   The consequence worth naming: **"how many rocks are left" excludes the smallest
+   class** — `shots.s rocks_left` sums classes 0 to 3 and nothing else. Counting
+   debris would make a level's remaining work jump *upwards* every time the player
+   destroyed something. See `open_questions.md` F1.
 7. Broad phase is a **sector grid** indexed by masked high bits of position.
 8. Stars are a **sampled parallax layer**, not simulated objects.
 9. Sprites are for art that is not an outline — **thruster flames and shots**
@@ -893,3 +928,24 @@ These are settled and should not be re-opened without a reason:
     end, because it leaves the ship barely able to turn at low speed. The
     coupling is one `TURN_XTRA` table read at the swept throttle position, and
     x1.25 is the settled shift of it. Settles the old B6.
+18. **The cartridge is 256 KB, and NOTHING executes out of it.** Every code and
+    data segment is copied into RAM before the first frame (Model B, the CETAS
+    bootstrap pattern) and the window is never read again. This is not a size
+    optimisation, it is the difference between a frame that fits and one that
+    does not: **the cartridge window has no RAM shadow**, so a read there costs
+    3 wait states, and an instruction fetch is a read. Running in place was
+    measured at ~35,000 cartridge reads a frame and 2.5x the cycle cost, which
+    put the same frame at 77% of budget instead of 69%.
+
+    So a bank is free and RAM is not. 256 KB is 32 banks, and adding one costs a
+    `cart_load` in the bootstrap; what it costs at run time is nothing at all.
+    What is scarce is the **RAM run area** — `cart.cfg` gives `CODE` + `CODE2` +
+    `RODATA` the 16 KB at `$2000-$5FFF`, and the game currently reaches `$581C`,
+    leaving about 2,000 bytes. That number, not the bank map, is what a new
+    table has to fit in.
+
+    The one deliberate exception is `BGDATA`, which stays in the window and is
+    read straight out of it by `API_GPU_RECT_BG_CART` — it is never executed,
+    never reached through a RAM pointer, and read once (radar.s's ring), so the
+    wait states are paid twice a session rather than twice a cycle.
+

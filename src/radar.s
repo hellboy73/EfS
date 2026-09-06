@@ -369,9 +369,12 @@ radar_census:
         beq     radar_sens
 @lp:    dex
         ldy     OBJSHP,x                ; read-add-write, because INC abs,y does
-        lda     RKLIVE,y                ;   not exist - the same trap occ_bands
-        inc     a                       ;   documents
-        sta     RKLIVE,y
+        cpy     #$05                    ;   not exist - the same trap occ_bands
+        bcs     @skip                   ;   documents. SHP_DEAD is past the end
+        lda     RKLIVE,y                ;   of the table too; this only matters
+        inc     a                       ;   if a census is ever taken AFTER
+        sta     RKLIVE,y                ;   something has been shot, which today
+@skip:                                  ;   nothing does
         cpx     #$00
         bne     @lp
         ; fall through

@@ -52,44 +52,49 @@
 ; =============================================================================
 
 ; === GENERATED (tools/shape_editor.py) - rewritten whole on Save ============
-AST_TYPES  = 3                  ; authored variants per size class. TYPE_PICK
+AST_TYPES  = 4                  ; authored variants per size class. TYPE_PICK
                                  ;   in main.s must have exactly this many values
 CLASS_BASE: .byte 0*AST_TYPES, 1*AST_TYPES, 2*AST_TYPES, 3*AST_TYPES, 4*AST_TYPES
                                  ; class -> the first shape id in that class,
                                  ;   so one_asteroid never has to multiply
 
 ; per-shape-id tables, 5 classes x AST_TYPES, size-major
-SHAPE_N:    .byte   12, 12, 13, 10, 10, 11, 9, 9, 9, 8, 7, 7, 5, 5, 5
-SHAPE_R:    .byte   48, 48, 48, 32, 32, 32, 16, 16, 16, 8, 8, 8, 4, 4, 4
-SHAPE_OCC:  .byte   39, 39, 39, 26, 26, 26, 13, 13, 13, 7, 7, 7, 3, 3, 3
+SHAPE_N:    .byte   13, 12, 13, 13, 10, 10, 13, 12, 9, 9, 10, 11, 9, 7, 9
+            .byte   10, 5, 5, 5, 6
+SHAPE_R:    .byte   48, 48, 48, 48, 32, 32, 32, 32, 16, 16, 16, 16, 8, 8, 8
+            .byte   8, 4, 4, 4, 4
+SHAPE_OCC:  .byte   39, 39, 39, 39, 26, 26, 26, 26, 13, 13, 13, 13, 7, 7, 7
+            .byte   7, 3, 3, 3, 3
 
-SHAPE_LO:    .byte    <SHP192_A, <SHP192_B, <SHP192_C
-             .byte    <SHP128_A, <SHP128_B, <SHP128_C
-             .byte    <SHP64_A, <SHP64_B, <SHP64_C
-             .byte    <SHP32_A, <SHP32_B, <SHP32_C
-             .byte    <SHP16_A, <SHP16_B, <SHP16_C
-SHAPE_HI:    .byte    >SHP192_A, >SHP192_B, >SHP192_C
-             .byte    >SHP128_A, >SHP128_B, >SHP128_C
-             .byte    >SHP64_A, >SHP64_B, >SHP64_C
-             .byte    >SHP32_A, >SHP32_B, >SHP32_C
-             .byte    >SHP16_A, >SHP16_B, >SHP16_C
+SHAPE_LO:    .byte    <SHP192_A, <SHP192_B, <SHP192_C, <SHP192_D
+             .byte    <SHP128_A, <SHP128_B, <SHP128_C, <SHP128_D
+             .byte    <SHP64_A, <SHP64_B, <SHP64_C, <SHP64_D
+             .byte    <SHP32_A, <SHP32_B, <SHP32_C, <SHP32_D
+             .byte    <SHP16_A, <SHP16_B, <SHP16_C, <SHP16_D
+SHAPE_HI:    .byte    >SHP192_A, >SHP192_B, >SHP192_C, >SHP192_D
+             .byte    >SHP128_A, >SHP128_B, >SHP128_C, >SHP128_D
+             .byte    >SHP64_A, >SHP64_B, >SHP64_C, >SHP64_D
+             .byte    >SHP32_A, >SHP32_B, >SHP32_C, >SHP32_D
+             .byte    >SHP16_A, >SHP16_B, >SHP16_C, >SHP16_D
 
-SHAPE_LODN: .byte   6, 7, 8, 6, 7, 6, 0, 0, 0, 0, 0, 0, 0, 0, 0
-SHAPE_LODLO: .byte    <SHP192_A_LOD, <SHP192_B_LOD, <SHP192_C_LOD
-             .byte    <SHP128_A_LOD, <SHP128_B_LOD, <SHP128_C_LOD
-             .byte    0, 0, 0
-             .byte    0, 0, 0
-             .byte    0, 0, 0
-SHAPE_LODHI: .byte    >SHP192_A_LOD, >SHP192_B_LOD, >SHP192_C_LOD
-             .byte    >SHP128_A_LOD, >SHP128_B_LOD, >SHP128_C_LOD
-             .byte    0, 0, 0
-             .byte    0, 0, 0
-             .byte    0, 0, 0
+SHAPE_LODN: .byte   6, 7, 8, 6, 6, 7, 6, 6, 0, 0, 0, 0, 0, 0, 0
+            .byte   0, 0, 0, 0, 0
+SHAPE_LODLO: .byte    <SHP192_A_LOD, <SHP192_B_LOD, <SHP192_C_LOD, <SHP192_D_LOD
+             .byte    <SHP128_A_LOD, <SHP128_B_LOD, <SHP128_C_LOD, <SHP128_D_LOD
+             .byte    0, 0, 0, 0
+             .byte    0, 0, 0, 0
+             .byte    0, 0, 0, 0
+SHAPE_LODHI: .byte    >SHP192_A_LOD, >SHP192_B_LOD, >SHP192_C_LOD, >SHP192_D_LOD
+             .byte    >SHP128_A_LOD, >SHP128_B_LOD, >SHP128_C_LOD, >SHP128_D_LOD
+             .byte    0, 0, 0, 0
+             .byte    0, 0, 0, 0
+             .byte    0, 0, 0, 0
 
 ; 192 x 192 full-res -> radius 48 half-res
-SHP192_A:     .byte    44,     2,    35,    20,    25,    41,     2,    34
+SHP192_A:     .byte    40,     1,    30,    19,    23,    37,     2,    34
               .byte   <-16,    32,   <-30,    20,   <-37,     4,   <-37,   <-18
-              .byte   <-19,   <-27,   <-4,   <-40,    21,   <-38,    35,   <-16
+              .byte   <-19,   <-27,   <-4,   <-40,    21,   <-38,    30,   <-28
+              .byte    35,   <-16
 SHP192_B:     .byte    45,    10,    24,    22,    19,    42,   <-7,    35
               .byte   <-22,    25,   <-33,    13,   <-41,   <-4,   <-29,   <-26
               .byte   <-17,   <-39,     6,   <-43,    30,   <-32,    34,   <-9
@@ -97,36 +102,52 @@ SHP192_C:     .byte    38,    16,    24,    30,     6,    35,   <-11,    31
               .byte   <-29,    23,   <-35,     6,   <-42,   <-14,   <-21,   <-28
               .byte   <-10,   <-22,   <-10,   <-44,    17,   <-42,    34,   <-26
               .byte    37,   <-9
+SHP192_D:     .byte    43,    10,    26,    21,    25,    33,     7,    40
+              .byte   <-4,    34,   <-23,    30,   <-35,    16,   <-40,   <-1
+              .byte   <-33,   <-24,   <-14,   <-30,     3,   <-40,    27,   <-34
+              .byte    37,   <-14
 
 ; 128 x 128 full-res -> radius 32 half-res
 SHP128_A:     .byte    29,   <-4,    19,    17,     6,    24,   <-13,    27
               .byte   <-27,    16,   <-27,     3,   <-23,   <-19,   <-8,   <-21
               .byte     8,   <-21,    18,   <-11
 SHP128_B:     .byte    28,     5,    20,    20,     2,    23,   <-14,    28
-              .byte   <-26,    11,   <-22,   <-5,   <-16,   <-17,   <-2,   <-23
+              .byte   <-24,    10,   <-24,   <-7,   <-18,   <-19,   <-2,   <-25
               .byte    16,   <-24,    19,   <-8
-SHP128_C:     .byte    22,     9,    13,    20,   <-6,    24,     1,     4
-              .byte   <-12,    21,   <-27,     8,   <-26,   <-10,   <-14,   <-21
-              .byte     2,   <-31,    20,   <-21,    26,   <-6
+SHP128_C:     .byte    22,     9,    14,    23,   <-5,    25,     2,    11
+              .byte   <-5,    19,   <-12,    22,   <-20,    17,   <-27,     8
+              .byte   <-26,   <-10,   <-14,   <-21,     2,   <-31,    19,   <-19
+              .byte    26,   <-6
+SHP128_D:     .byte    29,     2,    15,    21,     1,    25,   <-16,    21
+              .byte   <-25,     8,   <-27,   <-3,   <-19,   <-23,   <-7,   <-24
+              .byte   <-2,   <-17,    14,   <-24,    14,   <-18,    21,   <-8
 
 ; 64 x 64 full-res -> radius 16 half-res
 SHP64_A:      .byte    13,     0,    11,     8,     0,    13,   <-6,    12
               .byte   <-13,     8,   <-12,   <-2,   <-11,   <-7,   <-2,   <-14
               .byte     7,   <-9
 SHP64_B:      .byte    13,     3,     5,    10,   <-4,    15,   <-8,    11
-              .byte   <-8,     4,   <-15,   <-5,   <-5,   <-11,     3,   <-10
+              .byte   <-8,     4,   <-15,   <-5,   <-5,   <-12,     4,   <-12
               .byte    12,   <-6
-SHP64_C:      .byte    13,     7,     2,    13,   <-7,    10,   <-11,     2
+SHP64_C:      .byte    13,     7,     2,    13,   <-7,    10,   <-12,     2
               .byte   <-12,   <-5,   <-6,   <-8,   <-3,   <-13,     8,   <-12
-              .byte    12,   <-2
+              .byte    10,   <-4,    12,   <-6
+SHP64_D:      .byte    13,     3,     9,    10,   <-3,    13,   <-9,    10
+              .byte   <-14,     5,   <-11,   <-5,   <-9,   <-9,   <-3,   <-13
+              .byte     7,   <-12,    12,   <-6,     9,   <-1
 
 ; 32 x 32 full-res -> radius 8 half-res
-SHP32_A:      .byte     6,   <-1,     2,     6,     0,     3,   <-3,     7
-              .byte   <-6,     2,   <-6,   <-3,   <-3,   <-7,     2,   <-5
-SHP32_B:      .byte     5,     5,     0,     7,   <-5,     3,   <-6,   <-1
-              .byte   <-1,   <-6,     5,   <-5,     7,     0
-SHP32_C:      .byte     5,     4,   <-1,     5,   <-6,     3,   <-7,     0
-              .byte   <-6,   <-4,     1,   <-6,     5,   <-3
+SHP32_A:      .byte     7,   <-1,     6,     3,     3,     7,     0,     3
+              .byte   <-3,     7,   <-7,     2,   <-6,   <-3,   <-3,   <-7
+              .byte     3,   <-6
+SHP32_B:      .byte     5,     5,     0,     7,   <-5,     4,   <-7,   <-1
+              .byte   <-2,   <-7,     5,   <-5,     7,     0
+SHP32_C:      .byte     5,     0,     4,     5,   <-1,     7,   <-6,     3
+              .byte   <-7,     0,   <-6,   <-4,     1,   <-7,     6,   <-3
+              .byte     7,     1
+SHP32_D:      .byte     7,     2,     3,     2,     3,     7,   <-2,     6
+              .byte   <-5,     6,   <-7,     0,   <-3,   <-2,   <-5,   <-5
+              .byte   <-1,   <-8,     5,   <-5
 
 ; 16 x 16 full-res -> radius 4 half-res
 SHP16_A:      .byte     4,     0,     2,     3,   <-2,     2,   <-3,   <-1
@@ -135,6 +156,8 @@ SHP16_B:      .byte     3,     1,     0,     3,   <-4,     0,   <-2,   <-3
               .byte     3,   <-2
 SHP16_C:      .byte     3,     2,   <-2,     3,   <-3,   <-1,   <-1,   <-3
               .byte     3,   <-1
+SHP16_D:      .byte     3,     1,     1,     3,   <-2,     3,   <-4,     0
+              .byte   <-1,   <-1,     0,   <-4
 
 ; authored reduced (LOD) outlines
 SHP192_A_LOD: .byte    44,     2,    25,    41,   <-32,    22,   <-38,   <-19
@@ -143,12 +166,16 @@ SHP192_B_LOD: .byte    42,    10,    19,    27,    16,    42,   <-28,    22
               .byte   <-39,   <-4,   <-20,   <-35,    26,   <-41
 SHP192_C_LOD: .byte    21,    33,   <-23,    29,   <-41,   <-14,   <-10,   <-25
               .byte   <-10,   <-44,    23,   <-41,    37,   <-22,    41,     9
+SHP192_D_LOD: .byte    43,    10,    18,    45,   <-35,    16,   <-34,   <-25
+              .byte     0,   <-40,    27,   <-34
 SHP128_A_LOD: .byte    28,   <-4,    22,    15,   <-14,    27,   <-27,    14
               .byte   <-24,   <-19,     8,   <-21
 SHP128_B_LOD: .byte    27,     6,    18,    21,   <-14,    28,   <-27,     8
               .byte   <-14,   <-20,    16,   <-24,    19,   <-6
 SHP128_C_LOD: .byte    14,    21,   <-12,    24,   <-27,     9,   <-20,   <-15
               .byte     2,   <-32,    26,   <-10
+SHP128_D_LOD: .byte    28,     2,    18,    19,   <-16,    20,   <-25,     7
+              .byte   <-20,   <-24,    15,   <-22
 
 SHIP_VN     = 14
 SHIP_SHAPE:   .byte     0,   <-8,   <-4,   <-8,   <-4,   <-14,     9,   <-14

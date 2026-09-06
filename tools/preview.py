@@ -157,9 +157,14 @@ def decode(stream):
             out.append((op, stream[i + 1:i + 6]))
             i += 6
         elif op in (0x4C, 0x4D, 0x4E):          # the POLYGON family: a 7-byte
-            n = stream[i + 7]                   #   header (CX16, CY16, ANGLE,
+            n = stream[i + 7] & 0x7F            #   header (CX16, CY16, ANGLE,
             out.append((op, stream[i + 1:i + 8 + 2 * n]))   # SCALE, N) and 2N
-            i += 8 + 2 * n                      #   bytes of RAW shape
+            i += 8 + 2 * n                      #   bytes of RAW shape. N's bit 7
+                                                #   is the OPEN flag, NOT part of
+                                                #   the count - mask it here or a
+                                                #   two-vertex bullet reads as 130
+                                                #   vertices and the whole list
+                                                #   desyncs from there on
         elif op in (0x62, 0x63):                # VTEXT: cell, line, scroll, str
             j = stream.index(0, i + 4)
             out.append((op, stream[i + 1:j + 1]))
@@ -170,9 +175,16 @@ def decode(stream):
 
 
 def dotlists(stream):
-    """Every DOT_PIXELS command in the list, in order. The cart emits the RADAR
-    first - up to six lists, one per priority class, and only the non-empty ones
-    - and then the starfield and the motes, which are always the last two."""
+    """Every DOT_PIXELS command in the list, in order.
+
+    The cart emits the mini-explosion pixels first, as ONE list and only on a
+    frame where a puff is alive (shots.s do_explosions); then the RADAR, up to
+    six lists, one per priority class and only the non-empty ones; and then the
+    starfield and the motes, which are always the last two.
+
+    Only the last two can be found by counting from either end, which is why the
+    radar's slice below takes the puff count from RAM (EXN) rather than trying
+    to tell a puff from a contact by looking at it."""
     out = []
     for op, payload in decode(stream):
         if op == 0x47:
@@ -194,10 +206,16 @@ def motes_of(stream):
     return d[-1] if d else None
 
 
-def radar_of(stream):
-    """Every radar contact this frame, all classes flattened."""
+def radar_of(stream, npuff=0):
+    """Every radar contact this frame, all classes flattened. `npuff` is 1 on a
+    frame where the explosion list was emitted ahead of them."""
     d = dotlists(stream)
-    return [p for lst in d[:-2] for p in lst]
+    return [p for lst in d[npuff:-2] for p in lst]
+
+
+def puffs_of(stream, npuff):
+    """The mini-explosion pixels, or [] on a frame with no puff alive."""
+    return dotlists(stream)[0] if npuff else []
 
 
 # --- a model of the GPU's own polygon transform ------------------------------
@@ -248,16 +266,27 @@ def pg_vertex(dx, dy, cx, cy, C, sgc, S, sgs):
 
 
 def polys(stream):
-    """Every polygon command, as {cx, cy, ang, scale, n, offs}."""
+    """Every polygon command, as {cx, cy, ang, scale, n, open, offs}.
+
+    `open` is N's top bit: the figure is a POLYLINE, K vertices giving K-1
+    segments, and the last vertex does NOT join the first. The shots use it
+    (shots.s); every authored outline in the game is closed.
+    """
     out = []
     for op, pl in decode(stream):
         if op == OP_POLY:
-            n = pl[6]
+            n = pl[6] & 0x7F
             out.append({"cx": s16(pl[0], pl[1]), "cy": s16(pl[2], pl[3]),
                         "ang": pl[4], "scale": pl[5], "n": n,
+                        "open": bool(pl[6] & 0x80),
                         "offs": [(sb8(pl[7 + 2 * k]), sb8(pl[8 + 2 * k]))
                                  for k in range(n)]})
     return out
+
+
+def shots(stream):
+    """The bullets: every OPEN polygon in the list."""
+    return [p for p in polys(stream) if p["open"]]
 
 
 def chains(stream):
@@ -276,8 +305,8 @@ def chains(stream):
     """
     out = []
     for p in polys(stream):
-        if p["n"] == SHIP_LINES:
-            continue
+        if p["n"] == SHIP_LINES or p["open"]:   # ...and the shots are excluded
+            continue                            #   the same way, by being OPEN
         C, sgc, S, sgs = pg_matrix(p["ang"], p["scale"])
         pts = [pg_vertex(dx, dy, p["cx"], p["cy"], C, sgc, S, sgs)
                for dx, dy in p["offs"]]
@@ -307,6 +336,39 @@ def cart_const(name):
     if not m:
         raise RuntimeError(f"{name} not found in main.s")
     return int(m.group(1))
+
+
+def shots_array(name):
+    """A .byte table out of shots.s, by label - however many lines it runs to."""
+    src = (SRC / "shots.s").read_text()
+    m = re.search(rf"^{name}:(.*?)(?=\n\s*\n|\n\w)", src, re.M | re.S)
+    if not m:
+        raise RuntimeError(f"{name} not found in shots.s")
+    out = []
+    for line in m.group(1).splitlines():
+        line = line.split(";")[0]
+        if ".byte" in line:
+            out += [int(v) for v in line.split(".byte")[1].split(",")]
+    return out
+
+
+def shots_words(name):
+    """A .word row out of shots.s, by label."""
+    src = (SRC / "shots.s").read_text()
+    m = re.search(rf"^{name}:\s*\.word\s+([^;\n]+)", src, re.M)
+    if not m:
+        raise RuntimeError(f"{name} not found in shots.s")
+    return [int(v) for v in m.group(1).split(",")]
+
+
+def shots_const(name):
+    """...and the same, out of shots.s. Decimal or $hex."""
+    src = (SRC / "shots.s").read_text()
+    m = re.search(rf"^{name}\s*=\s*(\$?[0-9A-Fa-f]+)", src, re.M)
+    if not m:
+        raise RuntimeError(f"{name} not found in shots.s")
+    v = m.group(1)
+    return int(v[1:], 16) if v.startswith("$") else int(v)
 
 
 def phys_const(name):
@@ -409,7 +471,7 @@ SHIP_LINES = len(SHIP_SHAPE)    # ...the vertex count POLYGON16 carries, and
 STAR_N = cart_const("STAR_N")   # read, not typed: the mirror below drifted
                                 #   the moment this number was tuned
 MOTE_N = 10
-NOBJ = 120
+NOBJ = cart_const("NOBJ")               # read, not typed: the split moved it
 VIS_MAX = 64                    # the packed visible list, mirrored from main.s
 VISIDX, VSXL, VSXH = 0x1A00, 0x1A40, 0x1A80
 VSYL, VSYH = 0x1AC0, 0x1B00
@@ -538,7 +600,7 @@ call(cpu, CART_INIT)
 # The OS's frame ISR normally maintains these bytes; here we drive them.
 JOY1, JOY1_PRESS = 0x0A, 0x0C
 JOY2_PRESS = 0x0F
-JOY_UP, JOY_DOWN, JOY_RIGHT = 0x01, 0x02, 0x08
+JOY_UP, JOY_DOWN, JOY_RIGHT, JOY_FIRE = 0x01, 0x02, 0x08, 0x10
 
 # The throttle is HELD, not pressed: UP/DOWN on JOY1 accelerate continuously
 # instead of stepping one tier per edge, so this script has to hold them down
@@ -570,6 +632,7 @@ TURN_UNTIL = 70                 # half a revolution - enough to sweep the whole
 frames = []
 cycles = []
 momentum = []                   # the field's mass-weighted momentum per frame
+deadcount = []                  # ...and how many rocks had been destroyed by then
 radar = []                      # the radar's own counters + an independent truth
 trace = []
 rot = []                        # ROTC_I / ROTS_I + the sample, for the pivot check
@@ -594,6 +657,36 @@ RAD_BLINK_N = radar_const("RAD_BLINK_N")
 RAD_BLINK_ON = radar_const("RAD_BLINK_ON")
 RAD_ORDER = [5, 0, 1, 2, 3, 4]          # enemies, then biggest rock class first
 
+FIRE_FROM, FIRE_EVERY = 20, 9           # the gun: shots.s, checked below
+SHOT_N = shots_const("SHOT_N")
+SHOT_LEN = shots_const("SHOT_LEN")
+SHOT_MARG = shots_const("SHOT_MARG")
+SHTLIVE, SHTANG = 0x7100, 0x7168        # its arrays, mirrored from shots.s
+EXPL_N = shots_const("EXPL_N")          # ...and the mini explosion's
+EXPL_AGES = shots_const("EXPL_AGES")
+EXPL_SETS = shots_const("EXPL_SETS")
+EXPL_SIZES = shots_const("EXPL_SIZES")
+EXLIVE, EXAGE, EXSET, EXN_A = 0x71A0, 0x71D0, 0x71C8, 0x71DB
+SPIN_MAX = shots_const("SPIN_MAX")      # the twist a hit puts on a rock
+SPIN_RIM = shots_words("SPIN_RIM")      # ...and what a hit on the rim is worth
+OBJSPNL, OBJSPNH = 0x7400, 0x7600       # ...and the per-rock rate it changes
+NFREE_A, NFREEMIN_A, NRECYC_A = 0x62DC, 0x62DD, 0x62DE  # the free-slot stack
+FREEL_A, NBLOCK_A = 0x7700, 0x73A1      # ...its store, and the refusal counter
+OBJANG, OBJANGF = 0x6000, 0x6100
+nrockf = []                             # NROCK, the high-water mark, per frame
+cls0f = []                              # ...and every slot's class, per frame
+spin = []                               # OBJSPN for the whole field, per frame
+angle = []                              # ...and OBJANG:OBJANGF beside it
+EXPL_DOTS = shots_array("EXPL_DOTS")
+npuff = []                              # 1 on a frame that emitted a puff list
+explstate = []                          # (live, age, block group) per slot, per frame
+OBJHP = 0x7200
+CELLHD, OBJNXT, OBJSHP_A, OBJCEL = 0x1C00, 0x1D00, 0x1F00, 0x1E00
+SHP_DEAD = 0xFF
+
+shotstate = []                          # (live, ang) per slot, per frame
+hp = []                                 # OBJHP for the whole field, per frame
+
 TIER_DOWN_AT, TIER_UP_AT = 130, 160     # the straight leg's two speed changes
 for f in range(FRAMES):
     joy1 = JOY_RIGHT if f < TURN_UNTIL else 0
@@ -613,6 +706,13 @@ for f in range(FRAMES):
     elif TIER_UP_AT <= f < TIER_UP_AT + TIER_STEP_FRAMES:
         joy1 |= JOY_UP
     cpu_mem[JOY1] = joy1
+    # ...and the GUN, on JOY1's edge byte, because shot_fire reads JOY1_PRESS:
+    # one bullet per press and six slots, so a press every FIRE_EVERY frames
+    # keeps two or three in the air at once through the turn AND the straight
+    # leg. Starting before TURN_UNTIL is the point - a bullet fired into a turn
+    # is what shots.s exists to get right.
+    cpu_mem[JOY1_PRESS] = JOY_FIRE if (f >= FIRE_FROM and
+                                       (f - FIRE_FROM) % FIRE_EVERY == 0) else 0
     cpu_mem[JOY2_PRESS] = (JOY_UP if f == BOOST_AT else
                            JOY_DOWN if f == TELEPORT_AT else 0)
     call(cpu, API_GPU_BEGIN)
@@ -625,6 +725,17 @@ for f in range(FRAMES):
     t = {k: cpu_mem[a] for k, a in ZP.items()}
     t.update({k: cpu_mem[a] for k, a in ZP_ABS.items()})
     trace.append(t)
+    shotstate.append([(cpu_mem[SHTLIVE + i], cpu_mem[SHTANG + i])
+                      for i in range(SHOT_N)])
+    npuff.append(1 if cpu_mem[EXN_A] else 0)
+    explstate.append([(cpu_mem[EXLIVE + i], cpu_mem[EXAGE + i], cpu_mem[EXSET + i])
+                      for i in range(EXPL_N)])
+    hp.append([cpu_mem[OBJHP + i] for i in range(NOBJ)])
+    spin.append([s16(cpu_mem[OBJSPNL + i], cpu_mem[OBJSPNH + i])
+                 for i in range(NOBJ)])
+    cls0f.append([cpu_mem[0x1F00 + i] for i in range(NOBJ)])
+    angle.append([cpu_mem[OBJANGF + i] | (cpu_mem[OBJANG + i] << 8)
+                  for i in range(NOBJ)])
     bases.append([(cpu_mem[0x0B00 + i], cpu_mem[0x0B80 + i],
                    cpu_mem[0x0D00 + i]) for i in range(STAR_N)])
     # The whole field's LINEAR MOMENTUM, mass-weighted, every frame. Integration
@@ -633,11 +744,17 @@ for f in range(FRAMES):
     # that says whether the response is physics or just motion.
     nrock = cpu_mem[0x0CB8]
     px = py = 0
+    ndead = 0
     for i in range(nrock):
-        m = 1 << (4 - cpu_mem[0x1F00 + i])          # OBJSHP -> mass 16..1
+        cls = cpu_mem[0x1F00 + i]
+        if cls == SHP_DEAD:             # shot to pieces: out of the grid, out of
+            ndead += 1                  #   the field, and out of this sum
+            continue
+        m = 1 << (4 - cls)                          # OBJSHP -> mass 16..1
         px += m * s16(cpu_mem[0x1600 + i], cpu_mem[0x1700 + i])
         py += m * s16(cpu_mem[0x1800 + i], cpu_mem[0x1900 + i])
     momentum.append((px, py))
+    deadcount.append(ndead)
     # THE RADAR, and the truth it is checked against: the same admission test,
     # done here in Python straight out of RAM. The cartridge does it on high
     # bytes with a quarter-square table and the ROT tables; this does it with
@@ -648,7 +765,9 @@ for f in range(FRAMES):
     # the RAD_CLASSES largest classes that still have a rock in them.
     live = [0] * 5
     for i in range(nrock):
-        live[cpu_mem[0x1F00 + i]] += 1
+        cls = cpu_mem[0x1F00 + i]
+        if cls != SHP_DEAD:
+            live[cls] += 1
     sens = next((c for c in range(5) if live[c]), 4)
     rocks_in = []
     for i in range(nrock):
@@ -666,6 +785,13 @@ for f in range(FRAMES):
         if dx * dx + dy * dy <= RAD_R2:
             foes_in += 1
     nrocks_total = nrock
+    nrockf.append(nrock)                # ...per frame: the split raises it, and
+                                        # a slot below it on one frame was not
+                                        # necessarily allocated on the frame
+                                        # before, so every per-slot comparison
+                                        # below has to be bounded by BOTH
+    if f == 0:
+        classes_at_load = [cpu_mem[0x1F00 + i] for i in range(nrock)]
     radar.append({"drawn": cpu_mem[0x6E06], "admit": cpu_mem[0x6E0A],
                   "visit": cpu_mem[0x6E09], "blink": cpu_mem[0x6E07],
                   "sens": cpu_mem[0x6E10], "want_sens": sens,
@@ -947,7 +1073,7 @@ check('the zoom settles on its target instead of creeping',
 shipx = ship_fbx(trace[-1]['SHOFFH'])           # the full-res centre
 shipy = FBCY + sb8(trace[-1]['SHOFXH'])         # ...and the cross-axis lean
 scale = trace[-1]['ZEASH']
-ship_polys = [p for p in polys(frames[-1]) if p['n'] == SHIP_LINES]
+ship_polys = [p for p in polys(frames[-1]) if p['n'] == SHIP_LINES and not p['open']]
 check('the ship draws exactly one polygon a frame', len(ship_polys) == 1,
       f'{len(ship_polys)} candidates with {SHIP_LINES} vertices')
 check('no sprite is emitted while the vector outline is in',
@@ -970,7 +1096,7 @@ C, sgc, S, sgs = pg_matrix(p['ang'], p['scale'])
 want_ordered = [pg_vertex(dx, dy, shipx, shipy, C, sgc, S, sgs)
                 for dx, dy in SHIP_SHAPE]
 
-allpolys = [p for f in frames for p in polys(f) if p['n'] == SHIP_LINES]
+allpolys = [p for f in frames for p in polys(f) if p['n'] == SHIP_LINES and not p['open']]
 check('the ship draws exactly one polygon every frame',
       len(allpolys) == FRAMES, f'{len(allpolys)} of {FRAMES} frames')
 allpts = [pg_vertex(dx, dy, p['cx'], p['cy'], *pg_matrix(p['ang'], p['scale']))
@@ -1673,11 +1799,18 @@ check("the rocks are colliding at all", col_tot > 0,
 # collision, and unbiased. A real drift means the two halves of the impulse do
 # not match, which on a torus with no walls would show up as the whole field
 # slowly sailing one way over a long game and as nothing at all in 30 seconds.
-p0, p1 = momentum[0], momentum[-1]
+# It is only conserved while the field is CLOSED, and the gun opens it: a rock
+# destroyed takes its own momentum out of the sum, which is not a drift and is
+# not physics.s's doing. So the window ends at the first kill - with none, that
+# is the whole flight, and it is what this has always measured.
+last = next((f for f in range(FRAMES) if deadcount[f]), FRAMES) - 1
+p0, p1 = momentum[0], momentum[last]
 dp = max(abs(p1[0] - p0[0]), abs(p1[1] - p0[1]))
 scale = max(1, max(abs(p0[0]), abs(p0[1])))
 print(f"        field momentum: ({p0[0]:+d},{p0[1]:+d}) -> ({p1[0]:+d},{p1[1]:+d}), "
-      f"drift {dp} over {col_tot} collisions ({100*dp/scale:.2f}% of |p|)")
+      f"drift {dp} over {col_tot} collisions ({100*dp/scale:.2f}% of |p|)"
+      + ("" if last == FRAMES - 1 else
+         f", measured to frame {last}, where the gun first took a rock out"))
 check("the impulse conserves momentum", dp <= 4 * max(1, col_tot),
       f"drift {dp} over {col_tot} collisions is more than rounding can explain - "
       f"the two halves of the impulse are not equal and opposite")
@@ -1745,17 +1878,27 @@ for c, rz in zip(all_chains, chain_rz):
     ys = [y for _, y in h[:-1]]
     span = max(max(xs) - min(xs), max(ys) - min(ys))
     spans.setdefault(len(c) - 1, []).append((span * 128 + rz // 2) // rz)
-ok = True
+# EACH OUTLINE against the candidates, not the group's min and max against one
+# of them. With four authored variants a vertex count spreads across classes -
+# ten vertices is a 128, a 64 AND a 32 - so the group's span runs from one
+# class's radius to another's and no single candidate can cover it. That is the
+# shapes being richer, not the shapes being wrong, and the per-outline test is
+# the stricter one anyway: it catches a single bad figure the group range would
+# have averaged away.
+bad_span = []
 for n, sp in spans.items():
     lo, hi = min(sp), max(sp)
     Rs = sorted(radii_by_n.get(n, ()))
-    matched = any(R - 3 <= lo and hi <= 2 * R + 3 for R in Rs)
+    for v in sp:
+        if not any(R - 3 <= v <= 2 * R + 3 for R in Rs):
+            bad_span.append((n, v, Rs))
     print(f"        {n:2d}-gon: un-zoomed span {lo}-{hi} half-res px, candidate "
           f"radii {Rs} (so R..2R = {[(R, 2*R) for R in Rs]})")
-    if not matched:
-        ok = False
+ok = not bad_span
 check("every outline, un-zoomed, spans between some candidate's radius and twice it",
-      ok, "outside all of them, the rotation or the scale has lost a factor")
+      ok, f"{len(bad_span)} outline(s) fit no candidate, e.g. {bad_span[:3]} "
+      "(vertex count, un-zoomed span, the radii that count is authored at) - "
+      "the rotation or the scale has lost a factor")
 
 # ...and they must actually TURN. A rock's outline changes shape on screen from
 # frame to frame for two reasons at once - its own spin and the camera's - so a
@@ -1780,6 +1923,305 @@ total = sum(1 for c in chains(frames[-1]) for q in c[:-1] if onscreen(q))
 check("the outlines reached the framebuffer", total == 0 or lit >= total * 3 // 4,
       f"{lit} of {total} vertices have a dot within a pixel or two")
 
+# --- the gun -----------------------------------------------------------------
+# A bullet is a $4E POLYGON16 with N's top bit set: OPEN, so two vertices are
+# ONE segment and the ends are not joined. Everything else in the game draws
+# closed, so "is it open" is also how every check above tells a shot from a rock
+# without needing to know anything else about it.
+allshots = [(f, p) for f in range(FRAMES) for p in shots(frames[f])]
+NROCK = nrocks_total                     # what load_level actually placed
+cls0 = classes_at_load                   # ...and its size classes, before the
+                                         # gun stamped any of them SHP_DEAD
+check("the gun is firing at all", len(allshots) > 40,
+      f"{len(allshots)} shot commands over {FRAMES} frames")
+print(f"        shots: {len(allshots)} commands, at most "
+      f"{max(sum(1 for l, _ in st if l) for st in shotstate)} of {SHOT_N} "
+      f"slots live at once")
+
+check("every shot is an OPEN two-vertex figure",
+      all(p["open"] and p["n"] == 2 for _, p in allshots),
+      "a shot went out closed, or with a vertex count that is not 2 - the "
+      "GPU would draw the same segment twice, or read the next command as shape")
+check("every shot is the authored line, tip on the anchor",
+      all(p["offs"] == [(0, 0), (SHOT_LEN, 0)] for _, p in allshots),
+      "a shot's offsets are not (0,0),(SHOT_LEN,0)")
+check("every shot rides the same zoom the ship does",
+      all(p["scale"] == trace[f]["ZEASH"] for f, p in allshots),
+      "a shot was scaled by something other than the eased zoom reciprocal")
+
+# The whole point of the prototype: a bullet keeps the heading it was FIRED on
+# while the camera turns under it. On screen that is drawn angle == (the heading
+# at the shot) - (the heading now), which is exactly what a rock's spin angle
+# does against the camera - so if this holds through the 70-frame turn, a shot
+# fired into a turn carries straight on instead of sweeping round with the view.
+bad_ang = []
+for f, p in allshots:
+    want = {(a - trace[f]["HEAD"]) & 0xFF for live, a in shotstate[f] if live}
+    if p["ang"] not in want:
+        bad_ang.append((f, p["ang"]))
+check("a shot holds its own heading while the camera turns", not bad_ang,
+      f"{len(bad_ang)} shots drew at an angle no live slot could have asked for")
+
+# It must never be drawn far outside the screen: the slot is freed the frame the
+# tip passes SHOT_MARG, so a command past that means the cull is not running.
+LIM = SHOT_MARG + 2                     # +2 for the round trip through asr4r
+far = [(f, p["cx"], p["cy"]) for f, p in allshots
+       if not (-LIM <= p["cx"] < 400 + LIM and -LIM <= p["cy"] < 300 + LIM)]
+check("a shot is dropped when it leaves the screen", not far,
+      f"{len(far)} shots drawn past the {SHOT_MARG} px margin, e.g. {far[:3]}")
+
+# --- what a hit does ---------------------------------------------------------
+# HP only ever falls, and only by one at a time: two bullets can hit the same
+# rock in one frame, but each takes exactly one point.
+hp_up = [(f, i) for f in range(1, FRAMES) for i in range(nrockf[f - 1])
+         if hp[f][i] > hp[f - 1][i] and cls0f[f][i] == cls0f[f - 1][i]]
+check("hit points never go back up", not hp_up,
+      f"{len(hp_up)} rocks gained HP, e.g. {hp_up[:3]}")
+hits = sum(max(0, hp[f - 1][i] - hp[f][i])
+           for f in range(1, FRAMES) for i in range(nrockf[f - 1])
+           if cls0f[f][i] == cls0f[f - 1][i])
+killed = [i for i in range(NROCK) if cpu_mem[OBJSHP_A + i] == SHP_DEAD]
+print(f"        hits: {hits} points taken off the field over {FRAMES} frames; "
+      f"{len(killed)} slot(s) now empty - shot to nothing OR swept as debris "
+      f"(shots.s rock_sweep), which is most of them")
+
+# THE GRID IS THE ONLY WAY THE FRAME REACHES AN OBJECT, so a destroyed rock is
+# gone exactly when it is out of the cell lists - and a rock that is NOT dead
+# had better still be in one, exactly once. This is the check that would catch
+# cell_unlink dropping the rest of a list, which is the one way to lose rocks
+# silently and would look like nothing at all on screen for several seconds.
+seen = {}
+for cell in range(256):
+    o = cpu_mem[CELLHD + cell]
+    guard = 0
+    while o != 0xFF:
+        seen[o] = seen.get(o, 0) + 1
+        assert cpu_mem[OBJCEL + o] == cell, f"object {o} linked into the wrong cell"
+        o = cpu_mem[OBJNXT + o]
+        guard += 1
+        assert guard <= NOBJ, f"cell {cell}'s list is a loop"
+live_slots = {i for i in range(NROCK) if cpu_mem[OBJSHP_A + i] != SHP_DEAD}
+# ...and slots at or past the high-water mark were never allocated at all, so
+# their arrays hold whatever RAM came up as. NROCK is the only bound that means
+# anything about this field; NOBJ is only how many there could ever be.
+check("every rock still alive is in the grid exactly once",
+      all(seen.get(i) == 1 for i in live_slots),
+      f"{sum(1 for i in live_slots if seen.get(i) != 1)} of {len(live_slots)} "
+      "live rocks are missing from the cell lists or linked into two")
+check("every rock that was destroyed is out of the grid",
+      not any(i in seen for i in killed),
+      f"{sum(1 for i in killed if i in seen)} destroyed rocks are still linked")
+
+# --- the free slot stack -----------------------------------------------------
+# The split is the first thing in the game that ALLOCATES, and a slot allocator
+# that gets this wrong does not crash - it hands one slot to two rocks, and the
+# field quietly starts drawing one of them at the other one's position. So the
+# invariant is checked directly: the live rocks and the free stack are disjoint,
+# and between them they are every slot there is.
+NFREE_V = cpu_mem[NFREE_A]
+free_stack = [cpu_mem[FREEL_A + i] for i in range(NFREE_V)]
+print(f"        slots: {len(live_slots)} live + {NFREE_V} free of {NOBJ}; "
+      f"high-water NROCK {NROCK}, free low-water {cpu_mem[NFREEMIN_A]}; "
+      f"{cpu_mem[NRECYC_A]} recycled, {cpu_mem[NBLOCK_A]} split(s) refused")
+check("the free stack holds each slot at most once",
+      len(free_stack) == len(set(free_stack)),
+      f"{len(free_stack) - len(set(free_stack))} slots are on the stack twice - "
+      "one of them is about to be handed to a second rock")
+check("no live rock's slot is on the free stack",
+      not (set(free_stack) & live_slots),
+      f"{len(set(free_stack) & live_slots)} slots are both alive and free")
+check("live plus free is every slot",
+      len(live_slots) + NFREE_V == NOBJ,
+      f"{len(live_slots)} + {NFREE_V} != {NOBJ} - slots have leaked, and a level "
+      "that leaks them runs out of splits early")
+check("no split was ever refused for want of a slot", cpu_mem[NBLOCK_A] == 0,
+      f"{cpu_mem[NBLOCK_A]} killing blows did not land because the field was "
+      "full and rock_recycle found nothing safe to take. Not a bug - it is the "
+      "designed backstop - but it means the ceiling is binding")
+
+# --- the mini explosion ------------------------------------------------------
+# The puff is a cloud of DOT_PIXELS thrown off the hit point, and the animation
+# is entirely a table (shots.s EXPL_OFF): every frame of it is eight reads and
+# eight adds. So what is worth checking is not arithmetic but bookkeeping - that
+# it starts when something is hit, thins on the authored schedule, never draws
+# outside the screen, and stops.
+pufframes = [f for f in range(FRAMES) if npuff[f]]
+allpuff = [(f, q) for f in pufframes for q in puffs_of(frames[f], 1)]
+print(f"        puffs: {len(pufframes)} frames drew one, {len(allpuff)} pixels "
+      f"in all; {sum(1 for st in explstate for l, _, _ in st if l)} slot-frames live"
+      + (f" (frames {pufframes[0]}-{pufframes[-1]})" if pufframes else ""))
+
+check("every explosion pixel is inside the half-res screen",
+      all(0 <= x < 200 and 0 <= y < 150 for _, (x, y) in allpuff),
+      "a puff pixel went out off screen - DOT_PIXELS takes bytes, so an "
+      "off-screen one does not clip, it WRAPS onto the other side")
+
+# WHAT AGE EACH SLOT DREW ON FRAME f. expl_one ages the slot AFTER placing its
+# pixels, so the state read at the end of the frame is one ahead of what was
+# drawn - and the slot that expired on this frame reads as dead with its age
+# sitting on EXPL_AGES. Both cases have to be put back, or the spawn frame (the
+# puff is created and drawn inside the same cart_frame) looks like eight pixels
+# out of nowhere.
+def drew(f):
+    out = []
+    for i in range(EXPL_N):
+        live, age, _ = explstate[f][i]
+        if live:
+            out.append(age - 1)
+        elif f and explstate[f - 1][i][0]:      # it expired on this frame
+            out.append(EXPL_AGES - 1)
+    return out
+
+# The list can only be SHORTER than the schedule, never longer: a pixel whose
+# offset carries it off the edge is dropped, and near the edge that happens.
+bad_n = []
+for f in pufframes:
+    want = sum(EXPL_DOTS[a] for a in drew(f))
+    got = len(puffs_of(frames[f], 1))
+    if got > want:
+        bad_n.append((f, got, want))
+check("a puff never draws more pixels than its age allows", not bad_n,
+      f"{len(bad_n)} frames drew more than EXPL_DOTS says, e.g. {bad_n[:3]}")
+
+# A slot must age 0,1,2,... and then free itself - never stick, never skip.
+runs, bad_age = [], []
+for i in range(EXPL_N):
+    seq = [st[i] for st in explstate]
+    cur = []
+    for live, age, _ in seq:
+        if live:
+            cur.append(age)
+        elif cur:
+            runs.append(cur)
+            cur = []
+    if cur:
+        runs.append(cur)
+for r in runs:
+    if r != list(range(1, len(r) + 1)) or len(r) > EXPL_AGES:
+        bad_age.append(r)
+check("a puff ages one frame at a time and then frees its slot", not bad_age,
+      f"{len(bad_age)} slot runs are not 1..N with N <= {EXPL_AGES}, "
+      f"e.g. {bad_age[:3]}")
+
+# THE SIZE IS PICKED ONCE. EXSET carries size*EXPL_SETS + cloud, chosen from the
+# zoom on the frame the puff is born and never touched again - which is what
+# stops a cloud stepping between two authored sizes while the player is watching
+# it, the way the rocks' own SCALE used to step between zoom rungs. So a slot's
+# group byte must be constant for the whole of a run of live frames.
+bad_grp, groups = [], set()
+for i in range(EXPL_N):
+    run = None
+    for f in range(FRAMES):
+        live, _, grp = explstate[f][i]
+        if not live:
+            run = None
+            continue
+        groups.add(grp)
+        if run is None:
+            run = grp
+        elif grp != run:
+            bad_grp.append((i, f, run, grp))
+check("a puff keeps the size it was born at", not bad_grp,
+      f"{len(bad_grp)} slots changed group mid-life, e.g. {bad_grp[:3]}")
+check("no puff reads outside the authored blocks",
+      all(g < EXPL_SIZES * EXPL_SETS for g in groups),
+      f"block groups seen: {sorted(groups)}, but there are only "
+      f"{EXPL_SIZES * EXPL_SETS}")
+print(f"        block groups used: {sorted(groups)} of "
+      f"{EXPL_SIZES}x{EXPL_SETS} (size*{EXPL_SETS} + cloud)")
+
+# ...and it has to EXPAND. The authored radii ease out from 2 to 10 half-res
+# pixels, so the last frame of a puff must be a visibly wider cloud than the
+# first - which is the one thing about it a table cannot get wrong by accident.
+spans = {}
+for f in pufframes:
+    pts = puffs_of(frames[f], 1)
+    ages = drew(f)
+    if len(ages) == 1 and len(pts) >= 4:        # one puff alone, so the spread
+        w = max(x for x, _ in pts) - min(x for x, _ in pts)  # is unambiguous
+        h = max(y for _, y in pts) - min(y for _, y in pts)
+        spans.setdefault(ages[0], []).append(max(w, h))
+if spans:
+    lo, hi = min(spans), max(spans)
+    print("        cloud spread by age, half-res px: "
+          + ", ".join(f"{a}:{max(v)}" for a, v in sorted(spans.items())))
+    check("the cloud expands as it ages", lo == hi or max(spans[hi]) > max(spans[lo]),
+          f"age {hi} is no wider than age {lo}")
+
+# Every hit has to produce one, unless all six slots were already busy.
+hitframes = [f for f in range(1, FRAMES)
+             if any(hp[f][i] < hp[f - 1][i] for i in range(nrockf[f - 1])
+                    if cls0f[f][i] == cls0f[f - 1][i])]
+missed = [f for f in hitframes if not npuff[f]]
+check("a hit always throws a puff", not missed,
+      f"{len(missed)} hits drew nothing, e.g. frames {missed[:3]}")
+
+# --- what a hit does to the rock ---------------------------------------------
+# Spin stopped being a property of the SIZE CLASS and became a property of the
+# rock, so that a shot can twist one rock without twisting every rock its size.
+# At load every rock is still a copy of its class's AST_SPIN, and that is the
+# first thing to be sure of - a rock_kin that indexed the table wrongly would
+# look like nothing at all until something got shot.
+byclass = {}
+for i in range(NROCK):
+    byclass.setdefault(cls0[i], set()).add(spin[0][i])
+check("every rock starts on its own class's spin rate",
+      all(len(v) == 1 for v in byclass.values()),
+      f"classes with more than one starting rate: "
+      f"{ {c: sorted(v) for c, v in byclass.items() if len(v) > 1} }")
+print("        starting spin by class, 8.8 brad/frame: "
+      + ", ".join(f"{c}:{sorted(v)[0]:+d}" for c, v in sorted(byclass.items())))
+
+# THE INTEGRATOR NOW READS THAT ARRAY. If the angle moved, it moved by exactly
+# the rock's own rate - and by the rate it had on the PREVIOUS frame, because
+# do_objects integrates before do_shots gets to change it. A rock that did not
+# move was outside the cull window and frozen, which is the other legal case.
+bad_int = []
+for f in range(1, FRAMES):
+    for i in range(nrockf[f - 1]):
+        if cls0f[f][i] != cls0f[f - 1][i]:
+            continue                    # this slot changed hands in the split
+        d = (angle[f][i] - angle[f - 1][i]) & 0xFFFF
+        if d and d != (spin[f - 1][i] & 0xFFFF):
+            bad_int.append((f, i, d, spin[f - 1][i]))
+check("a rock turns at its own spin rate, not its class's", not bad_int,
+      f"{len(bad_int)} rock-frames advanced by something else, e.g. {bad_int[:3]}")
+
+# ...and NOTHING ELSE may move it. A spin that changed on a frame where that
+# rock was not hit would mean the twist is landing on the wrong rock.
+spun = [(f, i) for f in range(1, FRAMES) for i in range(nrockf[f - 1])
+        if spin[f][i] != spin[f - 1][i] and cls0f[f][i] == cls0f[f - 1][i]]
+stray = [(f, i) for f, i in spun if hp[f][i] == hp[f - 1][i]]
+check("only a hit changes a rock's spin", not stray,
+      f"{len(stray)} rocks were twisted without losing HP, e.g. {stray[:3]}")
+# A hit is NOT obliged to twist. The twist is the lever arm - the perpendicular
+# distance from the rock's centre to the shot's line - and a shot straight
+# through the middle has none, which is the whole point of measuring it rather
+# than just taking the sign. What IS an invariant is the CEILING: no hit can be
+# worth more than one right on the rim, which is SPIN_RIM for that class. That
+# is what catches a sign error, a class indexed wrongly, or an arm that is not
+# being divided by the zoom.
+over = [(f, i, spin[f][i] - spin[f - 1][i], SPIN_RIM[cls0[i]])
+        for f, i in spun
+        if abs(spin[f][i] - spin[f - 1][i]) > SPIN_RIM[cls0[i]] + 2]
+check("no hit twists a rock harder than a hit on its rim would", not over,
+      f"{len(over)} twists are past the class's rim value, e.g. {over[:3]}")
+if spun:
+    print("        twists: " + ", ".join(
+        f"rock {i} (class {cls0[i]}) {spin[f-1][i]:+d} -> {spin[f][i]:+d}"
+        for f, i in spun[:4]))
+else:
+    nhit = sum(1 for f in range(1, FRAMES) for i in range(NROCK)
+               if hp[f][i] < hp[f - 1][i])
+    print(f"        twists: none - the {nhit} hit(s) on this flight all had a "
+          f"lever arm under half a pixel")
+
+check("no rock is ever spun past the clamp",
+      all(abs(v) <= SPIN_MAX
+          for f, fr in enumerate(spin) for v in fr[:nrockf[f]]),
+      f"a spin passed SPIN_MAX={SPIN_MAX}: "
+      f"{max((abs(v) for f, fr in enumerate(spin) for v in fr[:nrockf[f]]), default=0)}")
+
 # The starfield must MOVE.
 first_dots = stars_of(frames[0])
 if first_dots is not None and dots is not None:
@@ -1793,7 +2235,9 @@ if first_dots is not None and dots is not None:
 # =============================================================================
 # Four things worth proving, and one of them is the whole design: that a
 # CIRCULAR catchment in world space means a blip can never need clipping.
-rad_lists = [dotlists(f)[:-2] for f in frames]          # the backdrop is the tail
+rad_lists = [dotlists(frames[f])[npuff[f]:-2] for f in range(FRAMES)]
+                                                        # the backdrop is the tail,
+                                                        # and any puff is the head
 rad_pts = [[p for lst in ls for p in lst] for ls in rad_lists]
 
 print(f"\n        radar: reach {RAD_RH * 256:,} world units ({RAD_SCR} half-res "

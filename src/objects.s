@@ -59,6 +59,19 @@ rock_kin:
         tax
         lda     AST_PHASE,x
         sta     OBJANG,y
+
+        ldx     OBJSHP,y                ; ...and its HIT POINTS, by size class -
+        lda     ROCK_HP,x               ;   the one rock property that has to
+        sta     OBJHP,y                 ;   survive going off camera, which is
+                                        ;   why it is an array and not derived
+
+        txa                             ; ...and its SPIN, COPIED out of the
+        asl     a                       ;   class's rate rather than read from it
+        tax                             ;   every frame. A hit twists this one
+        lda     AST_SPIN,x               ;   rock and must not twist its class,
+        sta     OBJSPNL,y               ;   so the rate has to belong to the rock
+        lda     AST_SPIN+1,x
+        sta     OBJSPNH,y
         rts
 
 ; -----------------------------------------------------------------------------
@@ -189,6 +202,9 @@ load_level:
 @done:  lda     SLOT                    ; what the two passes came to. Enemies
         sta     NROCK                   ;   are authored in levels.s but not read
                                         ;   here yet — see radar.s load_foes.
+        jsr     free_init               ; ...and every slot it did not fill goes
+                                        ;   on the free stack, for the split to
+                                        ;   draw on
         ; fall through: the field is placed, so bucket it. NOTHING may be put
         ; between this and init_cells - rock_kin sits ABOVE load_level for
         ; exactly that reason.
@@ -228,6 +244,75 @@ init_cells:
 @none:  rts
 
 ; -----------------------------------------------------------------------------
+; free_init / rock_alloc / rock_free — which slots are not carrying a rock.
+; -----------------------------------------------------------------------------
+; A STACK, not a scan. The split needs a slot at the moment a rock is destroyed,
+; inside a frame that is already doing the most work it ever does, and walking
+; 255 slots looking for a hole is not a thing to pay for there.
+;
+; free_init pushes every slot the level did NOT place, HIGHEST first, so the
+; first allocations come out in ascending order and the field stays packed low -
+; which matters because the radar's flat scan walks NROCK, the high-water mark,
+; rather than NOBJ.
+;
+;   rock_alloc   A = a free slot, carry CLEAR. Carry SET = none left.
+;   rock_free    A = the slot to give back. Clobbers X.
+; -----------------------------------------------------------------------------
+free_init:
+        stz     NFREE
+        stz     NRECYC
+        stz     NBLOCK
+        stz     RECYCI                  ; (shots.s's own cursor - it is
+                                        ;  self-correcting if it is garbage, but
+                                        ;  a level should start the same way
+                                        ;  twice)
+        ldx     NROCK
+        cpx     #NOBJ
+        bcs     @none
+@lp:    lda     #NOBJ-1                 ; push NOBJ-1 down to NROCK, so the TOP
+        sec                             ;   of the stack is the lowest slot
+        sbc     NFREE
+        ldx     NFREE
+        sta     FREEL,x
+        inc     NFREE
+        lda     #NOBJ
+        sec
+        sbc     NFREE
+        cmp     NROCK
+        bne     @lp
+@none:  lda     NFREE
+        sta     NFREEMIN
+        rts
+
+rock_alloc:
+        lda     NFREE
+        beq     @empty
+        dec     NFREE
+        ldx     NFREE
+        lda     NFREE
+        cmp     NFREEMIN                ; the low-water mark, for the harness and
+        bcs     :+                      ;   for anyone asking whether 255 slots
+        sta     NFREEMIN                ;   is enough
+:       lda     FREEL,x
+        cmp     NROCK                   ; the radar scans 0..NROCK-1 flat, so a
+        bcc     @done                   ;   slot above the high-water mark has to
+        pha                             ;   raise it or its rock is invisible to
+        clc                             ;   the instrument
+        adc     #$01
+        sta     NROCK
+        pla
+@done:  clc
+        rts
+@empty: sec
+        rts
+
+rock_free:
+        ldx     NFREE
+        sta     FREEL,x
+        inc     NFREE
+        rts
+
+; -----------------------------------------------------------------------------
 ; cell_of — X = object, A = its cell index. Y is clobbered.
 ; -----------------------------------------------------------------------------
 cell_of:
@@ -259,23 +344,24 @@ cell_flush:
         lda     PEND,x
         sta     GOBJ
         tax
+        jsr     cell_unlink
 
-        ldy     OBJCEL,x                ; unlink from the cell it is in now
-        lda     CELLHD,y
-        cmp     GOBJ
-        bne     @scan
-        lda     OBJNXT,x                ; it was the head of that list
-        sta     CELLHD,y
-        bra     @link
-@scan:  tax                             ; walk to the predecessor - it is in
-        lda     OBJNXT,x                ;   there, so this always terminates
-        cmp     GOBJ
-        bne     @scan
-        ldy     GOBJ
-        lda     OBJNXT,y
-        sta     OBJNXT,x
+        ldx     GOBJ                    ; ...and push it onto the new one
+        jsr     cell_link
 
-@link:  ldx     GOBJ                    ; ...and push it onto the new one
+        lda     PENDN
+        bne     @lp
+@done:  rts
+
+; -----------------------------------------------------------------------------
+; cell_link — X = the object. Put it at the head of the list of the cell it is
+; in NOW. Clobbers A, Y.
+; -----------------------------------------------------------------------------
+; The other half of cell_flush, split out for the same reason cell_unlink was:
+; rock_split (shots.s) has two children to place and neither of them is where
+; the parent was.
+; -----------------------------------------------------------------------------
+cell_link:
         jsr     cell_of
         sta     OBJCEL,x
         tay
@@ -283,10 +369,35 @@ cell_flush:
         sta     OBJNXT,x
         txa
         sta     CELLHD,y
+        rts
 
-        lda     PENDN
-        bne     @lp
-@done:  rts
+; -----------------------------------------------------------------------------
+; cell_unlink — take one object out of the list of the cell it is linked into.
+; -----------------------------------------------------------------------------
+; X and GOBJ are both the object; it must really be in OBJCEL's list, which is
+; the caller's job to know. Clobbers A, X, Y.
+;
+; Split out of cell_flush, which relinks (unlink then push), because rock_kill
+; (shots.s) needs the unlink WITHOUT the push: a destroyed rock leaves the grid
+; and does not come back. The cell lists are the only way the frame reaches an
+; object, so this one call is the whole of "it is gone".
+; -----------------------------------------------------------------------------
+cell_unlink:
+        ldy     OBJCEL,x                ; unlink from the cell it is in now
+        lda     CELLHD,y
+        cmp     GOBJ
+        bne     @scan
+        lda     OBJNXT,x                ; it was the head of that list
+        sta     CELLHD,y
+        rts
+@scan:  tax                             ; walk to the predecessor - it is in
+        lda     OBJNXT,x                ;   there, so this always terminates
+        cmp     GOBJ
+        bne     @scan
+        ldy     GOBJ
+        lda     OBJNXT,y
+        sta     OBJNXT,x
+        rts
 
 ; -----------------------------------------------------------------------------
 ; do_objects — reject, then move, then transform the centre to the screen.
@@ -463,17 +574,17 @@ do_objects:
         adc     OBJYH,x
         sta     OBJYH,x
 
-        ldy     OBJSHP,x                ; angle += the class's rate, 8.8 brad per
-        tya                             ;   frame. The integer part is a brad and
-        asl     a                       ;   wraps by itself, which is the whole
-        tay                             ;   of "mod one turn"
-        clc
-        lda     OBJANGF,x
-        adc     AST_SPIN,y
-        sta     OBJANGF,x
-        lda     OBJANG,x
-        adc     AST_SPIN+1,y
-        sta     OBJANG,x
+        clc                             ; angle += ITS OWN rate, 8.8 brad per
+        lda     OBJANGF,x               ;   frame. The integer part is a brad and
+        adc     OBJSPNL,x               ;   wraps by itself, which is the whole
+        sta     OBJANGF,x               ;   of "mod one turn".
+        lda     OBJANG,x                ;
+        adc     OBJSPNH,x               ; It used to read AST_SPIN by class, and
+        sta     OBJANG,x                ;   the shift-and-index that took is gone
+                                        ;   with it: a per-rock rate is not just
+                                        ;   what lets a hit change one rock's
+                                        ;   spin, it is four cycles cheaper here
+                                        ;   than the table read was.
 
         jsr     cell_of                 ; it moved, so it may have left its cell
         cmp     OBJCEL,x
@@ -525,57 +636,7 @@ do_objects:
         jmp     @cull
 :
         jsr     view_xform              ; -> VXL/VXH, VYL/VYH, still world units
-
-        ; ...and then the ZOOM, which is the same shape of product as the
-        ; rotation and uses the same trick on it: one table pair built from the
-        ; reciprocal, two lookups and an add per axis. Doing it HERE and not by
-        ; folding the scale into the rotation tables is what lets the starfield
-        ; and the radar keep those tables unscaled, which they must - neither of
-        ; them zooms.
-        lda     VYL                     ; fb_x = FBCX + round(vy * z / 16)
-        sta     MAL
-        lda     VYH
-        sta     MAH
-        jsr     zoom_ma
-        jsr     asr4r
-        clc                             ; fb_x = FBCX + offset + vy: an object at
-        lda     MAL                     ;   the ship's own position must land ON
-        adc     #<FBCX                  ;   the ship, or the world pivots about
-        sta     FXL                     ;   the screen centre and turning strafes
-        lda     MAH
-        adc     #>FBCX
-        sta     FXH
-        ldy     #$00
-        bit     SHOFFH
-        bpl     :+
-        ldy     #$FF
-:       clc
-        lda     FXL
-        adc     SHOFFH
-        sta     FXL
-        tya
-        adc     FXH
-        sta     FXH
-        lda     VXL                     ; fb_y = FBCY - round(vx * z / 16)
-        sta     MAL
-        lda     VXH
-        sta     MAH
-        jsr     zoom_ma
-        sec                             ; fb_y = FBCY - round((vx*z - lean)/16):
-        lda     MAL                     ;   the cross-axis camera lean joins the
-        sbc     SHOFXQ                  ;   value here, so the single rounding in
-        sta     MAL                     ;   asr4r covers both terms
-        lda     MAH
-        sbc     SHOFXQ+1
-        sta     MAH
-        jsr     asr4r
-        sec
-        lda     #<FBCY
-        sbc     MAL
-        sta     FYL
-        lda     #>FBCY
-        sbc     MAH
-        sta     FYH
+        jsr     zoom_fb                 ; ...and then the zoom and the centring
 
         ldy     VISN                    ; it survived: append it to the list
         cpy     #VIS_MAX
@@ -658,6 +719,69 @@ in_range:
 @out:   sec
         rts
 @in:    clc
+        rts
+
+; -----------------------------------------------------------------------------
+; zoom_fb - VX/VY (view coords, world units) -> FX/FY, the FULL-RES framebuffer.
+; -----------------------------------------------------------------------------
+; The ZOOM is the same shape of product as the rotation and uses the same trick
+; on it: one table pair built from the reciprocal, two lookups and an add per
+; axis. Doing it HERE and not by folding the scale into the rotation tables is
+; what lets the starfield and the radar keep those tables unscaled, which they
+; must - neither of them zooms.
+;
+; A subroutine, and not inline in do_objects where it used to be, because the
+; SHOTS go through it too (shots.s): a bullet is a world position like a rock's
+; and reaches the screen by exactly the same road, and a second copy of this is
+; a second place for the camera lean to be got wrong. It costs do_objects one
+; jsr per rock that survives the coarse cull - about 370 cycles of a 164,000
+; cycle frame.
+; -----------------------------------------------------------------------------
+zoom_fb:
+        lda     VYL                     ; fb_x = FBCX + round(vy * z / 16)
+        sta     MAL
+        lda     VYH
+        sta     MAH
+        jsr     zoom_ma
+        jsr     asr4r
+        clc                             ; fb_x = FBCX + offset + vy: an object at
+        lda     MAL                     ;   the ship's own position must land ON
+        adc     #<FBCX                  ;   the ship, or the world pivots about
+        sta     FXL                     ;   the screen centre and turning strafes
+        lda     MAH
+        adc     #>FBCX
+        sta     FXH
+        ldy     #$00
+        bit     SHOFFH
+        bpl     :+
+        ldy     #$FF
+:       clc
+        lda     FXL
+        adc     SHOFFH
+        sta     FXL
+        tya
+        adc     FXH
+        sta     FXH
+        lda     VXL                     ; fb_y = FBCY - round(vx * z / 16)
+        sta     MAL
+        lda     VXH
+        sta     MAH
+        jsr     zoom_ma
+        sec                             ; fb_y = FBCY - round((vx*z - lean)/16):
+        lda     MAL                     ;   the cross-axis camera lean joins the
+        sbc     SHOFXQ                  ;   value here, so the single rounding in
+        sta     MAL                     ;   asr4r covers both terms
+        lda     MAH
+        sbc     SHOFXQ+1
+        sta     MAH
+        jsr     asr4r
+        sec
+        lda     #<FBCY
+        sbc     MAL
+        sta     FYL
+        lda     #>FBCY
+        sbc     MAH
+        sta     FYH
         rts
 
 ; -----------------------------------------------------------------------------
@@ -937,7 +1061,24 @@ span_test:
 ; The SIZE mix used to be a table just like it, SHAPE_PICK. It is gone: eight
 ; tickets only ever gave a mix in expectation, and a level wants to state a
 ; count. See LVL_N192..LVL_N16 in levels.s, and load_level, which pours them.
-TYPE_PICK:  .byte  0, 1, 2, 0, 1, 2, 0, 1
+; Which authored variant a rock wears: eight tickets over the AST_TYPES the
+; shapes actually have. DERIVED, not typed, and that is not tidiness - a hand-
+; kept copy of AST_TYPES here is a table read past its end over there. When
+; shapes.s went from three variants to four, this table said 0,1,2,3 while the
+; per-shape tables still had three of each, and shape id 15 of a 15-entry table
+; came back as whatever followed it: a vertex count of 200, a PBUF copy loop
+; that ran off the end of its buffer, and the frame's own VISN and zoom
+; overwritten from underneath it. It looked like every subsystem at once.
+TYPE_PICK:  .repeat 8, i
+            .byte   i .mod AST_TYPES
+            .endrepeat
+
+; ...and the STEP to the other half of a split, so the two never come out as
+; twins: 1 to AST_TYPES-1, i.e. anything except "the same one again". Derived
+; for the same reason.
+TYPE_STEP:  .repeat 8, i
+            .byte   1 + (i .mod (AST_TYPES - 1))
+            .endrepeat
 
 ; Drift velocities, signed 8.8 world units per frame. 16 units = 1 full-res pixel
 ; and the frame is 60.317 Hz, so 1.0 here is 3.77 px/s. FOUR hand-written vectors
@@ -967,10 +1108,13 @@ AST_VEL:
         .word    $0500,  $0C00           ;      18.9 / 45.3
         .word   $FA00,   $F600           ;     -22.6 / -37.7
 
-; Spin rates, signed 8.8 BRAD per frame, one per size class. A full turn is 256
-; brad, so 1.00 here is 256 frames = 4.2 s per revolution. The sign is the
-; direction, and it alternates on purpose so a screen with several sizes on it
-; reads as a tumbling field rather than a carousel.
+; STARTING spin rates, signed 8.8 BRAD per frame, one per size class. A full
+; turn is 256 brad, so 1.00 here is 256 frames = 4.2 s per revolution. The sign
+; is the direction, and it alternates on purpose so a screen with several sizes
+; on it reads as a tumbling field rather than a carousel.
+;
+; Read ONCE, by rock_kin, into OBJSPN. After that a rock owns its spin and
+; being shot changes it (shots.s rock_spin); nothing reads this table again.
 ;                    brad/frame   seconds per revolution
 AST_SPIN:
         .word   $0018           ;   0.09    45 s   - the 192 barely turns
@@ -978,6 +1122,18 @@ AST_SPIN:
         .word   $0090           ;   0.56     7.5 s
         .word   $FF00           ;  -1.00     4.2 s
         .word   $0180           ;   1.50     2.8 s - the chips are frantic
+
+; HIT POINTS, per size class. How many shots a rock takes before it is gone -
+; the smallest goes on one, and each class up takes one more. See shots.s.
+;
+; This is the one rock property that has to SURVIVE going off camera, and that
+; is what makes it an array (OBJHP) rather than a table read per frame the way
+; AST_VEL and AST_SPIN are: a rock the player shot twice and then flew away from
+; must still be two shots down when they come back. Spin is the opposite case -
+; a rock outside the window is frozen, so nobody can see what its spin is doing
+; and it does not have to be remembered.
+;                192 128  64  32  16
+ROCK_HP:    .byte  5,  4,  3,  2,  1
 
 ; Starting spin phases, spread over the circle by (index & 7). Hardcoded for the
 ; same reason the velocities are: a reproducible field.
