@@ -155,7 +155,8 @@ right.
 The **view scale is quantised**: the reciprocal snaps to `ZQ_LADDER`'s geometric
 rungs, because the ZS table is rebuilt whenever its integer part moves (~10,000
 cycles) and an un-quantised ease crosses all 64 values of the reciprocal instead
-of 16 rungs.
+of 32 rungs (widened from 16 - see the ZQ_LADDER comment in main.s for the
+position-stepping defect that motivated it).
 
 The **object scale stays continuous**: rocks are sent the smooth ease (`ZEASH`),
 never the rung (`ZOOMH`). Reading the rung there was a visible defect — a rock's

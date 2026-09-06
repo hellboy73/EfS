@@ -1249,18 +1249,19 @@ ZOOM_RZ:
         .byte   128,  128,  128,  128,  128,  123,  112,   99,   87,   76,   64
         .byte    64                     ; TIER_BOOST: the top tier's, unchanged
 ;              1:1                            ...                        2x out
-;   rung k:      0     0     0     0     0     1     3     6     9    12    16
+;   rung k:      0     0     0     0     0     2     6    12    18    24    32
 ;
 ; Every value is a RUNG of ZQ_LADDER, and the shape is "start later, end harder".
 ; +50 stays at 1:1 - at fifty pixels a second a wider view buys nothing and costs
-; a table rebuild. From +100 the steps grow 1, 2, 3, 3, 3, 4 rungs, so the world
-; opens up fastest exactly where the look-ahead is worth most. The old curve was
-; a first cut: it started widening at +50 and its steps were 6, 8, 9, 9, 10, 11
-; reciprocal counts, which is nearly linear and put the biggest proportional
-; change at the bottom of the range where it reads least.
+; a table rebuild. From +100 the steps grow 2, 4, 6, 6, 6, 8 rungs (32-rung
+; ladder; see below), so the world opens up fastest exactly where the look-ahead
+; is worth most. The old curve was a first cut: it started widening at +50 and
+; its steps were 6, 8, 9, 9, 10, 11 reciprocal counts, which is nearly linear
+; and put the biggest proportional change at the bottom of the range where it
+; reads least.
 ;
-; The whole ramp crosses 16 rungs, so a full acceleration rebuilds the ZS table
-; at most 16 times. Un-quantised the same ramp crosses all 64 integer values of
+; The whole ramp crosses 32 rungs, so a full acceleration rebuilds the ZS table
+; at most 32 times. Un-quantised the same ramp crosses all 64 integer values of
 ; the reciprocal, at ~10,000 cycles each.
 
 ; -----------------------------------------------------------------------------
@@ -1272,17 +1273,29 @@ ZOOM_RZ:
 ; moves - ~10,000 cycles - and the ease walks the reciprocal one count at a time,
 ; so the un-quantised ramp pays that on nearly every frame it is accelerating.
 ; Which is the same stretch of frames on which the zoom is multiplying the number
-; of rocks in view. Snapping the eased value to 16 rungs an octave cuts that by
-; 4x for a 4.4% step in scale, which is below what the eye picks up on a rock.
+; of rocks in view. Snapping the eased value to 32 rungs an octave cuts that by
+; 2x for a 2.2% step in RZ - not "in scale": a rock's own on-screen size reads
+; ZEASH, the smooth ease, not this rung (see PBUF+5 in objects.s, one_asteroid).
+; What this table actually gates is ZOOM_RZ's position table (ZS, zoom_ma) and
+; the cull window, so the visible defect a coarser rung buys is objects' SCREEN
+; POSITION stepping as the rung crosses, not their size - worse the further an
+; object sits from the ship, which is why big, distant rocks show it first.
+; 32 rungs was chosen by doubling the previous 17-rung ladder (halving the RZ
+; step from 4.4% to 2.2%); re-tune by ear from madsim, and check the ZS rebuild
+; frequency with the F3 meter against an accelerate+turn frame before trusting
+; a further increase - see the CYCLES accounting above.
 ;
-; SPRITES used to be the second reason, and no longer applies: rocks stay
-; vector polygons at every on-screen size, permanently (design_technical.md
-; 11.9 / 5.1) - there is no rock sprite atlas for a geometric rung to line up
-; with. Geometric spacing here now stands on CYCLES alone; if this ladder
-; grows more rungs, evenly-spaced ones are back on the table too.
-ZQ_LADDER:                              ; 128 * 2^(-k/16), k = 0..16
-        .byte    64,  67,  70,  73,  76,  79,  83,  87,  91
-        .byte    95,  99, 103, 108, 112, 117, 123, 128
+; SPRITES used to be a second reason for GEOMETRIC (not evenly-spaced) rungs,
+; and no longer applies: rocks stay vector polygons at every on-screen size,
+; permanently (design_technical.md 11.9 / 5.1) - there is no rock sprite atlas
+; for a geometric rung to line up with any more. Geometric spacing here is kept
+; anyway, on its own merits: it holds the percentage step (and so the position
+; error) constant across the whole RZ range, where an evenly-spaced ladder would
+; make the top of the range (near 1:1) proportionally coarser than the bottom.
+ZQ_LADDER:                              ; 128 * 2^(-k/32), k = 0..32
+        .byte    64,  65,  67,  68,  70,  71,  73,  74,  76,  78,  79
+        .byte    81,  83,  85,  87,  89,  91,  92,  95,  97,  99, 101
+        .byte   103, 105, 108, 110, 112, 115, 117, 120, 123, 125, 128
 
 ; ...and the nearest rung for every reciprocal the ease can produce, indexed by
 ; the eased value: ZQ_SNAP-64,x with x = ZEASH. One table read a frame.
@@ -1297,11 +1310,11 @@ TPQ:
         .byte    13,  12,  11,  10,   9,   7,   6,   5,   4,   3,   2,   1,   0
 
 ZQ_SNAP:
-        .byte    64,  64,  67,  67,  67,  70,  70,  70,  73,  73,  73,  76,  76
-        .byte    76,  79,  79,  79,  79,  83,  83,  83,  83,  87,  87,  87,  87
-        .byte    91,  91,  91,  91,  95,  95,  95,  95,  99,  99,  99,  99, 103
-        .byte   103, 103, 103, 108, 108, 108, 108, 108, 112, 112, 112, 112, 117
-        .byte   117, 117, 117, 117, 117, 123, 123, 123, 123, 123, 128, 128, 128
+        .byte    64,  65,  65,  67,  68,  68,  70,  71,  71,  73,  74,  74,  76
+        .byte    76,  78,  79,  79,  81,  81,  83,  83,  85,  85,  87,  87,  89
+        .byte    89,  91,  92,  92,  95,  95,  95,  97,  97,  99,  99, 101, 101
+        .byte   103, 103, 105, 105, 108, 108, 108, 110, 110, 112, 112, 115, 115
+        .byte   115, 117, 117, 120, 120, 120, 123, 123, 123, 125, 125, 128, 128
 
 ; What the cull has to admit, per zoom step: CULL_R scales as 128/RZ, because
 ; pulling the camera back makes the visible window that much wider in world

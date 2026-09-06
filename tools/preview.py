@@ -40,7 +40,13 @@ from py65.memory import ObservableMemory
 ROOT = pathlib.Path(__file__).resolve().parent.parent   # tools/ -> the repo
 SRC = ROOT / "src"                                      # the cartridge sources
 
-FRAMES = 200                    # long enough to turn right round and then fly
+FRAMES = 220                    # long enough to turn right round and then fly
+                                # and, since the zoom ladder went from 17 to 33
+                                # rungs (main.s ZQ_LADDER), long enough for the
+                                # zoom ease to actually LAND after TIER_UP_AT's
+                                # speed change - measured at frame 203, not the
+                                # 200 the old, coarser ladder's wider snap
+                                # radius used to get away with masking.
 SCALE = 2
 OUT = str(ROOT / "preview.png")
 
