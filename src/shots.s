@@ -802,14 +802,12 @@ shot_hits:
         stz     SHTLIVE,x               ; ...and the bullet is spent, whatever it
                                         ;   did to the rock
         ldx     SHTOBJ
-        dec     OBJHP,x
-        bne     @bnext
-        jsr     rock_destroy            ; ...and that was its last one: it
-        bra     @rnext                  ;   breaks in two, or it is gone, or the
-                                        ;   field is too full to let it. Either
-                                        ;   way this slot is not the rock the
-                                        ;   inner loop was testing against any
-                                        ;   more, so the bullets move on.
+        jsr     rock_take_hit           ; dec HP; destroy, or the crack shake
+        bcs     @rnext                  ;   if this landed it on 1 - see the
+                                        ;   routine. Destroyed: this slot is
+                                        ;   not the rock the inner loop was
+                                        ;   testing against any more, so the
+                                        ;   bullets move on.
 @bnext: dec     SHTJ
         bmi     @rnext
         jmp     @blp
@@ -1594,6 +1592,29 @@ NBLOCK      = $73A1             ; splits refused for want of a slot. It should b
 ; invisible. It needs the field to be at 255 rocks AND to have nothing small and
 ; far away left to recycle, which takes some doing.
 ; -----------------------------------------------------------------------------
+
+; -----------------------------------------------------------------------------
+; rock_take_hit - X = the rock. Spend one hit point, exactly the same way
+; regardless of what caused it - a bullet (shot_hits, above) or a ship
+; collision (physics.s ship_respond) both just want "this rock took a hit".
+; Out: carry SET if that was its last point (rock_destroy has already run -
+; the slot may be gone); carry CLEAR if it is still standing, having fired
+; the crack shake if this was the hit that landed it on 1.
+; -----------------------------------------------------------------------------
+rock_take_hit:
+        dec     OBJHP,x
+        bne     @alive
+        jsr     rock_destroy
+        sec
+        rts
+@alive: lda     OBJHP,x                 ; CRACK: just reached its last hit point
+        cmp     #1                      ;   by damage - the same "1" one_asteroid's
+        bne     @done                   ;   ACRACK tests. A class that SPAWNS at 1
+        lda     #SHK_SHIFT_CRACK        ;   (16px) can never land here: its only
+        jsr     shake_arm               ;   hit takes it straight to 0, above.
+@done:  clc
+        rts
+
 rock_destroy:
         stx     SPL_P
         lda     OBJSHP,x
@@ -1621,6 +1642,13 @@ rock_destroy:
 ; rock_split — SPL_P is the parent and SPL_S the slot for its second half.
 ; -----------------------------------------------------------------------------
 rock_split:
+        lda     #SHK_SHIFT_BREAK        ; shake now, since a real break is
+        jsr     shake_arm               ;   committed (a blocked hit never
+                                        ;   reaches rock_split; rock_destroy's
+                                        ;   @gone routes SPLIT_LAST straight
+                                        ;   to rock_kill, never here - so
+                                        ;   every rock that lands in THIS
+                                        ;   routine gets the same shake)
         ldx     SPL_P                   ; out of the grid first: both children
         stx     GOBJ                    ;   are somewhere the parent was not
         jsr     cell_unlink

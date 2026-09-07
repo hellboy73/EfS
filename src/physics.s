@@ -129,8 +129,13 @@ SHIP_RAD    = 8                 ; the ship's collision radius, collision units.
                                 ;   SHIP_SHAPE reaches 25 full-res px at the
                                 ;   nose and 14 at the beam; 8 cu = 16 full-res
                                 ;   px is the same mean-vertex compromise the
-                                ;   rocks get. (TBM - nothing is riding on it
-                                ;   yet, the ship does not react.)
+                                ;   rocks get. (TBM)
+SHIP_ME     = 1                 ; the ship's mass exponent for ship_respond -
+                                ;   BODY_ME[3] (32px), by request: "the ship
+                                ;   behaves like a 32". Not a BODY_R/BODY_ME
+                                ;   row of its own - the ship is not in the
+                                ;   object array, so nothing else would ever
+                                ;   read one.
 PHYS_SEP_SH = 2                 ; the separation push is n >> this, so the
                                 ;   LIGHTEST body of a pair moves up to 128>>2
                                 ;   = 32 world units (one half-res pixel) a
@@ -142,6 +147,50 @@ PHYS_SEP_DP = 2                 ; ...and this much less shift when the pair is
                                 ;   than half sunk. Four times the push, so a
                                 ;   field scattered on top of itself untangles
                                 ;   in a second or so instead of ten.
+VEL_SAT     = 23170             ; the ship's velocity, saturated to this
+                                ;   before a collision reads it - 8.8 world
+                                ;   units a frame, i.e. 90.5, which is a hair
+                                ;   under the top SELECTABLE tier, so only a
+                                ;   boost ever reaches it. 32767/sqrt(2), so
+                                ;   that the two products it feeds can still
+                                ;   be summed inside a signed 16-bit at 45
+                                ;   degrees, where the sum is largest.
+COL_VNMAX   = 18724             ; ...and the largest closing speed the impulse
+                                ;   can answer, 8.8: (1+e)*vn has to stay in a
+                                ;   signed 16-bit and (1+e) is 1.75, so
+                                ;   32767/1.75. 73 world units a frame = 275
+                                ;   px/s. Above that the bounce simply stops
+                                ;   growing, which is a far better failure
+                                ;   than the WRAP it replaces - 1.75 * the top
+                                ;   tier's 92.8 units a frame is 41,575, which
+                                ;   read back out of 16 bits as +23,960 and
+                                ;   answered a head-on by driving the ship
+                                ;   deeper into the rock. (TBM)
+THRTL_HIT   = 128               ; how much of a collision's speed loss comes
+                                ;   off the THROTTLE rather than living and
+                                ;   dying as a decaying knockback, Q0.7. 128 is
+                                ;   all of it - the physically consistent
+                                ;   answer, and the harshest: at e = 0.75 the
+                                ;   ship's own velocity change is 1.75 * the
+                                ;   closing speed, so anything inside about 40
+                                ;   degrees of head-on stops it dead. 0
+                                ;   disables the whole mechanism and leaves
+                                ;   the pre-existing behaviour, where the ship
+                                ;   slides off a rock and flies on at exactly
+                                ;   the speed it arrived with. THE KNOB TO FLY
+                                ;   THIS ON (TBM) - the alternative lever is
+                                ;   PHYS_RESTITUTION itself, which softens the
+                                ;   bounce as well as the cost.
+SHIP_SEP_MG = 3                 ; ...and the margin ship_separate snaps the
+                                ;   SHIP past rsum by, collision units. Not
+                                ;   cosmetic: to_cu truncates the world delta
+                                ;   toward -inf, so a pair placed at EXACTLY
+                                ;   rsum can still read as rsum-1 next frame
+                                ;   and be answered all over again. Three
+                                ;   units (96 world, 3 half-res px) also
+                                ;   covers the 2.7% the estimated unit normal
+                                ;   in ship_respond can come up short. (TBM)
+        .assert (SHIP_RAD + COL_RMAX) * 5 < 256, error, "physics.s: 4*|d| must stay in a byte for ship_respond's normal"
 SHIP_HIW    = ((SHIP_RAD + COL_RMAX)*32 + 255) / 256
                                 ; ...and the ship's own coarse window, in
                                 ;   position-high-byte units - see COL_HIW
@@ -201,6 +250,13 @@ COL_C1      = $6234
 COL_T0      = $6235             ; general scratch
 COL_T1      = $6236
 COL_T2      = $6237
+COL_UX      = $6248             ; the PURE position normal, unit length,
+COL_UY      = $6249             ;   ship->rock. COL_NX/NY is the same vector
+                                ;   until ship_respond's deep-penetration
+                                ;   blend bends it, and the blend must not
+                                ;   reach the SNAP - ship_separate puts the
+                                ;   ship on the line to the rock's centre and
+                                ;   nowhere else
 COL_W0      = $6240             ; the neighbour walk's own byte, held only
                                 ;   across the six instructions that build
                                 ;   a cell index - so it survives nothing,
@@ -521,6 +577,9 @@ ship_test:
         lda     PXH
         jsr     to_cu
         bcs     @no
+        sta     COL_DXC                 ; the signed delta, ship->rock - kept
+                                        ;   for ship_respond's normal, same as
+                                        ;   pair_test keeps it for col_respond's
         jsr     absa
         cmp     COL_RS
         beq     :+
@@ -532,6 +591,7 @@ ship_test:
         lda     PYH
         jsr     to_cu
         bcs     @no
+        sta     COL_DYC
         jsr     absa
         cmp     COL_RS
         beq     :+
@@ -542,14 +602,898 @@ ship_test:
         bcs     @no
 
         lda     SHIPHITN                ; the first one of the frame is what
-        bne     :+                      ;   SHIPHIT names, and it is also what
-        lda     COL_I                   ;   ticks the frame counter
-        sta     SHIPHIT
-        inc     SHIPHITCL
-        bne     :+
+        bne     @notfirst               ;   SHIPHIT names, and the one
+        lda     COL_I                   ;   ship_respond answers - a second
+        sta     SHIPHIT                 ;   rock touching the same frame is
+        inc     SHIPHITCL               ;   still counted (SHIPHITN, below)
+        bne     :+                      ;   but gets no response of its own
         inc     SHIPHITCH
-:       inc     SHIPHITN
+:       jsr     ship_respond
+@notfirst:
+        inc     SHIPHITN
 @no:    rts
+
+; -----------------------------------------------------------------------------
+; ship_respond / ship_hurt - the ship's own half of a ship-rock hit, and what
+; it costs. Lives in HIDATA (cart.cfg): CODE/CODE2/RODATA were already at the
+; $2000-$5FFF ceiling before this (see objects.s's shake block for the same
+; note), and this is not a hot per-object routine - it runs at most once a
+; frame, only when SHIPHIT just became live.
+;
+; ship_respond mirrors col_respond's own maths (the normal, the restitution
+; impulse P, the mass split) with the SHIP standing in for one side of it -
+; the comment at ship_test above names this plan. It does NOT call
+; col_respond, because col_respond writes BOTH halves into OBJVXL/Y-style
+; arrays and the ship is not in that array. Instead:
+;   - the ROCK's share goes into OBJVXL/OBJVYL,COL_I for real, same as any
+;     rock-rock hit - it is in the object array and this persists.
+;   - the SHIP's share goes into KNBXL/KNBYL, a DECAYING knockback ADDED on
+;     top of the throttle-computed VELX/VELY every frame (ship.s knb_tick) -
+;     writing it into VELX/VELY directly would be gone by the very next
+;     frame's do_ship (physics.md 4.6).
+; Mass: the ship uses SHIP_ME (physics.s, "acts like a 32") rather than a
+; BODY_R/BODY_ME row of its own - COL_CI/COL_CJ stay exactly what the rest of
+; do_collide left them (COL_CI is the rock, and pair_test/scan_list read it
+; again after this returns), so this reads BODY_ME,COL_CI directly instead of
+; going through mass_fi, which would need COL_CJ set to a real table row.
+; -----------------------------------------------------------------------------
+        .segment "HIDATA"
+
+ship_respond:
+        ; --- the normal, n = d/|d|, ship -> rock (COL_DXC/DYC, just saved by
+        ; ship_test above). A UNIT normal, which is where this differs from
+        ; col_respond: that one divides by rsum and gets away with it, because
+        ; two rocks are only ever shallowly overlapped when they are caught,
+        ; so |d|/rsum is within a hair of 1, and its separation is a fixed
+        ; nudge along n anyway. ship_separate is not a nudge - it SNAPS the
+        ; ship to the point rsum from the rock's centre along n - and with
+        ; n = d/rsum that snap is exactly rock - (d/rsum)*rsum, which is the
+        ; ship's own position again. It moved the ship NOWHERE. Nothing ever
+        ; pushed the ship out of a rock, and a shallow-angle graze against a
+        ; big one - where the impulse along n is small because the approach
+        ; is nearly tangential - had nothing left to stop it: the ship sank
+        ; in and came out the far side.
+        ;
+        ; |d| is estimated as max(M, 0.875M + 0.5m) over M = max(|dx|,|dy|)
+        ; and m = the other one: two shifts and an add, no square root. The
+        ; formula itself is good to +0.8%/-3.0%, but at these magnitudes -
+        ; |d| is a handful of collision units when it matters - the SHIFTS
+        ; are the bigger error, so the whole thing is carried at 4x, and its
+        ; one rounding (M/2, the term that decides the max) rounds UP, which
+        ; makes E a little SHORTER and therefore n a little longer. That is
+        ; the direction to err in: a long n only overshoots the snap, while a
+        ; short one can leave the ship still inside the rock. Measured over
+        ; every reachable (|dx|,|dy|), |n| lands in [0.973, 1.127] of unit
+        ; length, and the 2.7% short end is what SHIP_SEP_MG is sized for.
+        ;
+        ;   E4 = 4M + max(0, 2m - (M+1)/2)     = 4 * |d|, and < 256
+        lda     COL_ADX
+        ldx     COL_ADY
+        cmp     COL_ADY
+        bcs     :+
+        ldx     COL_ADX
+        lda     COL_ADY
+:       sta     COL_T2                  ; T2 = M, X = m
+        cmp     #$00
+        beq     @degen                  ; M = 0 means both are: no normal
+        inc     a
+        lsr     a
+        sta     COL_T0                  ; (M+1)/2
+        txa
+        asl     a                       ; 2m
+        sec
+        sbc     COL_T0
+        bcs     :+
+        lda     #$00
+:       sta     COL_T0                  ; max(0, 2m - (M+1)/2)
+        lda     COL_T2
+        asl     a
+        asl     a
+        clc
+        adc     COL_T0                  ; E4
+
+        ldy     #$02                    ; normalise E4 into (64,128] so the
+@dn:    cmp     #129                    ;   reciprocal is a 64-byte table and
+        bcc     @up                     ;   not a divide - col_respond's own
+        lsr     a                       ;   block, with |d| where it has rsum,
+        dey                             ;   except that E4 can be OVER 128 and
+        bra     @dn                     ;   so this end exists too. Y counts
+@up:    cmp     #65                     ;   the net left shifts, and starts at
+        bcs     @normd                  ;   2 because the divisor it is
+        asl     a                       ;   building is 4|d| and nrm wants the
+        iny                             ;   shift that goes with |d|
+        bra     @up
+@normd: sty     COL_S
+        sec
+        sbc     #65
+        tax
+        lda     RECIP64,x
+        sta     COL_Q
+
+        lda     COL_ADX
+        jsr     nrm
+        ldy     COL_DXC
+        bpl     :+
+        eor     #$FF
+        inc     a
+:       sta     COL_NX
+        lda     COL_ADY
+        jsr     nrm
+        ldy     COL_DYC
+        bpl     :+
+        eor     #$FF
+        inc     a
+:       sta     COL_NY
+
+        lda     COL_NX                  ; same "pick a direction" fallback as
+        ora     COL_NY                  ;   col_respond, for the same reason
+        bne     @haven
+@degen: lda     #127
+        sta     COL_NX
+        stz     COL_NY
+@haven: lda     COL_NX                  ; the pure position normal is kept for
+        sta     COL_UX                  ;   the snap: the blend below bends
+        lda     COL_NY                  ;   the IMPULSE direction, and
+        sta     COL_UY                  ;   ship_separate must stay on the
+                                        ;   line of centres whatever it does
+        ; --- deep penetration: once the ship is far enough inside a rock the
+        ; position normal is a poor guide to which way it came in - this whole
+        ; file's maths assumes only shallow overlap is ever caught (physics.s
+        ; header, point 3: a rock cannot move fast enough to be deeply sunk
+        ; when first detected; the ship can). When |d|^2 < rsum^2/4 (half-sunk
+        ; or worse - the same test col_separate/ship_separate use for
+        ; PHYS_SEP_DP), blend the ship's own travel direction into n so the
+        ; bounce sends it back down its own track.
+        ;
+        ; The direction blended in is +v, NOT -v, and the sign is the whole
+        ; point: n points ship -> ROCK, and the ship is pushed along -n (the
+        ; impulse below is F * (1+e) * vn * n with vn negative while closing).
+        ; So the term that reverses the ship's travel is the travel direction
+        ; itself. Blending -v in gave -n a +v component, which is a knockback
+        ; pointing FORWARD, deeper into the rock - the exact opposite of what
+        ; this block is for.
+        ;
+        ; v = (SINV, -COSV) by ship.s's own construction (VELX = SPD*sin,
+        ; VELY = -SPD*cos), flipped when SPD is negative, because the reverse
+        ; tiers travel backwards along the same heading. Both terms are halved
+        ; before summing so the blend cannot overflow a signed byte: "bounce
+        ; back roughly the way you came, AND to the side".
+        lda     COL_RQH
+        lsr     a
+        sta     COL_T1
+        lda     COL_RQL
+        ror     a
+        sta     COL_T0
+        lsr     COL_T1
+        ror     COL_T0
+        lda     COL_DSL
+        cmp     COL_T0
+        lda     COL_DSH
+        sbc     COL_T1
+        bcs     @shallow                ; not deep: keep the position normal
+
+        lda     SINV                    ; COL_T0/T1 = v = (SINV, -COSV)...
+        sta     COL_T0
+        sec
+        lda     #$00
+        sbc     COSV
+        sta     COL_T1
+        bit     SPDH                    ; ...backwards, in reverse
+        bpl     :+
+        sec
+        lda     #$00
+        sbc     COL_T0
+        sta     COL_T0
+        sec
+        lda     #$00
+        sbc     COL_T1
+        sta     COL_T1
+:       lda     COL_T0                  ; ...halved, arithmetically
+        cmp     #$80
+        ror     a
+        sta     COL_T0
+        lda     COL_T1
+        cmp     #$80
+        ror     a
+        sta     COL_T1
+
+        lda     COL_NX                  ; blend: (position normal)>>1 +
+        cmp     #$80                    ;   (travel direction)>>1
+        ror     a
+        clc
+        adc     COL_T0
+        sta     COL_NX
+        lda     COL_NY
+        cmp     #$80
+        ror     a
+        clc
+        adc     COL_T1
+        sta     COL_NY
+@shallow:
+        ; --- relative velocity along n: (V_rock - V_ship)."n. Negative =
+        ; closing, same convention as col_respond - see ship_test's comment
+        ; for why the ship's own velocity stands in for a rock's OBJVX/OBJVY
+        ; here.
+        ;
+        ; The subtract is 24-BIT and then saturated, which col_respond never
+        ; has to do. The ship's velocity is 16.8 - VELXT/VELYT, main.s - and a
+        ; BOOST doubles the top tier's 92.8 world units a frame to 185.6,
+        ; which in 8.8 is 47,514: read out of VELXL/VELXH alone that is a
+        ; NEGATIVE number, and the whole response would then answer a head-on
+        ; by pushing the ship further in. A rock's own velocity is a plain
+        ; signed 8.8 and is sign-extended into the third byte.
+        ldx     COL_I
+        ldy     #$00
+        lda     OBJVXH,x
+        bpl     :+
+        ldy     #$FF
+:       sec
+        lda     OBJVXL,x
+        sbc     VELXL
+        sta     COL_T0
+        lda     OBJVXH,x
+        sbc     VELXH
+        sta     COL_T1
+        tya
+        sbc     VELXT
+        jsr     vel_sat
+        lda     COL_T0
+        sta     MAL
+        lda     COL_T1
+        sta     MAH
+        lda     COL_NX
+        sta     MB
+        jsr     smul16q7
+        lda     MAL
+        sta     COL_VNL
+        lda     MAH
+        sta     COL_VNH
+
+        ldx     COL_I
+        ldy     #$00
+        lda     OBJVYH,x
+        bpl     :+
+        ldy     #$FF
+:       sec
+        lda     OBJVYL,x
+        sbc     VELYL
+        sta     COL_T0
+        lda     OBJVYH,x
+        sbc     VELYH
+        sta     COL_T1
+        tya
+        sbc     VELYT
+        jsr     vel_sat
+        lda     COL_T0
+        sta     MAL
+        lda     COL_T1
+        sta     MAH
+        lda     COL_NY
+        sta     MB
+        jsr     smul16q7
+        clc
+        lda     MAL
+        adc     COL_VNL
+        sta     COL_VNL
+        lda     MAH
+        adc     COL_VNH
+        sta     COL_VNH
+        bmi     :+                      ; closing: bounce (falls into
+        jmp     ship_separate           ;   ship_separate below once it has).
+                                        ;   Parting already: no hit, no HP
+                                        ;   lost - but SEPARATE ANYWAY, same
+                                        ;   as col_respond/col_separate, or a
+                                        ;   big, slow-to-clear rock just sits
+                                        ;   there overlapping the ship forever
+:       lda     COL_VNL                 ; ...and peg the closing speed at what
+        cmp     #<(65536-COL_VNMAX)     ;   the restitution product below can
+        lda     COL_VNH                 ;   hold. vn is negative on this
+        sbc     #>(65536-COL_VNMAX)     ;   branch and so is the bound, so the
+        bcs     :+                      ;   unsigned compare IS the signed one
+        lda     #<(65536-COL_VNMAX)
+        sta     COL_VNL
+        lda     #>(65536-COL_VNMAX)
+        sta     COL_VNH
+:
+        ; --- P = (1+e)*vn*n, same shift-built restitution as col_respond ---
+        lda     COL_VNL
+        sta     COL_T0
+        lda     COL_VNH
+        sta     COL_T1
+        jsr     asr_t
+        clc
+        lda     COL_VNL
+        adc     COL_T0
+        sta     COL_PL
+        lda     COL_VNH
+        adc     COL_T1
+        sta     COL_PH
+        jsr     asr_t
+        clc
+        lda     COL_PL
+        adc     COL_T0
+        sta     COL_PL
+        lda     COL_PH
+        adc     COL_T1
+        sta     COL_PH
+
+        lda     COL_RQH                 ; deep again (see above) - double the
+        lsr     a                       ;   whole impulse too, not just its
+        sta     COL_T1                  ;   direction: "the more it
+        lda     COL_RQL                 ;   penetrated, the harder it bounces"
+        ror     a
+        sta     COL_T0
+        lsr     COL_T1
+        ror     COL_T0
+        lda     COL_DSL
+        cmp     COL_T0
+        lda     COL_DSH
+        sbc     COL_T1
+        bcs     @notdeep
+        lda     COL_PH                  ; ...but the doubling has to saturate
+        clc                             ;   too: the vn clamp above sizes P to
+        adc     #$40                    ;   fit a signed 16-bit ONCE, not
+        cmp     #$80                    ;   twice. |P| < 16384 is the high byte
+        bcc     :+                      ;   in [-64,63], which is this
+        bit     COL_PH
+        bmi     @pegn
+        lda     #$FF
+        sta     COL_PL
+        lda     #$7F
+        sta     COL_PH
+        bra     @notdeep
+@pegn:  stz     COL_PL
+        lda     #$80
+        sta     COL_PH
+        bra     @notdeep
+:       asl     COL_PL
+        rol     COL_PH
+@notdeep:
+
+        lda     COL_PL
+        sta     MAL
+        lda     COL_PH
+        sta     MAH
+        lda     COL_NX
+        sta     MB
+        jsr     smul16q7
+        lda     MAL
+        sta     COL_IXL
+        lda     MAH
+        sta     COL_IXH
+        lda     COL_PL
+        sta     MAL
+        lda     COL_PH
+        sta     MAH
+        lda     COL_NY
+        sta     MB
+        jsr     smul16q7
+        lda     MAL
+        sta     COL_IYL
+        lda     MAH
+        sta     COL_IYH
+
+        ; --- F_ship = m_rock/(m_ship+m_rock), read straight off BODY_ME
+        ; rather than through mass_fi - see the header above. ---
+        lda     #SHIP_ME
+        sec
+        ldx     COL_CI
+        sbc     BODY_ME,x
+        clc
+        adc     #4
+        bpl     :+
+        lda     #$00
+:       cmp     #9
+        bcc     :+
+        lda     #8
+:       tax
+        lda     MASSF,x
+        sta     COL_FI
+
+        lda     COL_IXL                 ; A = F_ship * P - the ship's OWN
+        sta     MAL                     ;   share
+        lda     COL_IXH
+        sta     MAH
+        lda     COL_FI
+        sta     MB
+        jsr     smul16q7
+        lda     MAL
+        sta     COL_AXL
+        lda     MAH
+        sta     COL_AXH
+        lda     COL_IYL
+        sta     MAL
+        lda     COL_IYH
+        sta     MAH
+        lda     COL_FI
+        sta     MB
+        jsr     smul16q7
+        lda     MAL
+        sta     COL_AYL
+        lda     MAH
+        sta     COL_AYH
+
+.if THRTL_HIT
+        ; --- the THROTTLE pays, not just the knockback ------------------------
+        ; KNBX/KNBY is a decaying add-on: do_ship rebuilds VELX/VELY from THRTL
+        ; and HEAD from zero every frame (physics.md 4.6), so the moment the
+        ; knockback has faded the ship is back at exactly the speed it hit the
+        ; rock with. It slid along the rock and flew on, which is what a
+        ; collision must not do. For the hit to COST anything the speed has to
+        ; come off the throttle - open_questions B8 says the same thing about
+        ; the gun's recoil, and for the same reason.
+        ;
+        ; What comes off is A.H, the part of the ship's own velocity change
+        ; that lies along its HEADING H = (SINV, -COSV) - which is exactly the
+        ; scalar do_ship rebuilds the velocity from. The projection is what
+        ; makes the cost read right: a head-on takes everything, and a shallow
+        ; graze, where A is nearly perpendicular to the heading, takes almost
+        ; nothing and lets the ship slide on, which is what a graze should do.
+        ; The sign needs no special case either way: flying forward, A opposes
+        ; H and THRTL goes down; in reverse the ship travels along -H, A points
+        ; along +H, and THRTL goes UP - toward rest, which is the same
+        ; "slower" in both cases.
+        lda     COL_AXL
+        sta     MAL
+        lda     COL_AXH
+        sta     MAH
+        lda     SINV
+        sta     MB
+        jsr     smul16q7
+        lda     MAL
+        sta     COL_T0
+        lda     MAH
+        sta     COL_T1
+        lda     COL_AYL                 ; ...minus AY*COSV, because Hy is
+        sta     MAL                     ;   -COSV and negating the PRODUCT
+        lda     COL_AYH                 ;   sidesteps the one heading where
+        sta     MAH                     ;   COSV is $80 and cannot be negated
+        lda     COSV
+        sta     MB
+        jsr     smul16q7
+        sec
+        lda     COL_T0
+        sbc     MAL
+        sta     COL_T0
+        lda     COL_T1
+        sbc     MAH
+        sta     COL_T1                  ; T0/T1 = A.H, signed 8.8
+
+        clc                             ; the knockback keeps only what the
+        lda     KNBXL                   ;   throttle cannot express - the part
+        adc     COL_AXL                 ;   ACROSS the heading. Adding all of
+        sta     KNBXL                   ;   A here AND taking A.H off the
+        lda     KNBXH                   ;   throttle would charge the
+        adc     COL_AXH                 ;   along-heading half twice.
+        sta     KNBXH                   ;   ACCUMULATING either way - knb_tick
+        clc                             ;   decays it every frame, so a second
+        lda     KNBYL                   ;   hit before the first has faded just
+        adc     COL_AYL                 ;   adds on top
+        sta     KNBYL
+        lda     KNBYH
+        adc     COL_AYH
+        sta     KNBYH
+
+        lda     COL_T0                  ; KNBX -= (A.H)*Hx
+        sta     MAL
+        lda     COL_T1
+        sta     MAH
+        lda     SINV
+        sta     MB
+        jsr     smul16q7
+        sec
+        lda     KNBXL
+        sbc     MAL
+        sta     KNBXL
+        lda     KNBXH
+        sbc     MAH
+        sta     KNBXH
+        lda     COL_T0                  ; KNBY -= (A.H)*Hy, and Hy is -COSV,
+        sta     MAL                     ;   so this one ADDS the product
+        lda     COL_T1
+        sta     MAH
+        lda     COSV
+        sta     MB
+        jsr     smul16q7
+        clc
+        lda     KNBYL
+        adc     MAL
+        sta     KNBYL
+        lda     KNBYH
+        adc     MAH
+        sta     KNBYH
+
+        jsr     throttle_hit            ; ...and A.H itself goes on THRTL
+.else
+        clc                             ; ship's share -> the knockback,
+        lda     KNBXL                   ;   ACCUMULATING - ship.s's knb_tick
+        adc     COL_AXL                 ;   decays it every frame, so a second
+        sta     KNBXL                   ;   hit before the first has faded
+        lda     KNBXH                   ;   just adds on top
+        adc     COL_AXH
+        sta     KNBXH
+        clc
+        lda     KNBYL
+        adc     COL_AYL
+        sta     KNBYL
+        lda     KNBYH
+        adc     COL_AYH
+        sta     KNBYH
+.endif
+
+        sec                             ; rock's share = A - P, straight into
+        lda     COL_AXL                 ;   OBJVXL/Y for real - col_respond's
+        sbc     COL_IXL                 ;   own "v[j] += A-P"
+        sta     COL_T0
+        lda     COL_AXH
+        sbc     COL_IXH
+        sta     COL_T1
+        ldx     COL_I
+        clc
+        lda     OBJVXL,x
+        adc     COL_T0
+        sta     OBJVXL,x
+        lda     OBJVXH,x
+        adc     COL_T1
+        sta     OBJVXH,x
+        sec
+        lda     COL_AYL
+        sbc     COL_IYL
+        sta     COL_T0
+        lda     COL_AYH
+        sbc     COL_IYH
+        sta     COL_T1
+        ldx     COL_I
+        clc
+        lda     OBJVYL,x
+        adc     COL_T0
+        sta     OBJVYL,x
+        lda     OBJVYH,x
+        adc     COL_T1
+        sta     OBJVYH,x
+
+        ; the rock's own HP is DISABLED here for now, by request - it still
+        ; gets its velocity share above and rock_take_hit_deferred is still
+        ; wired up (physics.s, below) for whenever this comes back; only the
+        ; jsr to it is pulled.
+        jsr     ship_hurt               ; the ship still pays - then fall into
+                                        ;   the separation below, same as
+                                        ;   col_respond falls into col_separate
+        ; fall through into ship_separate
+
+; -----------------------------------------------------------------------------
+; vel_sat - COL_T0/COL_T1 hold the low two bytes of a signed 24-bit value and
+; A holds its top byte; saturate the whole thing into a signed 16-bit in
+; COL_T0/COL_T1. See the relative-velocity block above for why 24 bits reach
+; this at all, and VEL_SAT for why the peg is not simply $7FFF.
+; -----------------------------------------------------------------------------
+vel_sat:
+        sta     COL_T2
+        and     #$80                    ; bit 7 of the TOP byte is the sign of
+        bne     @neg                    ;   the whole 24-bit value
+        lda     COL_T0
+        cmp     #<VEL_SAT
+        lda     COL_T1
+        sbc     #>VEL_SAT
+        lda     COL_T2
+        sbc     #$00
+        bcc     @done
+        lda     #<VEL_SAT
+        sta     COL_T0
+        lda     #>VEL_SAT
+        sta     COL_T1
+        rts
+@neg:   lda     COL_T0                  ; this and the bound both have bit 23
+        cmp     #<(16777216-VEL_SAT)    ;   set, so the unsigned compare is
+        lda     COL_T1                  ;   the signed one again
+        sbc     #>(16777216-VEL_SAT)
+        lda     COL_T2
+        sbc     #^(16777216-VEL_SAT)
+        bcs     @done
+        lda     #<(65536-VEL_SAT)
+        sta     COL_T0
+        lda     #>(65536-VEL_SAT)
+        sta     COL_T1
+@done:  rts
+
+.if THRTL_HIT
+; -----------------------------------------------------------------------------
+; throttle_hit - COL_T0/COL_T1 = A.H, the collision's change to the ship's
+; speed ALONG its heading, signed 8.8 world units a frame. Move THRTL by it.
+; -----------------------------------------------------------------------------
+; The scale is not a tunable, it is the TIER_SPD ladder's own slope: that table
+; steps a uniform 3395 (8.8) per tier and a tier is 128 THRTL, so one THRTL
+; unit is 26.52 of 8.8 speed - on BOTH sides of rest, the reverse half having
+; the same step. 1/26.52 is 0.0377, and >>5 plus >>7 is 0.0391, which is that
+; to 4%.
+;
+; The step is then clamped to the side of REST the ship was already on. A hit
+; can take the ship to a dead stop and no further: being punched from 350 px/s
+; forward into flying backwards is not a collision, it is a bug, and the player
+; would have no idea what had happened.
+; -----------------------------------------------------------------------------
+throttle_hit:
+.if THRTL_HIT <> 128
+        lda     COL_T0                  ; ...as much of it as THRTL_HIT asks
+        sta     MAL                     ;   for
+        lda     COL_T1
+        sta     MAH
+        lda     #THRTL_HIT
+        sta     MB
+        jsr     smul16q7
+        lda     MAL
+        sta     COL_T0
+        lda     MAH
+        sta     COL_T1
+.endif
+        jsr     asr_t                   ; A.H >> 5
+        jsr     asr_t
+        jsr     asr_t
+        jsr     asr_t
+        jsr     asr_t
+        lda     COL_T0
+        sta     COL_PL
+        lda     COL_T1
+        sta     COL_PH
+        jsr     asr_t                   ; ...plus A.H >> 7
+        jsr     asr_t
+        clc
+        lda     COL_T0
+        adc     COL_PL
+        sta     COL_T0
+        lda     COL_T1
+        adc     COL_PH
+        sta     COL_T1
+
+        ldx     #$00                    ; which side of rest is the ship on?
+        lda     THRTLL
+        cmp     #<THRTL_REST
+        lda     THRTLH
+        sbc     #>THRTL_REST
+        bcc     :+
+        ldx     #$FF                    ; at rest, or above it
+:       stx     COL_T2
+
+        clc                             ; THRTL + step, as a signed 16 - THRTL
+        lda     THRTLL                  ;   is at most 1280 and the step at
+        adc     COL_T0                  ;   most about 1500, so the sum cannot
+        sta     COL_PL                  ;   leave a signed 16-bit and the
+        lda     THRTLH                  ;   clamps below can read it as one
+        adc     COL_T1
+        sta     COL_PH
+
+        bit     COL_T2
+        bmi     @above
+
+        bit     COL_PH                  ; --- below rest: clamp into [0, REST]
+        bpl     :+
+        stz     COL_PL                  ; went negative: floor at full reverse
+        stz     COL_PH
+        bra     @store
+:       lda     COL_PL
+        cmp     #<THRTL_REST
+        lda     COL_PH
+        sbc     #>THRTL_REST
+        bcc     @store
+        bra     @rest                   ; reached rest: stop there
+
+@above: bit     COL_PH                  ; --- at or above rest: [REST, MAX]
+        bmi     @rest
+        lda     COL_PL
+        cmp     #<THRTL_REST
+        lda     COL_PH
+        sbc     #>THRTL_REST
+        bcs     :+
+@rest:  lda     #<THRTL_REST
+        sta     COL_PL
+        lda     #>THRTL_REST
+        sta     COL_PH
+        bra     @store
+:       lda     COL_PL
+        cmp     #<THRTL_MAX
+        lda     COL_PH
+        sbc     #>THRTL_MAX
+        bcc     @store
+        lda     #<THRTL_MAX
+        sta     COL_PL
+        lda     #>THRTL_MAX
+        sta     COL_PH
+
+@store: lda     COL_PL                  ; do_input rebuilds TIER and THFRAC
+        sta     THRTLL                  ;   from THRTL at the top of the next
+        lda     COL_PH                  ;   frame, so nothing else here has to
+        sta     THRTLH                  ;   be touched
+        rts
+.endif
+
+; -----------------------------------------------------------------------------
+; ship_separate - push the ROCK by col_separate's own small mass-weighted
+; SHIFT (unchanged from the first cut), but snap the SHIP to sit just past
+; rsum away from the rock along n, full correction, not a shift.
+; -----------------------------------------------------------------------------
+; Why the ship needs the harder correction and a rock never does: this whole
+; file's normal/impulse maths is built on bodies that can only ever be
+; SHALLOWLY overlapping at the moment they are detected (physics.s's own
+; header, point 3 - "a rock moves at most ~13 world units a frame" against
+; radii up to 2496, so it cannot tunnel). The ship can move far faster than
+; that in a frame, so it can already be DEEP inside a rock the very first
+; frame the pair is caught - a small shifted nudge (col_separate's own,
+; correct for a slow body) is not enough to undo that in one frame, and a
+; player holding the stick into the rock re-creates the overlap every frame
+; regardless, since do_ship rebuilds VELX/VELY from scratch every time - see
+; ship_respond's own header. So instead of nudging, this puts the ship at the
+; nearest point on the circle of radius rsum around the rock, along n,
+; unconditionally - it cannot end the frame overlapping, whatever got it
+; there. Runs on EVERY overlapping frame (impulse or not), same reason
+; col_separate does: without it, an overlap with no closing velocity (already
+; parting, or the player holding straight into a wall) is never otherwise
+; touched again.
+; -----------------------------------------------------------------------------
+ship_separate:
+        lda     #SHIP_ME
+        sta     COL_EI
+        ldx     COL_CI
+        lda     BODY_ME,x
+        sta     COL_EJ
+        cmp     COL_EI                  ; T2 = min(e_ship, e_rock) - the
+        bcc     @emin                   ;   LIGHTER one moves the full step
+        lda     COL_EI
+@emin:  sta     COL_T2
+
+        lda     #PHYS_SEP_SH
+        sta     COL_BASE
+        lda     COL_RQH                 ; deeply sunk? |d|^2 < rsum^2/4 - reuses
+        lsr     a                       ;   COL_RQ/DS from ship_test's own dsq,
+        sta     COL_T1                  ;   still fresh: nothing between there
+        lda     COL_RQL                 ;   and here recomputes them
+        ror     a
+        sta     COL_T0
+        lsr     COL_T1
+        ror     COL_T0
+        lda     COL_DSL
+        cmp     COL_T0
+        lda     COL_DSH
+        sbc     COL_T1
+        bcs     @shifts
+        lda     #PHYS_SEP_SH - PHYS_SEP_DP
+        bpl     :+
+        lda     #$00
+:       sta     COL_BASE
+@shifts:
+        sec                             ; the rock's own small shift - the
+        lda     COL_EJ                  ;   same nudge a rock-rock pair gets
+        sbc     COL_T2
+        clc
+        adc     COL_BASE
+        sta     COL_SHJ
+
+        lda     COL_UX                  ; the rock moves along +n, straight
+        ldy     COL_SHJ                 ;   into OBJXL/OBJYL for real, same as
+        jsr     sep_shr                 ;   col_separate's own "j" half
+        ldx     COL_I
+        jsr     posx_add
+        lda     COL_UY
+        ldy     COL_SHJ
+        jsr     sep_shr
+        ldx     COL_I
+        jsr     posy_add
+
+        ; --- the ship: SHXL/SHYL := rock's position - n*(rsum + margin), in
+        ; world units - the point just outside the circle of radius rsum
+        ; around the rock, back along -n. n here is COL_UX/COL_UY, the pure
+        ; UNIT position normal ship_respond kept aside: COL_NX/NY may carry
+        ; the deep-penetration blend, and a snap along a blended direction
+        ; would put the ship somewhere off the line of centres and at the
+        ; wrong distance. The margin is why the snap clears the pair instead
+        ; of landing it back on the detection threshold - see SHIP_SEP_MG.
+        lda     COL_RS
+        clc
+        adc     #SHIP_SEP_MG
+        sta     COL_T0                  ; rsum, collision units -> world units
+        lda     #$00                    ;   (<<5): COL_T0/COL_T1
+        sta     COL_T1
+        asl     COL_T0
+        rol     COL_T1
+        asl     COL_T0
+        rol     COL_T1
+        asl     COL_T0
+        rol     COL_T1
+        asl     COL_T0
+        rol     COL_T1
+        asl     COL_T0
+        rol     COL_T1
+
+        lda     COL_T0
+        sta     MAL
+        lda     COL_T1
+        sta     MAH
+        lda     COL_UX
+        sta     MB
+        jsr     smul16q7                ; MAL/MAH = rsum_world * nx
+        lda     MAL
+        sta     COL_AXL                 ; ship_respond's own use of these is
+        lda     MAH                     ;   long finished by now - free scratch
+        sta     COL_AXH
+
+        lda     COL_T0
+        sta     MAL
+        lda     COL_T1
+        sta     MAH
+        lda     COL_UY
+        sta     MB
+        jsr     smul16q7                ; MAL/MAH = rsum_world * ny
+        lda     MAL
+        sta     COL_AYL
+        lda     MAH
+        sta     COL_AYH
+
+        ldx     COL_I
+        sec
+        lda     OBJXL,x
+        sbc     COL_AXL
+        sta     SHXL
+        lda     OBJXH,x
+        sbc     COL_AXH
+        sta     SHXH
+        sec
+        lda     OBJYL,x
+        sbc     COL_AYL
+        sta     SHYL
+        lda     OBJYH,x
+        sbc     COL_AYH
+        sta     SHYH
+        rts
+
+; -----------------------------------------------------------------------------
+; rock_take_hit_deferred - X = the rock. Same as shots.s's rock_take_hit
+; (spend one HP, crack-shake if it lands on 1) EXCEPT the actual kill is
+; deferred: do_collide is still walking the sector grid when ship_respond
+; runs (called from mid-way through it, ship_test), and rock_destroy relinks
+; that same grid - rock_split reuses the parent's OWN slot for one of its two
+; children (shots.s's own note on it), which would pull the rug out from
+; under do_collide's neighbour walk for THIS object. So this just remembers
+; the slot in SHIPKILL_PEND; ship_kill_pending (main.s, after do_objects'
+; whole walk is over) does the actual rock_destroy call.
+; -----------------------------------------------------------------------------
+rock_take_hit_deferred:
+        dec     OBJHP,x
+        bne     @alive
+        stx     SHIPKILL_PEND
+        rts
+@alive: lda     OBJHP,x
+        cmp     #1
+        bne     @done
+        lda     #SHK_SHIFT_CRACK
+        jsr     shake_arm
+@done:  rts
+
+; -----------------------------------------------------------------------------
+; ship_hurt - spend one of the ship's hit points. At 0, it breaks apart.
+; -----------------------------------------------------------------------------
+ship_hurt:
+        dec     SHIPHP
+        bne     @ok
+        jmp     ship_die
+@ok:    rts
+
+; -----------------------------------------------------------------------------
+; ship_kill_pending - the deferred half of rock_take_hit_deferred. Called from
+; main.s right after do_objects returns - the grid walk that made an immediate
+; rock_destroy unsafe is over by then, and emit_asteroids/do_shots have not
+; read the visible list yet, so a kill here is exactly as timely as one shots.s
+; triggers later in the same frame.
+; -----------------------------------------------------------------------------
+ship_kill_pending:
+        lda     SHIPKILL_PEND
+        cmp     #$FF
+        beq     @none
+        ldx     SHIPKILL_PEND
+        lda     #$FF
+        sta     SHIPKILL_PEND
+        jmp     rock_destroy            ; tail call: its own rts returns for us
+@none:  rts
+
+        .segment "CODE"                 ; back to bank 0 for the rest of this file
 
 ; -----------------------------------------------------------------------------
 ; col_respond - two bodies are overlapping. Bounce them, then push them apart.
@@ -861,10 +1805,12 @@ col_separate:
 ; the small change
 ; -----------------------------------------------------------------------------
 
-; nrm - A = a magnitude 0..rsum -> A = that magnitude * 128 / rsum, 0..127.
-; The shift and the reciprocal were both picked in col_respond; all that is
-; left here is one quarter-square product and the clamp that keeps the result
-; inside what smul16q7 will take as a Q0.7 multiplier.
+; nrm - A = a magnitude 0..D -> A = that magnitude * 128 / D, 0..127, where D
+; is whatever divisor COL_S and COL_Q were built from: rsum in col_respond,
+; |d| in ship_respond. All that is left here is one quarter-square product and
+; the clamp that keeps the result inside what smul16q7 takes as a Q0.7
+; multiplier - which is also what catches the one case where the ship's |d|
+; estimate reads a hair short and the ratio lands just over 1.
 nrm:
         ldy     COL_S
         beq     @go

@@ -378,6 +378,11 @@ do_flames:
         tya
         adc     #>FBCX
         sta     FLCXH
+
+        jsr     shk_fold_flame_x        ; the screen shake - flames ride the
+                                        ;   ship's centre but never go through
+                                        ;   zoom_fb, same as emit_ship (ship.s)
+
         ldy     #$00
         bit     SHOFXH
         bpl     :+
@@ -389,6 +394,8 @@ do_flames:
         tya
         adc     #>FBCY
         sta     FLCYH
+
+        jsr     shk_fold_flame_y        ; ...and its Y half
 
         lda     FLIDX                   ; E's own frame: FLIDX clamped to 0-2
         cmp     #3                      ;   (its art is always 3 frames; FLIDX

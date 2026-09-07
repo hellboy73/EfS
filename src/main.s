@@ -564,6 +564,21 @@ GCELL       = $62F7             ; the run cursor, parked while a rock is drawn
 ETIER       = $62F9             ; the tier the frame actually uses: TIER, except
                                 ;   while boosting, when it is TIER_BOOST
 BOOSTN      = $62FA             ; frames of boost left, 0 = not boosting
+ACRACK      = $62FB             ; this rock is at its LAST hit point (not just
+                                 ;   spawned there) - one_asteroid draws the
+                                 ;   crack when this is nonzero
+SHAKEX      = $62FC             ; this frame's screen-shake offset, signed
+                                 ;   full-res pixels - 0,0 when idle. Folded
+                                 ;   into zoom_fb's FXL/FXH so every rock,
+                                 ;   bullet and puff rattles the same amount;
+                                 ;   do_stars and emit_ship fold it in
+                                 ;   separately, since neither goes through
+                                 ;   zoom_fb (objects.s, stars.s, ship.s)
+SHAKEY      = $62FD
+SHK_TIMER   = $62FE             ; frames of shake left, 0 = idle (objects.s
+                                 ;   shake_tick/shake_arm)
+SHK_SHIFT   = $62FF             ; how many bits the running shake's waveform
+                                 ;   is shifted down by - smaller is LOUDER
 NFREE       = $62DC             ; slots on the free stack (see FREEL)
 NFREEMIN    = $62DD             ; ...and the fewest there have ever been, which
                                 ;   is the only number that says whether the
@@ -682,6 +697,25 @@ SHP_DEAD    = $FF               ; the OBJSHP a destroyed rock is stamped with.
 OBJANG      = $6000             ; NOBJ bytes: its spin angle, brad (integer part)
 OBJANGF     = $6100             ; ...and the fraction, so a spin can be far slower
                                 ;   than one brad a frame
+SHIPHP      = $6241             ; the ship's hit points, starts at 5 (cart_init)
+                                ;   - 1 per collision (physics.s ship_respond),
+                                ;   0 = broken apart (ship_die)
+KNBXL       = $6242             ; the KNOCKBACK: a decaying velocity added on
+KNBXH       = $6243             ;   top of the throttle-computed VELX/VELY every
+KNBYL       = $6244             ;   frame (ship.s knb_tick, in HIDATA) - not
+KNBYH       = $6245             ;   written INTO VELX/VELY directly, because
+                                ;   those are rebuilt from SPD/HEAD from zero
+                                ;   every frame and would erase it (physics.md
+                                ;   4.6). Signed 16-bit, same 8.8 scale as a
+                                ;   rock's OBJVXL/OBJVXH.
+SHIPKILL_PEND = $6247           ; a rock's slot ($FF = none) that reached 0 HP
+                                ;   from a ship collision, held until do_objects'
+                                ;   grid walk is over - rock_destroy relinks the
+                                ;   sector grid (rock_split reuses the parent's
+                                ;   OWN slot for a child - shots.s's own note on
+                                ;   it), and do_collide is still walking that
+                                ;   grid when ship_respond would otherwise want
+                                ;   to call it. See ship_kill_pending (physics.s)
 PBUF        = $6280             ; the POLYGON argument block: 7 header bytes and
                                 ;   then 2*AVN of shape - 31 at the largest
                                 ;   rock, 35 for the ship's 14 vertices - and
@@ -858,6 +892,15 @@ cart_init:
         lda     #$3C
         sta     PRNGH
 
+        lda     #5                      ; the ship's hit points - see SHIPHP
+        sta     SHIPHP
+        stz     KNBXL
+        stz     KNBXH
+        stz     KNBYL
+        stz     KNBYH
+        lda     #$FF
+        sta     SHIPKILL_PEND
+
         jsr     init_qs
         jsr     shots_init              ; ...and every gun and puff slot free -
                                         ;   nothing zeroes cartridge RAM for us
@@ -940,10 +983,17 @@ cart_frame:
         jsr     do_input
         jsr     do_camera               ; cos/sin, then the two rotation tables
         jsr     do_ship                 ; velocity from tier + heading, integrate
+        jsr     shake_tick              ; publish this frame's SHAKEX/SHAKEY -
+                                         ;   BEFORE anything that folds them in
         jsr     do_objects              ; move and spin the rocks, transform them
         jsr     emit_asteroids          ; ...which also registers their occluder
                                         ;   discs, which do_stars needs: it is the
                                         ;   one pass that has to run after them
+        jsr     ship_kill_pending        ; a rock a ship collision took to 0 HP
+                                        ;   this frame (physics.s ship_respond)
+                                        ;   waits until here for the same reason
+                                        ;   do_shots itself waits - see its note,
+                                        ;   just below
         jsr     do_shots                ; the gun: fire, fly, hit, draw. AFTER
                                         ;   emit_asteroids, because it hits
                                         ;   against the visible list that pass
@@ -1093,6 +1143,11 @@ BOOST_FRAMES = 90               ; 1.5 s at 60.317 Hz
 ; the number to retune once this is actually being flown.
 THRTL_MAX   = (TIER_N-1)*128
 THRTL_ACCEL = 16
+THRTL_REST  = TIER_ZERO*128     ; ...and the position that means a standstill.
+                                ;   A collision walks THRTL toward this and is
+                                ;   not allowed past it (physics.s
+                                ;   throttle_hit): a hit can stop the ship
+                                ;   dead, it cannot put it into reverse.
 
 ; THE TELEPORT lands the ship on a FIXED screen point, and that one decision is
 ; what makes it cheap. The ship sits at FBCX + SHOFF, so a fixed landing point
@@ -1136,9 +1191,22 @@ TIER_SPD:
 ; the same reason. SHOFF_LAG is the ease: the offset closes 1/(2^LAG) of the
 ; remaining gap each frame.
 ;
-; At REST it is 40 px below centre, not on it - 20% of the screen's half-height.
+; The table has to be MONOTONIC. It is a screen position swept by the throttle,
+; so a row that dips below its predecessor means the ship slides BACKWARDS as
+; the player speeds up - which reads as the ship being shoved, not as the
+; camera looking ahead. Both ends have been re-spaced for that reason as the
+; two anchors moved: 70 at rest and 0 at full reverse are the authored
+; decisions, and the eight rows between them are just an even ramp to each.
+;
+; At REST it is 70 px below centre, not on it - 35% of the screen's half-height.
 ; Dead centre gives the same amount of screen ahead and behind, and the thing
-; ahead is the thing you are flying into.
+; ahead is the thing you are flying into. 40 was the first cut; 70 is being
+; flown against it (B3).
+;
+; At FULL REVERSE it is now dead centre rather than 40 px above it. Backing up
+; is the one time the player has no idea what is behind them and every reason
+; to want the view even, so the lift the first cut gave it is gone: reverse
+; walks the ship from 70 back to 0 and stops there.
 ;
 ; The forward end is squashed to fit, and the ceiling is not aesthetic: SHOFFH is
 ; the high byte of a SIGNED 8.8 offset and is read as a signed byte everywhere,
@@ -1146,7 +1214,34 @@ TIER_SPD:
 ; to -127 mid-flight - the ship shot to the top of the screen and took the star
 ; camera point with it. Squashing costs little now that the ZOOM provides most of
 ; the look-ahead the slide used to.
-SHOFF_LAG   = 4
+SHOFF_LAG   = 5                 ; 1/32 of the gap a frame, ~1.6 s to cross the
+                                ;   table. 4 was the first cut and closed in
+                                ;   0.8 s - FASTER than the throttle's own
+                                ;   1.33 s sweep, so the ship arrived at each
+                                ;   tier's mark before the player had finished
+                                ;   asking for it and the slide read as a
+                                ;   snap. At 5 it trails the throttle, which is
+                                ;   the whole point of easing it at all. (TBM)
+ZOOM_LAG    = 4                 ; the camera pull-back, which used to BE
+                                ;   SHOFF_LAG and is now its own number. The
+                                ;   note in do_ship - "both exist so the player
+                                ;   is looking at where they are going, so they
+                                ;   must move together" - is right about the
+                                ;   gesture and wrong about the constant: flown,
+                                ;   the zoom is what sells the speed and wants
+                                ;   to stay responsive, while the SLIDE at the
+                                ;   same rate outruns the throttle and snaps.
+                                ;   They are one gesture at two scales, so they
+                                ;   get two rates. Do not fold these back
+                                ;   together without flying it.
+                                ;
+                                ;   preview.py also holds this end: the zoom
+                                ;   ease has to LAND inside the 220-frame
+                                ;   script ("the zoom settles on its target
+                                ;   instead of creeping" - a creeping
+                                ;   reciprocal rebuilds a 512-byte table every
+                                ;   frame, finding 13). At 5 it was still
+                                ;   closing when the script ran out.
 
 ; The camera leans INTO a turn, which slides the ship across the screen. Target
 ; cross-offset = turn velocity * CAMX_GAIN, eased with CAMX_LAG the same way the
@@ -1207,7 +1302,7 @@ CAMX_TIER:
         .byte   107                     ; TIER_BOOST
 
 SHIP_OFF:
-        .byte   <-40, <-18, 12, 40, 56, 71, 85, 97, 108, 118, 126
+        .byte      0,   23, 47, 70, 78, 86, 94, 102, 110, 118, 126
         .byte   126                     ; TIER_BOOST: the top tier's, unchanged -
                                         ;   the boost must not move the ship. It
                                         ;   also COULD not: 127 is the ceiling on

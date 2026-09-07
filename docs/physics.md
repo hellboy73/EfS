@@ -184,20 +184,55 @@ The same bargain as `PEND_MAX` in the grid.
 
 ### 4.6 The ship
 
-**Detected and nothing more.** It flies straight through. The delta it needs is
-already computed by the object loop for the view transform, so the test costs two
-shifts and the circle; the answer is a flag, a per-frame count and a frame
-counter, and nothing reads them yet.
+**Built.** The delta it needs is already computed by the object loop for the view
+transform, so detection costs two shifts and the circle. `ship_respond` then
+mirrors `col_respond`'s own maths with the ship standing in for one side of it,
+and the answer is split three ways.
 
-Two reasons it stops there. What a hit does to the ship is not decided — it may
-simply be death. And the ship's velocity is **recomputed from the throttle every
-frame**, so an impulse written into it would be gone by the next one; giving the
-ship a real reaction means either a separate decaying knockback vector or
-reopening the flight model, and neither belongs in a collision bench.
+The ship's velocity is **recomputed from the throttle every frame**, so an
+impulse written into `VELX`/`VELY` is gone by the next one. So:
+
+- **`KNBX`/`KNBY`** — a decaying knockback added on top of the throttle-built
+  velocity each frame (`ship.s knb_tick`). It carries the part of the impulse
+  that lies **across** the heading: the sideways deflection, which the throttle
+  has no way to express.
+- **`THRTL`** — the part **along** the heading, `A·H`, is taken off the throttle
+  itself, scaled by `THRTL_HIT`. That is the only place a speed change can
+  survive, and it is what makes a hit *cost* something the player has to fly back
+  up. The step is clamped to the side of `THRTL_REST` the ship was already on: a
+  hit can stop the ship dead, it cannot punch it into reverse. Same argument as
+  open question B8 makes about the gun's recoil.
+- **`SHIPHP`** — one hit point, and at zero the ship breaks apart.
+
+Splitting the impulse rather than applying all of it twice is the point: without
+the subtraction the along-heading half would be charged once as a jolt and again
+as a throttle.
+
+Because the ship is the one body in the world that moves fast, two clamps that
+`col_respond` never needs live on this path. Its velocity is 16.8 and a boost can
+put it past a signed 16-bit, so the relative velocity is built in **24 bits** and
+saturated to `VEL_SAT`; and `(1+e)·vn` must itself stay inside 16 bits, so the
+closing speed is pegged at `COL_VNMAX`. Without the second one, 1.75 × the top
+tier's 92.8 units a frame wrapped to a **positive** number and the response drove
+the ship deeper into the rock.
 
 ### Parameters
 
 As built. Every one of them is a first cut.
+
+The **ship** does not separate the way a rock does. A rock pair gets the small
+mass-weighted nudge above; the ship is snapped outright to the point
+`rsum + SHIP_SEP_MG` from the rock's centre, along the line of centres, on every
+overlapping frame. It has to be: the ship can cross several collision units in a
+single frame, so it is already well inside the circle the first time the pair is
+detected, and a nudge that is correct for a body moving 0.4 units a frame cannot
+undo that — and a player holding the stick into a rock re-creates the overlap
+every frame anyway, because `do_ship` rebuilds `VELX/VELY` from scratch (4.6).
+That snap needs a **unit** normal, `d/|d|`; the `d/rsum` a rock pair uses makes
+it an identity, and a shallow-angle graze — where the impulse along the normal
+is small because the approach is nearly tangential — then has nothing left to
+stop the ship passing through. `|d|` is estimated as `max(M, 0.875M + 0.5m)`,
+which is why the margin exists.
 
 | name | meaning | value |
 |---|---|---|
@@ -207,7 +242,12 @@ As built. Every one of them is a first cut.
 | `PHYS_SEP_SH` | separation push is `n >> this` | **2** = 32 world units a frame **(TBM)** |
 | `PHYS_SEP_DP` | ...shifted this much less when deeply sunk | **2 (TBM)** |
 | `COL_MAX` | collisions resolved per frame | **8 (TBM)** |
-| `SHIP_RAD` | the ship's collision radius | **8 (TBM)** — nothing rides on it yet |
+| `SHIP_RAD` | the ship's collision radius | **8 (TBM)** |
+| `SHIP_ME` | the ship's mass exponent | **1** — "the ship behaves like a 32" |
+| `SHIP_SEP_MG` | how far PAST `rsum` the ship is snapped | **3** collision units **(TBM)** |
+| `THRTL_HIT` | share of the along-heading loss taken off `THRTL`, Q0.7 | **128** = all of it **(TBM)** — the knob to fly this on |
+| `VEL_SAT` | ship velocity saturates here before a hit reads it | **23170** (8.8) = 90.5 units/frame; only a boost reaches it |
+| `COL_VNMAX` | largest closing speed the impulse can answer | **18724** (8.8) = 73 units/frame = 275 px/s |
 | `PHYS_SPIN_GAIN` | fraction of tangential difference to spin | **not built** |
 | `PHYS_SPIN_MAX[class]` | spin cap per size class | **not built** |
 

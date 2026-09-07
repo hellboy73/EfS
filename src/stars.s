@@ -170,6 +170,15 @@ do_stars:
         jsr     occ_bands               ; emit_asteroids has finished, so the
                                         ;   occluder list is complete and can be
                                         ;   indexed by band before a star reads it
+
+        lda     SHAKEX                  ; the screen shake, halved for the half-
+        cmp     #$80                     ;   res star layer (T0/T1 are free here -
+        ror     a                        ;   next used by star_rebase_*, not this
+        sta     T0                       ;   loop) and folded in per star below,
+        lda     SHAKEY                   ;   after the same clip check view_y/
+        cmp     #$80                     ;   view_x already go through, so a star
+        ror     a                        ;   the shake pushes off the edge is
+        sta     T1                       ;   dropped rather than wrapped
         stz     DIDX
         stz     STARN
         ldx     #$00
@@ -199,6 +208,17 @@ do_stars:
         jmp     @next
 :       sta     FBX
 
+        lda     T0                      ; fold in the X shake (0 = idle, the
+        beq     @noshx                  ;   common case - skip this entirely).
+        lda     FBX                     ; FBX is already 0..199, and |T0| is
+        clc                             ;   nowhere near 56, so a plain 8-bit
+        adc     T0                      ;   add's wrap (256-|T0|..255, if T0 was
+        cmp     #200                    ;   negative and this underflowed) and
+        bcc     :+                      ;   its overflow (up to 199+|T0|) both
+        jmp     @next                   ;   land >= 200 - one unsigned compare
+:       sta     FBX                     ;   catches both without sign-tracking
+@noshx:
+
         ldy     #$00                    ; fb_y = SHCY - view_x. SHCY, not HCY:
         lda     SHCY                    ;   the field must turn about the SHIP,
         sec                             ;   and the lean has moved the ship off
@@ -216,6 +236,17 @@ do_stars:
         bcc     :+
         jmp     @next
 :       sta     FBY
+
+        lda     T1                      ; fold in the Y shake - same trick as X,
+        beq     @noshy                  ;   against 150 instead of 200
+        lda     FBY
+        clc
+        adc     T1
+        cmp     #150
+        bcc     :+
+        bra     @next
+:       sta     FBY
+@noshy:
 
         lda     FBY                     ; drop the star if any box covers it -
         lsr     a                       ;   but only the boxes registered in this

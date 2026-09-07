@@ -166,6 +166,13 @@ do_ship:
         sbc     MAT
         sta     VELYT
 
+        jsr     knb_tick                ; fold in the collision knockback (if
+                                        ;   any) and decay it - AFTER the
+                                        ;   throttle rebuilt VELX/VELY from
+                                        ;   zero above, or it would be erased
+                                        ;   (physics.md 4.6); BEFORE position
+                                        ;   integration below, which reads them
+
         ; The ship slides down the screen as it speeds up, and above centre in
         ; reverse, so the player is always looking at where they are going. It
         ; EASES toward the tier's target instead of snapping: a jump on every
@@ -182,9 +189,8 @@ do_ship:
         stz     T0
         lda     SHIP_OFF,x
         sta     T1
-        ldy     #$00
-        bpl     :+
-:       bit     T1
+        ldy     #$00                    ; sign-extend the target into the third
+        bit     T1                      ;   byte of the gap
         bpl     :+
         ldy     #$FF
 :       sty     SHOFT
@@ -323,7 +329,7 @@ do_ship:
         lda     T1
         sbc     ZEASH
         sta     T1
-        ldx     #SHOFF_LAG
+        ldx     #ZOOM_LAG
 :       lda     T1
         cmp     #$80
         ror     T1
@@ -629,6 +635,11 @@ emit_ship:
         adc     #>FBCX
         sta     PBUF+1
 
+        jsr     shk_fold_ship_x         ; the screen shake - the ship never goes
+                                        ;   through zoom_fb, so it has to be
+                                        ;   folded in here explicitly, same "after
+                                        ;   the zoom" rule as a rock's (objects.s)
+
         ldy     #$00                    ; cy = FBCY + SHOFX, the cross lean
         bit     SHOFXH
         bpl     :+
@@ -640,6 +651,8 @@ emit_ship:
         tya
         adc     #>FBCY
         sta     PBUF+3
+
+        jsr     shk_fold_ship_y         ; ...and its Y half
 
         stz     PBUF+4                  ; ANGLE: nose fixed up (4.3) - no spin
                                         ;   to fold in, unlike a rock's
@@ -663,6 +676,121 @@ emit_ship:
         sta     OS_ARG+1
         jmp     API_GPU_POLYGON16       ; tail call: its own rts returns for us
 .endif
+
+; -----------------------------------------------------------------------------
+; knb_tick / ship_die - the collision knockback, and what the ship's own
+; destruction looks like. HIDATA (cart.cfg): knb_tick is not a hot per-object
+; routine (runs once a frame), and nothing else contends for room here
+; anyway (see objects.s's shake block for the same reasoning).
+; -----------------------------------------------------------------------------
+        .segment "HIDATA"
+
+; -----------------------------------------------------------------------------
+; knb_tick - fold the collision knockback into VELX/VELY (AFTER do_ship has
+; rebuilt them from the throttle - see the jsr site above), then decay it.
+; -----------------------------------------------------------------------------
+knb_tick:
+        ldy     #$00                    ; KNBX, sign-extended, into the 24-bit
+        bit     KNBXH                   ;   VELXL/VELXH/VELXT
+        bpl     :+
+        ldy     #$FF
+:       clc
+        lda     VELXL
+        adc     KNBXL
+        sta     VELXL
+        lda     VELXH
+        adc     KNBXH
+        sta     VELXH
+        tya
+        adc     VELXT
+        sta     VELXT
+
+        ldy     #$00                    ; ...and KNBY into VELY
+        bit     KNBYH
+        bpl     :+
+        ldy     #$FF
+:       clc
+        lda     VELYL
+        adc     KNBYL
+        sta     VELYL
+        lda     VELYH
+        adc     KNBYH
+        sta     VELYH
+        tya
+        adc     VELYT
+        sta     VELYT
+
+        ; decay: KNB -= KNB>>3 every frame (~12%, gone in well under a second)
+        ; - a shift, not a multiply, same house style as everything else here.
+        ; COL_T0/COL_T1 (physics.s) are free borrowed scratch: physics.s has
+        ; not run yet this frame (do_ship is well before do_objects).
+        lda     KNBXH
+        sta     COL_T1
+        lda     KNBXL
+        sta     COL_T0
+        ldx     #3
+:       lda     COL_T1
+        cmp     #$80
+        ror     COL_T1
+        ror     COL_T0
+        dex
+        bne     :-
+        sec
+        lda     KNBXL
+        sbc     COL_T0
+        sta     KNBXL
+        lda     KNBXH
+        sbc     COL_T1
+        sta     KNBXH
+
+        lda     KNBYH
+        sta     COL_T1
+        lda     KNBYL
+        sta     COL_T0
+        ldx     #3
+:       lda     COL_T1
+        cmp     #$80
+        ror     COL_T1
+        ror     COL_T0
+        dex
+        bne     :-
+        sec
+        lda     KNBYL
+        sbc     COL_T0
+        sta     KNBYL
+        lda     KNBYH
+        sbc     COL_T1
+        sta     KNBYH
+        rts
+
+; -----------------------------------------------------------------------------
+; ship_die - HP just reached 0 (physics.s ship_hurt). The same puff a rock hit
+; gets, at the ship's own position; then a respawn stub - there is no
+; lives/game-over state yet, so it just comes back to full HP where it is.
+; The visual for the ship coming apart is still an open question (a first cut
+; - six radiating open segments - did not read well and was pulled; revisit
+; separately).
+; -----------------------------------------------------------------------------
+ship_die:
+        lda     SHXL                    ; the puff, at the ship's own position
+        sta     EXTXL
+        lda     SHXH
+        sta     EXTXH
+        lda     SHYL
+        sta     EXTYL
+        lda     SHYH
+        sta     EXTYH
+        jsr     expl_at
+
+        lda     #5                      ; --- respawn stub (TBD: there is no
+        sta     SHIPHP                  ;   game-over/lives state to hand this
+        stz     KNBXL                   ;   to yet - revisit once there is one)
+        stz     KNBXH
+        stz     KNBYL
+        stz     KNBYH
+        rts
+
+        .segment "CODE"                 ; back to bank 0 for the rest of this file
 
 ; =============================================================================
 ; The sprite the ship used to be

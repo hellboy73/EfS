@@ -722,6 +722,185 @@ in_range:
         rts
 
 ; -----------------------------------------------------------------------------
+; screen shake - a fixed screen-space rattle, independent of zoom (folded into
+; zoom_fb below AFTER the zoom multiply, not into VX/VY before it).
+; -----------------------------------------------------------------------------
+; ONE damped waveform, SHK_TAB, does both axes: X reads it at the current
+; index, Y reads it SHK_PHASE frames ahead (a quarter period) so the pair
+; traces a shrinking ellipse like CETAS's own screen shake, not a diagonal
+; line, without a second table - the array is just SHK_PHASE entries longer
+; than SHK_LEN so that lead never runs off the end.
+;
+; How LOUD an event sounds is not a second table either but a right SHIFT of
+; this one, and it does NOT depend on the rock's size any more - every class
+; shakes the same amount. A BREAK (shots.s rock_split - a real split, or the
+; smallest class going straight to rock_kill) is SHK_SHIFT_BREAK, half the
+; table's own peak; a CRACK (HP 1 from damage, objects.s ACRACK; the hit that
+; causes it, shots.s shot_hits) is SHK_SHIFT_CRACK, a quarter of it. The
+; smallest class (SPLIT_LAST, 16px) still never calls shake_arm on its own
+; destruction - shots.s rock_destroy's @gone path skips it - so it alone
+; stays silent; everything else, break or crack, rattles the same regardless
+; of which class it happened to.
+;
+; shake_arm never lets a quieter (or equally loud) event interrupt a louder
+; one already ringing - same rule as CETAS's "half never downgrades a full",
+; generalised from one bit to a shift count.
+;
+; Lives in HIDATA (cart.cfg), not CODE/RODATA: CODE+CODE2+RODATA together were
+; already at the $2000-$5FFF window's ceiling before this feature, so this
+; whole block runs instead at $A000, MAD-65's separate upper RAM - see
+; cart.cfg's note on bank 3. Everything below still calls it exactly like any
+; other subroutine; cross-segment absolute addressing just works.
+; -----------------------------------------------------------------------------
+        .segment "HIDATA"
+
+SHK_LEN   = 60                          ; frames the rattle runs - 1s @ 60 Hz,
+                                         ;   the same length CETAS's own shake
+                                         ;   uses (src/effects.s SHAKE_LEN)
+SHK_PHASE = 15                          ; Y's lead over X, a quarter of SHK_LEN
+
+SHK_SHIFT_BREAK = 1                     ; half the table's peak - any class
+                                         ;   that actually splits (shots.s
+                                         ;   rock_split)
+SHK_SHIFT_CRACK = 2                     ; a quarter of it - HP 1 from damage
+                                         ;   (shots.s shot_hits)
+
+; SHK_TAB - GENERATED (damped cosine, AMP=32, ~4.2 time-constants of decay,
+; SHK_LEN+SHK_PHASE entries long). Peaks well above CETAS's own table (AMP=10)
+; because CETAS never shifts its amplitude down more than once (full/half);
+; here the smallest class's shift (3, or 4 for its crack) does that shrinking
+; instead, so the biggest rock's own break needed the headroom at shift 0.
+; Regenerate with any damped-sine script if the length, phase or peak
+; amplitude needs retuning.
+SHK_TAB:
+        .byte   $20, $1D, $18, $11, $0B, $04, $FE, $F9, $F5, $F3, $F1, $F1
+        .byte   $F3, $F5, $F7, $FA, $FD, $00, $02, $04, $06, $06, $07, $06
+        .byte   $05, $04, $03, $02, $00, $FF, $FE, $FE, $FD, $FD, $FD, $FD
+        .byte   $FE, $FE, $FF, $00, $00, $01, $01, $01, $01, $01, $01, $01
+        .byte   $01, $01, $00, $00, $00, $00, $00, $FF, $FF, $FF, $00, $00
+        .byte   $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
+        .byte   $00, $00, $00
+
+; shake_arm - A = shift for this event (smaller = louder). Arms SHK_TIMER/
+; SHK_SHIFT unless an equally loud or louder shake is already running.
+shake_arm:
+        ldy     SHK_TIMER
+        beq     @take
+        cmp     SHK_SHIFT
+        bcs     @keep                   ; new shift >= running one: quieter
+                                         ;   or equal - leave the louder one be
+@take:
+        sta     SHK_SHIFT
+        ldy     #SHK_LEN
+        sty     SHK_TIMER
+@keep:
+        rts
+
+; shake_tick - publish this frame's SHAKEX/SHAKEY from the waveform, scaled
+; by SHK_SHIFT, and decay the timer. Called once, in main.s, before anything
+; that folds SHAKEX/SHAKEY in (zoom_fb below; do_stars; emit_ship).
+shake_tick:
+        lda     SHK_TIMER
+        bne     @active
+        stz     SHAKEX
+        stz     SHAKEY
+        rts
+@active:
+        sec                             ; index = SHK_LEN - timer: 0 at the
+        lda     #SHK_LEN                ;   hit, growing as the rattle decays
+        sbc     SHK_TIMER
+        tax
+        lda     SHK_TAB,x
+        jsr     shk_scale
+        sta     SHAKEX
+        txa
+        clc
+        adc     #SHK_PHASE              ; Y is X's own index, SHK_PHASE ahead
+        tax
+        lda     SHK_TAB,x
+        jsr     shk_scale
+        sta     SHAKEY
+        dec     SHK_TIMER
+        rts
+
+; shk_scale - A = signed waveform sample; arithmetic-shift it right SHK_SHIFT
+; times (sign-preserving). Preserves X (the table index shake_tick is using).
+shk_scale:
+        ldy     SHK_SHIFT
+        beq     @done
+@lp:    cmp     #$80
+        ror     a
+        dey
+        bne     @lp
+@done:
+        rts
+
+; shk_fold_ship/shk_fold_flame - fold SHAKEX/SHAKEY into the two objects that
+; never pass through zoom_fb (ship.s emit_ship, thrust.s do_flames both place
+; themselves relative to the screen centre directly). Four tiny subroutines
+; rather than the inline 16-bit signed-add idiom repeated at each of the four
+; call sites - CODE was already at the $2000-$5FFF ceiling, and a `jsr` here
+; costs 3 bytes there against ~24 inline; the bodies cost nothing HIDATA
+; would miss.
+shk_fold_ship_x:
+        ldy     #$00
+        bit     SHAKEX
+        bpl     :+
+        ldy     #$FF
+:       clc
+        lda     PBUF+0
+        adc     SHAKEX
+        sta     PBUF+0
+        tya
+        adc     PBUF+1
+        sta     PBUF+1
+        rts
+
+shk_fold_ship_y:
+        ldy     #$00
+        bit     SHAKEY
+        bpl     :+
+        ldy     #$FF
+:       clc
+        lda     PBUF+2
+        adc     SHAKEY
+        sta     PBUF+2
+        tya
+        adc     PBUF+3
+        sta     PBUF+3
+        rts
+
+shk_fold_flame_x:
+        ldy     #$00
+        bit     SHAKEX
+        bpl     :+
+        ldy     #$FF
+:       clc
+        lda     FLCXL
+        adc     SHAKEX
+        sta     FLCXL
+        tya
+        adc     FLCXH
+        sta     FLCXH
+        rts
+
+shk_fold_flame_y:
+        ldy     #$00
+        bit     SHAKEY
+        bpl     :+
+        ldy     #$FF
+:       clc
+        lda     FLCYL
+        adc     SHAKEY
+        sta     FLCYL
+        tya
+        adc     FLCYH
+        sta     FLCYH
+        rts
+
+        .segment "CODE"                ; back to bank 0 for the rest of this file
+
+; -----------------------------------------------------------------------------
 ; zoom_fb - VX/VY (view coords, world units) -> FX/FY, the FULL-RES framebuffer.
 ; -----------------------------------------------------------------------------
 ; The ZOOM is the same shape of product as the rotation and uses the same trick
@@ -762,6 +941,19 @@ zoom_fb:
         tya
         adc     FXH
         sta     FXH
+
+        ldy     #$00                    ; fold in the screen shake, AFTER the
+        bit     SHAKEX                  ;   zoom above - a fixed screen-space
+        bpl     :+                      ;   rattle has to be independent of it,
+        ldy     #$FF                    ;   not scale with how far zoomed in
+:       clc                             ;   the camera is (see shake_tick)
+        lda     FXL
+        adc     SHAKEX
+        sta     FXL
+        tya
+        adc     FXH
+        sta     FXH
+
         lda     VXL                     ; fb_y = FBCY - round(vx * z / 16)
         sta     MAL
         lda     VXH
@@ -781,6 +973,18 @@ zoom_fb:
         sta     FYL
         lda     #>FBCY
         sbc     MAH
+        sta     FYH
+
+        ldy     #$00                    ; ...and the shake's Y half, same idiom,
+        bit     SHAKEY                  ;   same "after the zoom" rule as FX above
+        bpl     :+
+        ldy     #$FF
+:       clc
+        lda     FYL
+        adc     SHAKEY
+        sta     FYL
+        tya
+        adc     FYH
         sta     FYH
         rts
 
@@ -823,6 +1027,19 @@ one_asteroid:
         sta     OBJI
         tax
         ldy     OBJSHP,x                ; the SIZE CLASS - CLASS_BASE (shapes.s)
+
+        lda     ROCK_HP,y               ; CRACK: only when the last hit point is
+        cmp     #1                      ;   the result of DAMAGE, not just the
+        beq     @uncracked              ;   16px class's whole life - it starts
+        lda     OBJHP,x                 ;   at HP 1 and never took a hit, so
+        cmp     #1                      ;   ROCK_HP's own floor for this class
+        bne     @uncracked              ;   is the "already at 1, always was"
+        lda     #$01                    ;   case that must NOT draw a crack.
+        bra     :+
+@uncracked:
+        lda     #$00
+:       sta     ACRACK
+
         lda     CLASS_BASE,y            ;   turns it into the first shape id of
         clc                             ;   that class, so this needs no multiply
         adc     OBJTYPE,x               ; ...+ which authored variant, picked at
@@ -975,6 +1192,43 @@ one_asteroid:
         cpx     AVN2
         bne     @vlp
 
+        lda     ACRACK
+        beq     @nocrack
+
+        ; --- the crack: HP 1 from damage, not from birth (ACRACK above). X
+        ; and Y both sit at AVN2 here, the loop having just stopped. The
+        ; outline itself must still read as WHOLE - going OPEN (N's top bit)
+        ; only stops the GPU from closing it automatically, so v0 is copied
+        ; again first to close it exactly as before, and the one crack
+        ; segment - last vertex to the centre - follows from THAT point.
+        ldy     #$00                    ; v0 - the shape table's first pair
+        lda     (SHPL),y
+.if SHAPE_16X
+        asl     a
+.endif
+        sta     PBUF+7,x
+        inx
+        iny
+        lda     (SHPL),y
+.if SHAPE_16X
+        asl     a
+.endif
+        sta     PBUF+7,x
+        inx
+
+        stz     PBUF+7,x                ; the centre: (0,0), exact already, so
+        inx                             ;   never doubled by SHAPE_16X
+        stz     PBUF+7,x
+        inx
+
+        lda     AVN                     ; N grows by the 2 appended vertices -
+        clc                             ;   the budget charge below reads AVN,
+        adc     #$02                    ;   so this is also what pays for them
+        sta     AVN
+        ora     #$80                    ; OPEN: K vertices, K-1 segments - the
+        sta     PBUF+6                  ;   crack's own v0 already closed the
+                                         ;   loop, so this must NOT do it again
+@nocrack:
         inc     ADRAWN
         sec                             ; charge the budget: the vertices, and
         lda     ABUDGET                 ;   nothing else. A rock that straddles an

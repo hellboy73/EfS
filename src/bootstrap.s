@@ -40,6 +40,7 @@
         .import __CODE_LOAD__, __CODE_RUN__, __CODE_SIZE__
         .import __CODE2_LOAD__, __CODE2_RUN__, __CODE2_SIZE__
         .import __RODATA_LOAD__, __RODATA_RUN__, __RODATA_SIZE__
+        .import __HIDATA_LOAD__, __HIDATA_RUN__, __HIDATA_SIZE__
         .import cart_init, cart_frame
 
         .export boot_init
@@ -53,6 +54,9 @@ API_CART_LOAD = $FF06           ; OS_ARG: bank8, src16, dst16, len16
 
 CODE2_BANK    = 1               ; must match cart.cfg's MEMORY order
 RODATA_BANK   = 2
+HIDATA_BANK   = 3               ; HIDATA runs at $A000 (MAD-65's separate
+                                 ;   upper RAM), not chained after RODATA - see
+                                 ;   cart.cfg's note on why bank 3 exists
 
         .segment "BOOT"
 
@@ -111,6 +115,26 @@ boot_init:
         lda     #<__RODATA_SIZE__
         sta     OS_ARG+5
         lda     #>__RODATA_SIZE__
+        sta     OS_ARG+6
+        jsr     API_CART_LOAD
+
+        ; --- bank 3: HIDATA, -> $A000, MAD-65's separate upper RAM ---------
+        ; Not chained after RODATA: this one lands at a FIXED address outside
+        ; the $2000-$5FFF run, which is why it needs its own RUN symbols
+        ; rather than reusing __RODATA_RUN__+__RODATA_SIZE__ as a base.
+        lda     #HIDATA_BANK
+        sta     OS_ARG+0
+        lda     #<__HIDATA_LOAD__
+        sta     OS_ARG+1
+        lda     #>__HIDATA_LOAD__
+        sta     OS_ARG+2
+        lda     #<__HIDATA_RUN__
+        sta     OS_ARG+3
+        lda     #>__HIDATA_RUN__
+        sta     OS_ARG+4
+        lda     #<__HIDATA_SIZE__
+        sta     OS_ARG+5
+        lda     #>__HIDATA_SIZE__
         sta     OS_ARG+6
         jsr     API_CART_LOAD
 
