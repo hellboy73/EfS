@@ -339,6 +339,14 @@ do_flames:
 @shave_target:
         sta     FLSTARGET
 
+        ; ---- the nozzles are heard, now that every want above is settled: a
+        ; quiet puff on each one that just STARTED firing (sfx.s thrust_sfx,
+        ; which reads FLWDIR and FLBW straight out of the block above, so a
+        ; nozzle and its sound cannot disagree about whether it fired). The
+        ; boost pair is not in it - the boost has a hiss of its own, armed
+        ; where BOOSTN is set. ----
+        jsr     thrust_sfx
+
         ; ---- one tick every FLAME_ANIM_RATE frames: steps FLPHASE, FLEPHASE
         ; and FLBPHASE toward their targets by 1, AND the own-bracket running
         ; frame index FLIDX - UNCONDITIONALLY, so small's animation does not

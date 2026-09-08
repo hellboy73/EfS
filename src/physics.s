@@ -1471,6 +1471,15 @@ rock_take_hit_deferred:
 ; ship_hurt - spend one of the ship's hit points. At 0, it breaks apart.
 ; -----------------------------------------------------------------------------
 ship_hurt:
+        lda     #SE_KLANG               ; METAL ON STONE - BOTH halves of it,
+        jsr     sfx_fire                ;   the strike on the ship's own tone
+        lda     #SE_KLANG_N             ;   voice and the crunch on the shared
+        jsr     noise_fire              ;   noise one (sfx.s se_klang). Fired
+                                        ;   here, at the top, so the hit that
+                                        ;   kills the ship is heard landing
+                                        ;   before ship_die takes the frame
+                                        ;   away. X is the caller's (COL_I) and
+                                        ;   both calls preserve it
         dec     SHIPHP
         bne     @ok
         jmp     ship_die

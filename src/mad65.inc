@@ -36,6 +36,18 @@ API_CART_BANK       = $FF03     ; A = CART_EN | bank -> select the $8000-$9FFF
                                 ;   OS call that borrows a bank and hands it
                                 ;   back (cart_load, gpu_load_cart,
                                 ;   rect_bg_cart, and the replay of the last).
+API_GPU_VREG        = $FF3F     ; A = VIDEO_REG sub-op. Only two of the six are
+                                ;   used here: 3 = BG_REG on, 2 = BG_REG off -
+                                ;   the background pixel colour, black or dark
+                                ;   grey, which is the explosion flash
+                                ;   (sfx.s bgflash_tick). 1 PPRAM byte.
+API_SFX_PLAY_PTR    = $FFAB     ; A = ptr lo, X = ptr hi, Y = voice hint (0-2 =
+                                ;   that tone voice, $FF = auto) -> play a
+                                ;   CALLER-SUPPLIED step program on the effects
+                                ;   PSG. The engine dereferences the pointer
+                                ;   live from the frame IRQ, so the program has
+                                ;   to be in RAM that is always mapped - which
+                                ;   is why src/sfx.s is a HIDATA file.
 API_RNG             = $FF78     ; next pseudo-random byte -> A
 API_SIN             = $FF7B     ; sin(A brad) -> A, signed Q0.7 (-127..127)
 API_COS             = $FF7E     ; cos(A brad) -> A, signed Q0.7

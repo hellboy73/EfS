@@ -417,6 +417,11 @@ do_ship:
 ; -----------------------------------------------------------------------------
 do_teleport:
         inc     TPCNT
+        lda     #SE_TELEPORT            ; here and not at the FIRE2 edge: TPGO
+        jsr     sfx_fire                ;   is only consumed once do_ship has
+                                        ;   the frame's position, so this is the
+                                        ;   one place a jump has actually
+                                        ;   happened. Preserves X and Y
         lda     #<-TP_OFF               ; forward: land near the LEADING edge
         ldx     TIER
         cpx     #TIER_ZERO

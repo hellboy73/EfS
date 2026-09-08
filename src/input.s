@@ -236,6 +236,12 @@ do_boost:
         beq     :+                      ;   collected, limited charge count)
         lda     #BOOST_FRAMES
         sta     BOOSTN
+        lda     #SE_BOOST               ; ...and the hiss under the whole of it.
+        jsr     noise_fire              ;   Here, on the one edge that starts a
+                                        ;   boost, because se_boost's envelope
+                                        ;   IS the boost's length - fire it once
+                                        ;   and the two end together with
+                                        ;   nothing watching either (sfx.s)
 :       rts
 
         .segment "CODE"                 ; back to bank 0 for the rest of this file

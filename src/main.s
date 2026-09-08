@@ -765,6 +765,19 @@ KNBYH       = $6245             ;   written INTO VELX/VELY directly, because
                                 ;   every frame and would erase it (physics.md
                                 ;   4.6). Signed 16-bit, same 8.8 scale as a
                                 ;   rock's OBJVXL/OBJVXH.
+BGFLASH     = $6246             ; the explosion flash's two-frame state machine
+                                ;   (sfx.s): 0 idle, 1 turn BG_REG on, 2 turn
+                                ;   it off. Armed by rock_destroy, run by
+                                ;   bgflash_tick at the top of the frame
+; sfx.s's own block. The PSG has ONE noise voice and three things that want it
+; - the explosion, the thruster puffs and the boost hiss - so the game keeps
+; its own record of who holds it, and thrust_sfx keeps last frame's nozzle
+; wants so it can puff on the EDGE rather than every frame the key is down.
+PSST_WT     = $625E             ; last frame's turn want (thrust.s FLWDIR)
+PSST_WA     = $625F             ; ...the throttle's (JOY_UP)
+PSST_WB     = $6260             ; ...and the brake's (thrust.s FLBW)
+NOISEPRI    = $6261             ; priority of the noise effect now playing
+NOISELEFT   = $6262             ; ...and the frames it has left, 0 = voice free
 SHIPKILL_PEND = $6247           ; a rock's slot ($FF = none) that reached 0 HP
                                 ;   from a ship collision, held until do_objects'
                                 ;   grid walk is over - rock_destroy relinks the
@@ -960,6 +973,14 @@ cart_init:
         stz     KNBYH
         lda     #$FF
         sta     SHIPKILL_PEND
+        stz     BGFLASH                 ; idle - nothing zeroes cartridge RAM
+                                        ;   for us, and a stray 1 here would
+                                        ;   open the game on a lit screen
+        stz     NOISEPRI                ; ...and the noise voice is nobody's,
+        stz     NOISELEFT               ;   or the first explosion is refused
+        stz     PSST_WT                 ; ...and no nozzle was firing last
+        stz     PSST_WA                 ;   frame, or the game opens on a puff
+        stz     PSST_WB
 
         jsr     init_qs
         jsr     shots_init              ; ...and every gun and puff slot free -
@@ -1048,6 +1069,12 @@ cart_frame:
         jsr     hud_reset               ; ...and the HUD's rows with it, same
                                         ;   reason as the one-shot above
 :
+        jsr     sfx_tick                ; the sound layer's own frame: age the
+                                        ;   noise voice's claim, then the
+                                        ;   explosion flash - one VIDEO_REG
+                                        ;   byte, FIRST in the frame so it lands
+                                        ;   high on the command list. Emits
+                                        ;   nothing at all while idle (sfx.s)
         jsr     ring_frame              ; the radar's furniture, one
                                         ;   RECT_BG_RLE command, retried until
                                         ;   it lands. FIRST in the frame for the
@@ -1177,6 +1204,11 @@ cart_frame:
                                         ; rather than in bank 0 for the room,
                                         ; and after radar.s because rock_kill
                                         ; decrements that file's census.
+        .include "sfx.s"                ; the sound effects and the explosion
+                                        ; flash. A HIDATA file end to end - the
+                                        ; SFX engine reads the step programs
+                                        ; from the frame IRQ, so they have to
+                                        ; live in RAM that is always mapped.
 
 ; =============================================================================
 ; Data

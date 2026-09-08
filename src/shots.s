@@ -514,7 +514,11 @@ shot_fire:
         sta     SHTANG,x                ;   flight, whatever the ship does next
         lda     #$01
         sta     SHTLIVE,x
-        rts
+        lda     #SE_SHOT                ; ...and it is heard. Here, at the very
+        jmp     sfx_fire                ;   end, so a frame that found no free
+                                        ;   slot (@none above) makes no noise
+                                        ;   about it - the sound means a bullet
+                                        ;   exists, not that the trigger moved
 
 ; -----------------------------------------------------------------------------
 ; shot_move — integrate every live bullet, put it on the screen, or free it.
@@ -1657,7 +1661,12 @@ rock_take_hit:
         jsr     rock_destroy
         sec
         rts
-@alive: lda     OBJHP,x                 ; CRACK: just reached its last hit point
+@alive: lda     #SE_ROCK_HIT            ; STILL STANDING: the weak tap, not the
+        jsr     sfx_fire                ;   boom - it is the ONLY sound this rock
+                                        ;   makes for this hit, and it plays on
+                                        ;   every non-fatal one, not just the
+                                        ;   one that cracks it. Preserves X
+        lda     OBJHP,x                 ; CRACK: just reached its last hit point
         cmp     #1                      ;   by damage - the same "1" one_asteroid's
         bne     @done                   ;   ACRACK tests. A class that SPAWNS at 1
         lda     #SHK_SHIFT_CRACK        ;   (16px) can never land here: its only
@@ -1677,10 +1686,16 @@ rock_destroy:
         jsr     rock_alloc
         bcs     @blocked
 @got:   sta     SPL_S
-        jsr     rock_score              ; it came apart: pay for that too
+        jsr     rock_boom               ; it came apart: the explosion is heard
+        jsr     rock_score              ;   and seen, and paid for
         jmp     rock_split
-@gone:  jsr     rock_score              ; ...and for the smallest class, which
-        ldx     SPL_P                   ;   has nothing left to break into
+@gone:  jsr     rock_boom               ; ...and the same for the smallest class,
+        jsr     rock_score              ;   which has nothing left to break into.
+        ldx     SPL_P                   ;   It gets no SHAKE (see the shake block
+                                        ;   in objects.s) but it does get the
+                                        ;   boom and the flash: being too small
+                                        ;   to rattle the camera is not the same
+                                        ;   as being silent and invisible
         jsr     rock_kill               ; (its slot is what every other split is
         lda     SPL_P                   ;  drawing on)
         jmp     rock_free
@@ -1688,7 +1703,26 @@ rock_destroy:
         inc     NBLOCK
         ldx     SPL_P                   ; nothing to break into: the hit lands,
         inc     OBJHP,x                 ;   the rock survives it
-        rts
+        lda     #SE_ROCK_HIT            ; ...so it sounds like what it is - the
+        jmp     sfx_fire                ;   weak tap of a rock that took a hit
+                                        ;   and stayed whole. NOT the boom: the
+                                        ;   HP came straight back and nothing
+                                        ;   exploded
+
+; -----------------------------------------------------------------------------
+; rock_boom - a rock really is coming apart. The boom and the one-frame screen
+; flash, together, because they are one event: fired from rock_destroy's two
+; SUCCESS paths and from neither of the others, exactly like rock_score beside
+; it, so a @blocked hit gets neither. Preserves X and Y - both callers are
+; standing on SPL_P and on the walk that led here.
+; -----------------------------------------------------------------------------
+rock_boom:
+        jsr     bgflash_arm             ; preserves A, X and Y
+        lda     #SE_ROCK_BOOM
+        jmp     noise_fire              ; tail - through the arbiter, not
+                                        ;   sfx_fire: the noise voice is shared
+                                        ;   with the thrusters now, and this is
+                                        ;   the one that outranks them
 
 ; -----------------------------------------------------------------------------
 ; rock_score - pay for a rock that just came apart.
