@@ -117,8 +117,11 @@ OVERRUN_FLAG      = $03         ; the OS sets this when a VSYNC fired before
                                 ;   gpu_end - i.e. the GPU drew nothing that
                                 ;   frame. STICKY: the OS never clears it.
 JOY1              = $0A         ; port 1 held state, 1 = pressed
+JOY1_PREV         = $0B         ; port 1 state on the PREVIOUS frame - for
+                                ;   detecting a release, not just a press
 JOY1_PRESS        = $0C         ; port 1 edges: bits newly pressed this frame
 JOY2              = $0D         ; port 2 held state
+JOY2_PREV         = $0E         ; port 2 state on the previous frame
 JOY2_PRESS        = $0F         ; port 2 edges
 
 JOY_UP            = %00000001
@@ -126,6 +129,7 @@ JOY_DOWN          = %00000010
 JOY_LEFT          = %00000100
 JOY_RIGHT         = %00001000
 JOY_FIRE          = %00010000
+JOY_FIRE2         = %00100000
 
 ; --- cartridge header contract ------------------------------------------------
 ;   $8000  "MAD65"          5-byte signature the boot ROM looks for

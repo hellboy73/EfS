@@ -62,10 +62,15 @@ speed, ship offset, zoom and camera lean are all read at the swept position.
 Two mechanics ride on top, and neither has been judged yet:
 
 - **BOOST** (`TIER_BOOST`): a twelfth row the throttle cannot reach — 700 px/s for
-  `BOOST_FRAMES = 90` (1.5 s), on joystick 2 UP. 482.5 px/s is the ceiling of a
-  signed 8.8 velocity, so it is authored as the top tier *doubled* (`TIER_SHL`)
-  rather than typed; typing 500 into the speed table fires the ship backwards.
-- **TELEPORT** (joystick 2 DOWN): a jump along the heading whose length is not
+  `BOOST_FRAMES = 90` (1.5 s). Not a button: the player has to already be holding
+  the top tier, let go of forward, and choose it again (`do_boost`, input.s) -
+  `BOOSTARM` carries the "let go while on top" half of the gesture across frames,
+  and falling off the top tier cancels it. Gated on `BOOST_AVAIL`, which is always
+  1 for now - the hook for a later collected, limited-charge boost (still open,
+  see below). 482.5 px/s is the ceiling of a signed 8.8 velocity, so it is
+  authored as the top tier *doubled* (`TIER_SHL`) rather than typed; typing 500
+  into the speed table fires the ship backwards.
+- **TELEPORT** (joystick 1 FIRE2): a jump along the heading whose length is not
   authored at all. The ship lands on a fixed screen point (`TP_OFF = 120`), so the
   distance falls out of the geometry as `SHOFF - landing`: 246 px at +350, 160 px
   at a standstill, and backwards in reverse.

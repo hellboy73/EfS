@@ -119,6 +119,11 @@ FLBTARGET   = $701D             ; the brake pair's ramp target, 0 or 3
 FLBPHASE    = $701E             ; the brake pair's own ramp - same shape as
                                 ;   FLPHASE (small bracket snaps, no smaller
                                 ;   tier to borrow), driven by FLBW instead
+                                ; FLSW/FLSTARGET/FLSPHASE, the boost pair's own
+                                ;   want/target/ramp - same shape again, driven
+                                ;   by BOOSTN - are main.s equates (near
+                                ;   BOOSTARM): $701F on is shots.s's SHTC/SHTS,
+                                ;   so this block stops at FLBPHASE.
 
 ; -----------------------------------------------------------------------------
 ; upload_flames_step - installs the FLAME_N-sprite blob and patches slots
@@ -268,7 +273,11 @@ do_flames:
         ; turning while faster than 100 forward (TIER>=6 excludes both slower
         ; forward flight and reverse in one compare: TIER_SPD's rows are
         ; -150,-100,-50,0,+50,+100,+150,... so tier 6 is the first one past
-        ; +100). ----
+        ; +100) - or boosting, for the whole run: the gesture that triggers a
+        ; boost (input.s) lets go of forward for at least a frame, and the
+        ; main drive has to keep showing through that gap. ----
+        lda     BOOSTN
+        bne     @ew_yes
         lda     JOY1
         and     #JOY_UP
         bne     @ew_yes
@@ -309,6 +318,26 @@ do_flames:
         lda     #0
 @bhave_target:
         sta     FLBTARGET
+
+        ; ---- boost pair wanted / target: BOOSTN nonzero, ramped the same
+        ; shape as the turn and brake pairs. This is C+D, the two AFT
+        ; nozzles, firing together for the whole boost - the "two side" ones
+        ; alongside E's "main", both forced above and here regardless of
+        ; whether the player is still holding forward or turning. ----
+        lda     BOOSTN
+        beq     @sw_no
+        lda     #1
+        bra     @sw_done
+@sw_no: lda     #0
+@sw_done:
+        sta     FLSW
+        beq     @starget0
+        lda     #3
+        bra     @shave_target
+@starget0:
+        lda     #0
+@shave_target:
+        sta     FLSTARGET
 
         ; ---- one tick every FLAME_ANIM_RATE frames: steps FLPHASE, FLEPHASE
         ; and FLBPHASE toward their targets by 1, AND the own-bracket running
@@ -352,6 +381,15 @@ do_flames:
 @bphase_up:
         inc     FLBPHASE
 @bafterphase:
+        lda     FLSPHASE
+        cmp     FLSTARGET
+        beq     @safterphase
+        bcc     @sphase_up
+        dec     FLSPHASE
+        bra     @safterphase
+@sphase_up:
+        inc     FLSPHASE
+@safterphase:
         inc     FLIDX
         ldx     FLBRACKET
         lda     FLIDX
@@ -484,7 +522,7 @@ do_flames:
         ; ---- brake: both fore nozzles together, straight back - ramped the
         ; same shape as the turn pair (FLBPHASE/FLBTARGET above). ----
         lda     FLBPHASE
-        beq     @done
+        beq     @brake_none
         cmp     #3
         beq     @buse_own
         lda     FLBRACKET
@@ -508,7 +546,12 @@ do_flames:
         lda     #1*2                    ; nozzle B
         sta     FLNOZ_OFF
         jsr     flame_draw
-@done:  rts
+@brake_none:
+        jmp     flame_boost_pair        ; tail call: C/D during a boost, in
+                                        ;   HIDATA below - its own rts returns
+                                        ;   for us, same as this file's other
+                                        ;   once-a-frame, non-hot-per-object
+                                        ;   tenants (ship.s's cull_window)
 
 ; -----------------------------------------------------------------------------
 ; flame_draw - place one nozzle's flame sprite. In: FLARTBR, FLFRAME, FLKIND,
@@ -632,6 +675,63 @@ flame_draw_e:
 
         lda     FLSLOT
         jmp     flame_place
+
+; -----------------------------------------------------------------------------
+; What follows runs in HIDATA (cart.cfg): do_flames' own once-a-frame, non-
+; hot-per-object tenant, same reasoning as ship.s's cull_window/knb_tick -
+; CODE+CODE2+RODATA share one 16 KB window that is full, while $A000 is barely
+; touched.
+; -----------------------------------------------------------------------------
+        .segment "HIDATA"
+
+; -----------------------------------------------------------------------------
+; flame_boost_pair - both aft nozzles (C/D) together, for the whole boost -
+; ramped the same shape as the brake pair (FLSPHASE/FLSTARGET, do_flames
+; above). Tail-called from do_flames; its own rts returns for that caller.
+; -----------------------------------------------------------------------------
+; FLDIR guards against drawing a nozzle the TURN pair already placed this
+; frame (turning right draws C, left draws D - do_flames' @left/@right): both
+; would otherwise land the same GPU sprite call twice on a boosted turn, since
+; FLDIR stays nonzero only while that pair is actually showing something
+; (do_flames' tick clears it exactly when FLPHASE returns to 0).
+; -----------------------------------------------------------------------------
+flame_boost_pair:
+        lda     FLSPHASE
+        beq     @done
+        cmp     #3
+        beq     @use_own
+        lda     FLBRACKET
+        inc     a                       ; 65C02: INC A is a real addressing mode
+        sta     FLARTBR
+        lda     FLSPHASE
+        sec
+        sbc     #1
+        sta     FLFRAME
+        bra     @have_art
+@use_own:
+        lda     FLBRACKET
+        sta     FLARTBR
+        lda     FLIDX
+        sta     FLFRAME
+@have_art:
+        lda     #1                      ; dn
+        sta     FLKIND
+        lda     FLDIR
+        cmp     #2                      ; right turn already draws C
+        beq     @skip_c
+        lda     #2*2                    ; nozzle C
+        sta     FLNOZ_OFF
+        jsr     flame_draw
+@skip_c:
+        lda     FLDIR
+        cmp     #1                      ; left turn already draws D
+        beq     @done
+        lda     #3*2                    ; nozzle D
+        sta     FLNOZ_OFF
+        jsr     flame_draw
+@done:  rts
+
+        .segment "CODE"                 ; back to bank 0 for the rest of this file
 
 ; =============================================================================
 ; Tables

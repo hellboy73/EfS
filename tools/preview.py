@@ -604,9 +604,8 @@ call(cpu, CART_INIT)
 # frames, then let go and fly dead straight. The straight leg is where the
 # starfield has to be smooth, and it is what the rigidity check below measures.
 # The OS's frame ISR normally maintains these bytes; here we drive them.
-JOY1, JOY1_PRESS = 0x0A, 0x0C
-JOY2_PRESS = 0x0F
-JOY_UP, JOY_DOWN, JOY_RIGHT, JOY_FIRE = 0x01, 0x02, 0x08, 0x10
+JOY1, JOY1_PREV, JOY1_PRESS = 0x0A, 0x0B, 0x0C
+JOY_UP, JOY_DOWN, JOY_RIGHT, JOY_FIRE, JOY_FIRE2 = 0x01, 0x02, 0x08, 0x10, 0x20
 
 # The throttle is HELD, not pressed: UP/DOWN on JOY1 accelerate continuously
 # instead of stepping one tier per edge, so this script has to hold them down
@@ -619,9 +618,15 @@ THRTL_ACCEL = cart_const("THRTL_ACCEL")
 THRTL_MAX = (TIER_N - 1) * 128
 CLIMB_FRAMES = -(-(THRTL_MAX - TIER_ZERO * 128) // THRTL_ACCEL)  # 0 -> top, ceil
 TIER_STEP_FRAMES = -(-128 // THRTL_ACCEL)          # one tier's worth of hold
-BOOST_AT, TELEPORT_AT = 175, 185    # JOY2 up, then JOY2 down, on the straight
-TP_OFF = 120                        #   leg where the field is settled and any
-                                    #   sweep the jump causes has nowhere to hide
+BOOST_AT, TELEPORT_AT = 175, 185    # a forward reselect, then FIRE2, on the
+TP_OFF = 120                        #   straight leg where the field is
+                                    #   settled and any sweep the jump causes
+                                    #   has nowhere to hide. BOOST_AT relies on
+                                    #   forward already being RELEASED by then
+                                    #   - it has been, since TIER_UP_AT's climb
+                                    #   window (below) - so do_boost's arm/fire
+                                    #   gesture (input.s) only needs the single
+                                    #   re-press scripted at BOOST_AT itself.
 # The teleport is a DISCONTINUITY on purpose, and so is its recovery: the ship
 # moves 246 px in one frame, SHOFF snaps, the star bases are rebased from
 # scratch, and then the camera closes 1/16 of a 246 px gap per frame - 15 px on
@@ -694,6 +699,12 @@ shotstate = []                          # (live, ang) per slot, per frame
 hp = []                                 # OBJHP for the whole field, per frame
 
 TIER_DOWN_AT, TIER_UP_AT = 130, 160     # the straight leg's two speed changes
+prev_joy1 = 0                           # JOY1_PREV: the OS's own joy_read
+                                        #   maintains this from one frame's
+                                        #   JOY1 to the next; driving JOY1
+                                        #   directly here means this script has
+                                        #   to keep it in step by hand, or
+                                        #   do_boost's release edge never fires
 for f in range(FRAMES):
     joy1 = JOY_RIGHT if f < TURN_UNTIL else 0
     # Climb to the top tier at the start, then change speed again TWICE on the
@@ -711,16 +722,28 @@ for f in range(FRAMES):
         joy1 |= JOY_DOWN
     elif TIER_UP_AT <= f < TIER_UP_AT + TIER_STEP_FRAMES:
         joy1 |= JOY_UP
+    elif f == BOOST_AT:                         # the reselect: forward has
+        joy1 |= JOY_UP                          #   been let go since the climb
+                                                 #   above clipped at the top
+                                                 #   tier - do_boost armed on
+                                                 #   that release, and this is
+                                                 #   the re-press that fires it
+    cpu_mem[JOY1_PREV] = prev_joy1
     cpu_mem[JOY1] = joy1
     # ...and the GUN, on JOY1's edge byte, because shot_fire reads JOY1_PRESS:
     # one bullet per press and six slots, so a press every FIRE_EVERY frames
     # keeps two or three in the air at once through the turn AND the straight
     # leg. Starting before TURN_UNTIL is the point - a bullet fired into a turn
-    # is what shots.s exists to get right.
-    cpu_mem[JOY1_PRESS] = JOY_FIRE if (f >= FIRE_FROM and
-                                       (f - FIRE_FROM) % FIRE_EVERY == 0) else 0
-    cpu_mem[JOY2_PRESS] = (JOY_UP if f == BOOST_AT else
-                           JOY_DOWN if f == TELEPORT_AT else 0)
+    # is what shots.s exists to get right. UP/DOWN/LEFT/RIGHT's own edges come
+    # off the JOY1 transition itself, the same way the OS's joy_read builds
+    # JOY1_PRESS - do_boost reads exactly that edge for the reselect above.
+    joy1_press = (joy1 & ~prev_joy1 & 0x0F)
+    if f >= FIRE_FROM and (f - FIRE_FROM) % FIRE_EVERY == 0:
+        joy1_press |= JOY_FIRE
+    if f == TELEPORT_AT:                        # FIRE2: TELEPORT
+        joy1_press |= JOY_FIRE2
+    cpu_mem[JOY1_PRESS] = joy1_press
+    prev_joy1 = joy1
     call(cpu, API_GPU_BEGIN)
     cart_reads[0] = 0
     c = call(cpu, CART_FRAME)
@@ -1098,8 +1121,16 @@ scale = trace[-1]['ZEASH']
 ship_polys = [p for p in polys(frames[-1]) if p['n'] == SHIP_LINES and not p['open']]
 check('the ship draws exactly one polygon a frame', len(ship_polys) == 1,
       f'{len(ship_polys)} candidates with {SHIP_LINES} vertices')
-check('no sprite is emitted while the vector outline is in',
-      not any(op == 0x50 for op, _ in decode(frames[-1])))
+# Sprite id, not "any sprite": op 0x50 is also how the thruster flames draw
+# (thrust.s), and by this point in the flight the boost triggered at BOOST_AT
+# is still running (BOOST_FRAMES outlasts the script) and legitimately keeps
+# the main/aft nozzles showing - see thrust.s's flame_boost_pair. What this
+# check actually guards is the ship-sprite FALLBACK path (SHIP_SPRITE=1,
+# SPR_SHIP's own slot) never firing alongside the vector outline.
+SPR_SHIP = cart_const("SPR_SHIP")
+check('no ship sprite is emitted while the vector outline is in',
+      not any(op == 0x50 and payload[0] == SPR_SHIP
+              for op, payload in decode(frames[-1])))
 
 p = ship_polys[0]
 check('the ship polygon is centred where SHOFF/SHOFX put it',
@@ -1217,7 +1248,7 @@ rev = []
 REV_FRAMES = -(-(TIER_ZERO * 128) // THRTL_ACCEL)   # tier 3 -> 0, full astern
 for f in range(60):
     cpu_mem[JOY1] = JOY_DOWN if f < REV_FRAMES else 0
-    cpu_mem[JOY2_PRESS] = JOY_DOWN if f == 45 else 0    # ...then teleport
+    cpu_mem[JOY1_PRESS] = JOY_FIRE2 if f == 45 else 0   # ...then teleport
     call(cpu, API_GPU_BEGIN)
     call(cpu, CART_FRAME)
     call(cpu, API_GPU_END)

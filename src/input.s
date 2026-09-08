@@ -1,10 +1,11 @@
 ; =============================================================================
 ; input.s - the joystick, and the only file that reads one
 ; =============================================================================
-; Two sticks. Joystick 1 steers and throttles on HELD bits; joystick 2 boosts
-; and teleports on EDGE bits, because both are one-shot. Nothing else in the
-; program looks at JOY1/JOY2: everything downstream reads the state this leaves
-; behind - the heading, the throttle position, the boost timer.
+; One stick. Joystick 1 steers and throttles on HELD bits, teleports on
+; FIRE2's edge, and boosts on a gesture read off its own throttle HELD bit -
+; not a button at all. Nothing else in the program looks at JOY1/JOY2:
+; everything downstream reads the state this leaves behind - the heading, the
+; throttle position, the boost timer.
 ;
 ; The turn rate, its wind-up and how hard it follows speed are settled
 ; (design_technical 11.15-11.17) and are no longer bound to a control. The
@@ -12,7 +13,7 @@
 ; still the thing to fly.
 ; =============================================================================
 ; -----------------------------------------------------------------------------
-; do_input — joystick 1 turns and throttles; joystick 2 boosts and teleports.
+; do_input — joystick 1 turns, throttles, boosts and teleports.
 ; -----------------------------------------------------------------------------
 ; Turning and the throttle are both HELD bits now - the turn-rate/ramp/speed-
 ; coupling knobs that used to live on edge bits here were debug controls for
@@ -179,18 +180,62 @@ do_input:
         and     #$7F
         sta     THFRAC
 
-        lda     JOY2_PRESS              ; joystick 2 UP: BOOST. Only from the top
-        and     #JOY_UP                 ;   tier, and not while one is running -
-        beq     :+                      ;   so it cannot be stacked or held
-        lda     BOOSTN
-        bne     :+
-        lda     TIER
-        cmp     #TIER_N-1
-        bne     :+
-        lda     #BOOST_FRAMES
-        sta     BOOSTN
-:       lda     JOY2_PRESS              ; joystick 2 DOWN: TELEPORT
-        and     #JOY_DOWN
+        lda     JOY1_PRESS              ; FIRE2: TELEPORT
+        and     #JOY_FIRE2
         beq     :+
         inc     TPGO
+:       jmp     do_boost                ; tail call: the reselect-forward
+                                        ;   gesture, in HIDATA below - its own
+                                        ;   rts returns for do_input's own
+                                        ;   caller
+
+; -----------------------------------------------------------------------------
+; What follows runs in HIDATA (cart.cfg): do_input's own once-a-frame, non-
+; hot-per-object tenant, same reasoning as ship.s's cull_window/knb_tick -
+; CODE+CODE2+RODATA share one 16 KB window that is full, while $A000 is barely
+; touched.
+; -----------------------------------------------------------------------------
+        .segment "HIDATA"
+
+; -----------------------------------------------------------------------------
+; do_boost — BOOST is not a button, it is a RESELECT of forward. The player
+; has to already be holding the top tier, let go, and choose forward again; a
+; plain tap while cruising at max speed does nothing, because nothing armed
+; it. BOOSTARM carries the "let go while on top" half of the gesture across
+; frames; falling off the top tier (braking back down) disarms it, so the
+; re-press has to land while still at full speed, not after coasting back up
+; through the tiers to it.
+; -----------------------------------------------------------------------------
+do_boost:
+        lda     JOY1_PREV               ; forward held last frame...
+        and     #JOY_UP
+        beq     @boost_check            ;   ...wasn't - no release to arm on
+        lda     JOY1
+        and     #JOY_UP
+        bne     @boost_check            ;   ...and still is - not a release
+        lda     TIER
+        cmp     #TIER_N-1               ; only arms from the very top tier
+        bne     @boost_check
+        lda     #1
+        sta     BOOSTARM
+@boost_check:
+        lda     TIER
+        cmp     #TIER_N-1
+        beq     @boost_fire
+        stz     BOOSTARM                ; off the top tier: the gesture lapsed
+@boost_fire:
+        lda     JOY1_PRESS              ; forward, chosen again
+        and     #JOY_UP
+        beq     :+
+        lda     BOOSTARM
+        beq     :+
+        stz     BOOSTARM
+        lda     BOOSTN
+        bne     :+                      ; already running - cannot stack
+        lda     BOOST_AVAIL             ; unlimited for now (TBM: gate on a
+        beq     :+                      ;   collected, limited charge count)
+        lda     #BOOST_FRAMES
+        sta     BOOSTN
 :       rts
+
+        .segment "CODE"                 ; back to bank 0 for the rest of this file

@@ -561,7 +561,19 @@ ZSHEAD      = $62D6             ; the reciprocal the ZS tables were built for
 ;
 ; CULRL/CULRH and CUL2L/CUL2H are TWO-ENTRY ARRAYS - [0] = world X, [1] = world Y
 ; - and in_range takes the axis in X, which costs it nothing: abs,x is the same
-; four cycles as abs. $62D7-$62DB and $62E1 came free and are not reused.
+; four cycles as abs. $62DB came free and is not reused; $62D7-$62DA and $62E1
+; are BOOST_AVAIL, thrust.s's boost-pair ramp, and BOOSTARM below.
+BOOST_AVAIL = $62D7             ; nonzero = a boost can be triggered. Always 1
+                                ;   for now (see do_input) - the hook for a
+                                ;   later limited-charge boost (open_questions).
+FLSW        = $62D8             ; thrust.s: boost pair (C/D) wanted this frame
+                                ;   - BOOSTN held nonzero. Parked here, not in
+                                ;   thrust.s's own $7000 block, because that
+                                ;   block's next free byte ($701F) butts
+                                ;   straight into shots.s's SHTC/SHTS.
+FLSTARGET   = $62D9             ; ...the boost pair's ramp target, 0 or 3
+FLSPHASE    = $62DA             ; ...and its own ramp - same shape as
+                                ;   FLBPHASE, driven by FLSW instead
 CULRL       = $624A             ; this frame's cull radius, PER AXIS, from
 CULRH       = $624C             ;   ZOOM_CULLR scaled by CULFX / CULFY
 CUL2L       = $624E             ; ...and 2*CULR + 1, which in_range compares to
@@ -577,6 +589,9 @@ CULAS       = $625B
 CULT        = $625C             ; ...the first of each pair's products...
 CULAX       = $625D             ; ...and the axis, parked because smul_core
                                 ;   clobbers X
+BOOSTARM    = $62E1             ; do_input's boost gesture: 0 idle, 1 armed -
+                                ;   the player let go of forward at the top
+                                ;   tier and a re-press now fires the boost
 ASHP        = $62E2             ; this rock's size class, kept because qmul
                                 ;   clobbers both index registers
 AVSTEP      = $62E3             ; bytes to the next vertex: 2, or 4 at half LOD
@@ -899,6 +914,9 @@ cart_init:
         sta     TIER
         sta     ETIER
         stz     BOOSTN
+        stz     BOOSTARM
+        lda     #1                      ; unlimited for now - see BOOST_AVAIL
+        sta     BOOST_AVAIL
         stz     SHOFFL
         stz     SHOFFH
         lda     #3                      ; 2.83 s per revolution - the settled-on
