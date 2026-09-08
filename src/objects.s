@@ -745,11 +745,22 @@ in_range:
 ; screen shake - a fixed screen-space rattle, independent of zoom (folded into
 ; zoom_fb below AFTER the zoom multiply, not into VX/VY before it).
 ; -----------------------------------------------------------------------------
-; ONE damped waveform, SHK_TAB, does both axes: X reads it at the current
-; index, Y reads it SHK_PHASE frames ahead (a quarter period) so the pair
-; traces a shrinking ellipse like CETAS's own screen shake, not a diagonal
-; line, without a second table - the array is just SHK_PHASE entries longer
-; than SHK_LEN so that lead never runs off the end.
+; ONE damped waveform, SHK_TAB, does both axes: one reads it at the current
+; index, the other SHK_PHASE frames ahead (a quarter period) so the pair traces
+; a shrinking ellipse like CETAS's own screen shake, not a diagonal line, without
+; a second table - the array is just SHK_PHASE entries longer than SHK_LEN so
+; that lead never runs off the end.
+;
+; WHICH AXIS LEADS IS A DECISION, not an accident, because SHK_TAB PEAKS AT
+; INDEX 0: the first sample is the whole amplitude, while the one a quarter
+; period ahead is already back near zero. So the loud opening jolt lands almost
+; entirely on X and Y only joins in as it decays - the pair is an ellipse, but
+; the first frame of it is a shove.
+;
+; ...and the SIGN of that shove is flipped in shk_scale, so the shove runs the
+; opposite way to the table's own. Which way a hit throws the picture is a feel
+; question and was settled by flying it, not by argument; both halves of it - the
+; axis and the sign - are one line each, so it stays cheap to argue with again.
 ;
 ; How LOUD an event sounds is not a second table either but a right SHIFT of
 ; this one, and it does NOT depend on the rock's size any more - every class
@@ -844,7 +855,15 @@ shake_tick:
         rts
 
 ; shk_scale - A = signed waveform sample; arithmetic-shift it right SHK_SHIFT
-; times (sign-preserving). Preserves X (the table index shake_tick is using).
+; times (sign-preserving), then NEGATE it. Preserves X (the table index
+; shake_tick is using).
+;
+; THE NEGATE IS THE WHOLE OF "which way does the first kick go". SHK_TAB peaks at
+; index 0 - the first sample is the full amplitude - so the opening jolt is not a
+; wobble that happens to start somewhere, it is a definite shove in one
+; direction, and the table's own sign puts it one way round. Doing it here rather
+; than by regenerating the table keeps the waveform readable as a plain damped
+; cosine and puts the choice in one place, two instructions wide.
 shk_scale:
         ldy     SHK_SHIFT
         beq     @done
@@ -853,6 +872,8 @@ shk_scale:
         dey
         bne     @lp
 @done:
+        eor     #$FF                    ; two's complement: the rattle runs the
+        inc     a                       ;   other way round
         rts
 
 ; shk_fold_ship/shk_fold_flame - fold SHAKEX/SHAKEY into the two objects that
