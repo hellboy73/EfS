@@ -54,8 +54,16 @@ ROMS = str(ROOT / "roms")
 PPRAM = 0x7800
 VRAM_IMG = 0x8000
 CART_BANK_REG = 0xBF60           # WO: bit7 = CART_EN, bits6-0 = bank
+CART_SHADOW_ZP = 0x09            # ...and the OS's readable mirror of it
 IMG_END = 0xBA98
-SENTINEL = 0x1000
+# The marker `call` returns to. It has to be an address NEITHER CPU ever
+# executes, because the run loop stops the instant pc reaches it. $1000 was
+# safe only while the cartridge's RAM window started at $2000: cart.cfg moved
+# it down to $1000 when the object pool vacated that block, which put
+# cart_init - the first thing in CODE - exactly ON the sentinel, and every
+# call(CART_INIT) returned before executing one instruction of it. $BFFF is
+# hardware register space on both sides and is never a jump target.
+SENTINEL = 0xBFFF
 
 API_GPU_BEGIN = 0xFF09
 API_GPU_END = 0xFF0C
@@ -329,6 +337,39 @@ def to_half(c):
     return [(x // POLY_RES, y // POLY_RES) for x, y in c]
 
 
+def cart_addr(name):
+    """A $hhhh address constant straight out of main.s.
+
+    The object pool's addresses used to be typed here. They moved - the whole
+    block went under the cartridge window, and the numbers changed by $7000 - so
+    they are read now, for the reason cart_const gives: a harness carrying its
+    own copy of the number under test can only ever agree with itself.
+    """
+    m = re.search(rf"^{re.escape(name)}\s*=\s*[$]([0-9A-Fa-f]{{4}})",
+                  open(SRC / "main.s").read(), re.M)
+    if not m:
+        raise RuntimeError(f"{name} not found in main.s")
+    return int(m.group(1), 16)
+
+
+def ram(addr):
+    """Read game RAM - INCLUDING the 8 KB that lives under the cartridge window.
+
+    $8000-$9FFF is upper RAM with the cartridge overlaid on reads, and the object
+    pool lives there now (src/window.s). The game reads it by clearing CART_EN
+    around a pass; this does the same for one byte, so the harness sees what the
+    cartridge sees rather than the ROM lying on top of it.
+    """
+    if 0x8000 <= addr <= 0x9FFF:
+        saved = cart_bank[0]
+        cart_bank[0] = saved & 0x7F
+        try:
+            return cpu_mem[addr]
+        finally:
+            cart_bank[0] = saved
+    return cpu_mem[addr]
+
+
 def cart_const(name):
     """Read a decimal constant straight out of main.s.
 
@@ -479,8 +520,8 @@ STAR_N = cart_const("STAR_N")   # read, not typed: the mirror below drifted
 MOTE_N = 10
 NOBJ = cart_const("NOBJ")               # read, not typed: the split moved it
 VIS_MAX = 64                    # the packed visible list, mirrored from main.s
-VISIDX, VSXL, VSXH = 0x1A00, 0x1A40, 0x1A80
-VSYL, VSYH = 0x1AC0, 0x1B00
+VISIDX, VSXL, VSXH = (cart_addr(n) for n in ("VISIDX", "VSXL", "VSXH"))
+VSYL, VSYH = cart_addr("VSYL"), cart_addr("VSYH")
 AST_TYPES = shapes_const("AST_TYPES")
 SHAPE_N_FULL = shapes_array("SHAPE_N")          # one entry per shape id (class *
 SHAPE_R_FULL = shapes_array("SHAPE_R")          #   AST_TYPES + type), size-major -
@@ -566,8 +607,17 @@ def call(mpu, addr, limit=5_000_000):
 cpu_mem = ObservableMemory()
 for i, b in enumerate(CPU_ROM):
     cpu_mem[0xC000 + i] = b
-for i, b in enumerate(CART[:0x2000]):           # bank 0 in the $8000 window
-    cpu_mem[0x8000 + i] = b
+# $8000-$9FFF is deliberately left ZEROED, and that is not an omission. The
+# upper RAM chip covers the whole half and the cartridge only overlays it on
+# reads, so there are two different things at these addresses: the ROM, which
+# cart_read below serves out of CART[], and the RAM underneath, which is what a
+# read sees once CART_EN is clear. The OS boot clears that RAM before it enables
+# the cartridge (MAD65_CPU_OS.md, Boot Procedure), so a cartridge is entitled to
+# find it zeroed - and src/main.s's object pool, which lives there now, does
+# exactly that: init_cells fills only the slots load_level placed and trusts the
+# rest of the sector grid to be empty. This bench used to preload bank 0 here to
+# stand in for the ROM; with CART_EN honoured that preload IS the RAM, and it
+# fed the grid walk a page of ROM bytes to chase.
 # Count every read that lands in the cartridge window. Real hardware charges 3
 # wait states on each of them (the cart is banked and cannot be shadowed), and
 # py65 charges none — so this counter is what turns py65's cycle figure into a
@@ -581,22 +631,38 @@ cart_reads = [0]
 # CART_BANK. Watching that one register is the whole of bank emulation here -
 # nothing in this bench re-banks after init, because Model B has already moved
 # everything it will ever read into RAM.
-cart_bank = [0]
+cart_bank = [0]                  # the WHOLE register byte: bit7 = CART_EN
 
 
 def bank_write(addr, value):
-    cart_bank[0] = value & 0x7F
+    cart_bank[0] = value
 
 
 def cart_read(addr):
+    # CART_EN is honoured, and that is not a detail. The upper RAM chip's /CE is
+    # just A15, so it covers $8000-$FFFF whole and the cartridge only OVERLAYS
+    # it on reads: with CART_EN clear the RAM underneath shows through, and a
+    # write always reaches that RAM whatever the bit says (py65 writes it for
+    # us - there is no write subscriber on this range). Returning None here is
+    # how ObservableMemory is told to fall through to that RAM.
+    if not cart_bank[0] & 0x80:
+        return None
     cart_reads[0] += 1
-    return CART[cart_bank[0] * 0x2000 + addr - 0x8000]
+    return CART[(cart_bank[0] & 0x7F) * 0x2000 + addr - 0x8000]
 
 
 cpu_mem.subscribe_to_write([CART_BANK_REG], bank_write)
 cpu_mem.subscribe_to_read(range(0x8000, 0xA000), cart_read)
 
 cpu = MPU(memory=cpu_mem)
+# The OS boot leaves the cartridge ENABLED on bank 0 (cart_bank <- $80, see the
+# Boot Procedure) and CART_SHADOW holding that byte. This bench skips OS boot and
+# calls the cartridge directly, so it has to stand in for that step: cart_load
+# saves CART_SHADOW, selects its own bank and restores it, so a shadow of $00
+# would leave the window DISABLED after every copy. That went unnoticed for as
+# long as cart_read ignored CART_EN.
+cpu_mem[CART_SHADOW_ZP] = 0x80
+cart_bank[0] = 0x80
 call(cpu, CART_INIT)
 
 # Joystick script. The two paths through do_stars have to be exercised
@@ -692,7 +758,14 @@ EXPL_DOTS = shots_array("EXPL_DOTS")
 npuff = []                              # 1 on a frame that emitted a puff list
 explstate = []                          # (live, age, block group) per slot, per frame
 OBJHP = 0x7200
-CELLHD, OBJNXT, OBJSHP_A, OBJCEL = 0x1C00, 0x1D00, 0x1F00, 0x1E00
+CELLHD, OBJNXT, OBJSHP_A, OBJCEL = (
+    cart_addr(n) for n in ("CELLHD", "OBJNXT", "OBJSHP", "OBJCEL"))
+# ...and the rest of the pool this file inspects. All of it lives under the
+# cartridge window now, so every read of these goes through ram(), never
+# cpu_mem[] - see that function.
+OBJXH, OBJYH = cart_addr("OBJXH"), cart_addr("OBJYH")
+OBJVXL, OBJVXH = cart_addr("OBJVXL"), cart_addr("OBJVXH")
+OBJVYL, OBJVYH = cart_addr("OBJVYL"), cart_addr("OBJVYH")
 SHP_DEAD = 0xFF
 
 shotstate = []                          # (live, ang) per slot, per frame
@@ -762,7 +835,7 @@ for f in range(FRAMES):
     hp.append([cpu_mem[OBJHP + i] for i in range(NOBJ)])
     spin.append([s16(cpu_mem[OBJSPNL + i], cpu_mem[OBJSPNH + i])
                  for i in range(NOBJ)])
-    cls0f.append([cpu_mem[0x1F00 + i] for i in range(NOBJ)])
+    cls0f.append([ram(OBJSHP_A + i) for i in range(NOBJ)])
     angle.append([cpu_mem[OBJANGF + i] | (cpu_mem[OBJANG + i] << 8)
                   for i in range(NOBJ)])
     bases.append([(cpu_mem[0x0B00 + i], cpu_mem[0x0B80 + i],
@@ -775,13 +848,13 @@ for f in range(FRAMES):
     px = py = 0
     ndead = 0
     for i in range(nrock):
-        cls = cpu_mem[0x1F00 + i]
+        cls = ram(OBJSHP_A + i)
         if cls == SHP_DEAD:             # shot to pieces: out of the grid, out of
             ndead += 1                  #   the field, and out of this sum
             continue
         m = 1 << (4 - cls)                          # OBJSHP -> mass 16..1
-        px += m * s16(cpu_mem[0x1600 + i], cpu_mem[0x1700 + i])
-        py += m * s16(cpu_mem[0x1800 + i], cpu_mem[0x1900 + i])
+        px += m * s16(ram(OBJVXL + i), ram(OBJVXH + i))
+        py += m * s16(ram(OBJVYL + i), ram(OBJVYH + i))
     momentum.append((px, py))
     deadcount.append(ndead)
     # THE RADAR, and the truth it is checked against: the same admission test,
@@ -794,17 +867,17 @@ for f in range(FRAMES):
     # the RAD_CLASSES largest classes that still have a rock in them.
     live = [0] * 5
     for i in range(nrock):
-        cls = cpu_mem[0x1F00 + i]
+        cls = ram(OBJSHP_A + i)
         if cls != SHP_DEAD:
             live[cls] += 1
     sens = next((c for c in range(5) if live[c]), 4)
     rocks_in = []
     for i in range(nrock):
-        cls = cpu_mem[0x1F00 + i]
+        cls = ram(OBJSHP_A + i)
         if not (sens <= cls < sens + RAD_CLASSES):
             continue                                    # not what it is hunting
-        dx = sb8((cpu_mem[0x1100 + i] - shxh) & 0xFF)
-        dy = sb8((cpu_mem[0x1400 + i] - shyh) & 0xFF)
+        dx = sb8((ram(OBJXH + i) - shxh) & 0xFF)
+        dy = sb8((ram(OBJYH + i) - shyh) & 0xFF)
         if dx * dx + dy * dy <= RAD_R2:
             rocks_in.append(cls)
     foes_in = 0
@@ -820,7 +893,7 @@ for f in range(FRAMES):
                                         # before, so every per-slot comparison
                                         # below has to be bounded by BOTH
     if f == 0:
-        classes_at_load = [cpu_mem[0x1F00 + i] for i in range(nrock)]
+        classes_at_load = [ram(OBJSHP_A + i) for i in range(nrock)]
     radar.append({"drawn": cpu_mem[0x6E06], "admit": cpu_mem[0x6E0A],
                   "visit": cpu_mem[0x6E09], "blink": cpu_mem[0x6E07],
                   "sens": cpu_mem[0x6E10], "want_sens": sens,
@@ -839,19 +912,19 @@ for f in range(FRAMES):
     # to be five pages of flags and positions indexed by object id.
     vis = {}
     for k in range(cpu_mem[0x62CF]):
-        vis[cpu_mem[VISIDX + k]] = (
-            s16(cpu_mem[VSXL + k], cpu_mem[VSXH + k]),
-            s16(cpu_mem[VSYL + k], cpu_mem[VSYH + k]))
+        vis[ram(VISIDX + k)] = (
+            s16(ram(VSXL + k), ram(VSXH + k)),
+            s16(ram(VSYL + k), ram(VSYH + k)))
     objs.append(vis)
     visn.append(cpu_mem[0x62CF])
     # VISI is where emit_asteroids' loop STOPPED. If it is short of VISN the
     # frame abandoned entries, and the check below decides whether any of them
     # would have been visible - which is finding 49 exactly.
     visi.append(cpu_mem[0x62D0])
-    vislist.append([(cpu_mem[VISIDX + k],
-                     s16(cpu_mem[VSXL + k], cpu_mem[VSXH + k]),
-                     s16(cpu_mem[VSYL + k], cpu_mem[VSYH + k]),
-                     cpu_mem[0x1F00 + cpu_mem[VISIDX + k]])
+    vislist.append([(ram(VISIDX + k),
+                     s16(ram(VSXL + k), ram(VSXH + k)),
+                     s16(ram(VSYL + k), ram(VSYH + k)),
+                     ram(OBJSHP_A + ram(VISIDX + k)))
                     for k in range(cpu_mem[0x62CF])])
     mvis = {}
     for i in range(MOTE_N):
@@ -1005,6 +1078,7 @@ def pix(fx, fy):
     if not (0 <= fx < FB_W and 0 <= fy < FB_H):
         return 0
     return (img[fy * ROW + (fx >> 3)] >> (7 - (fx & 7))) & 1
+
 
 
 print("\nchecks:")
@@ -2033,7 +2107,7 @@ check("hit points never go back up", not hp_up,
 hits = sum(max(0, hp[f - 1][i] - hp[f][i])
            for f in range(1, FRAMES) for i in range(nrockf[f - 1])
            if cls0f[f][i] == cls0f[f - 1][i])
-killed = [i for i in range(NROCK) if cpu_mem[OBJSHP_A + i] == SHP_DEAD]
+killed = [i for i in range(NROCK) if ram(OBJSHP_A + i) == SHP_DEAD]
 print(f"        hits: {hits} points taken off the field over {FRAMES} frames; "
       f"{len(killed)} slot(s) now empty - shot to nothing OR swept as debris "
       f"(shots.s rock_sweep), which is most of them")
@@ -2045,15 +2119,15 @@ print(f"        hits: {hits} points taken off the field over {FRAMES} frames; "
 # silently and would look like nothing at all on screen for several seconds.
 seen = {}
 for cell in range(256):
-    o = cpu_mem[CELLHD + cell]
+    o = ram(CELLHD + cell)
     guard = 0
     while o != 0xFF:
         seen[o] = seen.get(o, 0) + 1
-        assert cpu_mem[OBJCEL + o] == cell, f"object {o} linked into the wrong cell"
-        o = cpu_mem[OBJNXT + o]
+        assert ram(OBJCEL + o) == cell, f"object {o} linked into the wrong cell"
+        o = ram(OBJNXT + o)
         guard += 1
         assert guard <= NOBJ, f"cell {cell}'s list is a loop"
-live_slots = {i for i in range(NROCK) if cpu_mem[OBJSHP_A + i] != SHP_DEAD}
+live_slots = {i for i in range(NROCK) if ram(OBJSHP_A + i) != SHP_DEAD}
 # ...and slots at or past the high-water mark were never allocated at all, so
 # their arrays hold whatever RAM came up as. NROCK is the only bound that means
 # anything about this field; NOBJ is only how many there could ever be.

@@ -457,9 +457,38 @@ sizes — music is usually the surprise (in CETAS one song was 11 banks).
 
 What is no longer open is how much room there is and what it is worth: **256 KB,
 32 banks, and nothing executes out of any of them** (`design_technical.md`
-11.18). So bank space is not the constraint a new table runs into — the 16 KB
-RAM run area is, and it has about 2,000 bytes left. A table that is only ever
-read, and read rarely, is the one kind of thing that can stay in the window.
+11.18). So bank space is not the constraint a new table runs into — **RAM** is,
+and `design_technical.md` 11.19 now says which RAM, and what may go in each of
+the four areas. A table that is only ever read, and read rarely, is still the
+one kind of thing that can stay in the window and cost no RAM at all.
+
+**F5. Running gameplay code out of the window (TBD — the next lever, and it is
+not needed yet).** `design_technical.md` 11.19 left the run area with 7,940
+bytes, which is enough for the enemies, the mission flow and the static objects
+that are still to be written. When it is not, the next lever is not another RAM
+move: it is **executing cold gameplay code in place, out of the cartridge
+window**, the way `BOOT` already does. That costs **2.5x** (measured, proto 01 —
+`bootstrap.s`) and **zero RAM**, and there are 27 free banks.
+
+It fits what is left to build, because all of it is low-frequency: a mission
+script interpreter runs a handful of times a frame, spawn logic sporadically,
+and sixteen enemies deciding at ~150 cycles each is 2,400 → 6,000 with the wait
+states, 2.5% of a frame. What must stay at full speed is what already exists —
+the per-object, per-frame loops.
+
+Two things have to be settled before it is used, and neither has been measured:
+
+* It is **mutually exclusive with the RAM under the window** (11.19): code
+  executing there needs `CART_EN` set. So a routine that runs in the window
+  cannot touch the object pool, and its own data has to be in the same bank or
+  at `$A000`. Putting the interpreter and the level scripts in ONE bank makes
+  that a feature — no bank switching at all inside the pass.
+* The rule that such code **may never re-bank the window it is executing from**
+  (`bootstrap.s`) has never been tested against the OS's `vgm_tick`, which
+  re-banks from the IRQ. It saves and restores the whole `CART_SHADOW`, so it
+  should compose — but no song has played yet, so "should" is all there is. That
+  measurement is the prerequisite, and it is the same one 11.19's brackets are
+  waiting on.
 
 **F3. Music: how many tracks, how long (TBD).** The biggest single consumer of a
 256 KB cartridge. If the campaign wants more music than fits, the options are a

@@ -525,14 +525,14 @@ OCCCX       = $0A80             ; ...and the DISC inside it: centre (low byte
 OCCCY       = $0AA0             ;   only - see disc_hit) and the radius squared.
 OCCR2L      = $0AC0             ;   r2 = $FFFF makes the entry a plain box, which
 OCCR2H      = $0AE0             ;   is what the ship's is
-OCCBN       = $1B40             ; OCCB_N bytes: occluders registered in each band
-OCCBL       = $1B50             ; OCCB_N * 16: their ids, band b at offset b*16
-PEND        = $1BF0             ; PEND_MAX ids whose cell changed this frame
+OCCBN       = $8B40             ; OCCB_N bytes: occluders registered in each band
+OCCBL       = $8B50             ; OCCB_N * 16: their ids, band b at offset b*16
+PEND        = $8BF0             ; PEND_MAX ids whose cell changed this frame
                                 ;   (OCCBL ends at $1BEF and CELLHD starts at
                                 ;   $1C00, so this slot is exactly 16 bytes)
-CELLHD      = $1C00             ; 256 cells: the first object in each, $FF = empty
-OBJNXT      = $1D00             ; NOBJ bytes: the next object in the same cell
-OBJCEL      = $1E00             ; NOBJ bytes: which cell each one is LINKED into
+CELLHD      = $8C00             ; 256 cells: the first object in each, $FF = empty
+OBJNXT      = $8D00             ; NOBJ bytes: the next object in the same cell
+OBJCEL      = $8E00             ; NOBJ bytes: which cell each one is LINKED into
 DSQL        = $62D1             ; disc_hit's own 16-bit scratch
 DSQH        = $62D2
 AOCR        = $62D3             ; this rock's star-suppression radius
@@ -643,16 +643,16 @@ NFREEMIN    = $62DD             ; ...and the fewest there have ever been, which
 NRECYC      = $62DE             ; rocks quietly recycled to make room, likewise
 SOCCW       = $62DF             ; the ship's occluder box, half-extents
 SOCCH       = $62E0
-OBJXL       = $1000             ; object world positions, 16.8, structure-of-arrays
-OBJXH       = $1100
-OBJXF       = $1200
-OBJYL       = $1300
-OBJYH       = $1400
-OBJYF       = $1500
-OBJVXL      = $1600             ; object velocities, signed 8.8
-OBJVXH      = $1700
-OBJVYL      = $1800
-OBJVYH      = $1900
+OBJXL       = $8000             ; object world positions, 16.8, structure-of-arrays
+OBJXH       = $8100
+OBJXF       = $8200
+OBJYL       = $8300
+OBJYH       = $8400
+OBJYF       = $8500
+OBJVXL      = $8600             ; object velocities, signed 8.8
+OBJVXH      = $8700
+OBJVYL      = $8800
+OBJVYH      = $8900
 ; The VISIBLE LIST: what came through do_objects' cull this frame, packed.
 ; This used to be five whole pages indexed by object id — a screen position and
 ; a flag for all NOBJ, of which a dozen were ever set. Packed, it is 320 bytes
@@ -662,11 +662,11 @@ OBJVYH      = $1900
 ; and a packed list can be SORTED so the ones that get dropped are the furthest
 ; away. A sparse flag array can only ever drop by object id, which is random.
 VIS_MAX     = 64                ; entries; anything past this is simply not drawn
-VISIDX      = $1A00             ; which object each entry is
-VSXL        = $1A40             ; ...and its full-res screen centre, signed 16
-VSXH        = $1A80
-VSYL        = $1AC0
-VSYH        = $1B00
+VISIDX      = $8A00             ; which object each entry is
+VSXL        = $8A40             ; ...and its full-res screen centre, signed 16
+VSXH        = $8A80
+VSYL        = $8AC0
+VSYH        = $8B00
 BASEX       = $0B00             ; STAR_N bytes: each star's VIEW-space position at
 BASEY       = $0B80             ;   the last rebase - see do_stars
 PARKED      = $0D00             ; STAR_N bytes: 1 = out of byte range, do not draw
@@ -715,7 +715,7 @@ ZSF         = $6700             ;   the same shape as ROT and read the same way 
 ; on a 128-byte stride - which is what made NOBJ 128 rather than 255 - and the
 ; split needed the slots more than the 640 bytes were worth. Everything else was
 ; already a full page and did not move.
-OBJSHP      = $1F00             ; NOBJ bytes: which of the five sizes each rock is,
+OBJSHP      = $8F00             ; NOBJ bytes: which of the five sizes each rock is,
                                 ;   or SHP_DEAD once it has been shot to pieces
 OBJTYPE     = $7500             ; NOBJ bytes: which authored variant of that size
                                 ;   (0..AST_TYPES-1) - see shapes.s and TYPE_PICK
@@ -915,6 +915,16 @@ done:
 ; drawn would land in no frame at all.
 ; =============================================================================
 cart_init:
+        jsr     win_off                 ; the object pool lives under the window
+                                        ;   now (window.s), and load_level does
+                                        ;   not merely FILL it - init_cells walks
+                                        ;   it back to build the sector grid, and
+                                        ;   rock_alloc reads the free stack. So
+                                        ;   the whole of init is bracketed, not
+                                        ;   just the writes. Nothing in here
+                                        ;   reads the cartridge: the four
+                                        ;   cart_loads are bootstrap.s's and are
+                                        ;   long finished by the time this runs.
         stz     FRAME
         stz     FRAME+1
         stz     BGDONE
@@ -1005,6 +1015,9 @@ cart_init:
                                         ;   pure field builder with no HUD in it
         lda     #IM_LEVEL               ; ...and the bar opens with a word
         jsr     indicate_msg
+        jsr     win_on                  ; ...and the window is a cartridge again
+                                        ;   before init can return - the OS jumps
+                                        ;   to boot_frame THROUGH it (window.s)
 .if HUD_ON
         jmp     init_strings            ; ...and the tuning readout's RAM copies
 .else                                   ;   last, since it is the only thing that
@@ -1090,6 +1103,13 @@ cart_frame:
                                         ;   in the frame for ring_frame's reason
                                         ;   - a dropped background command costs
                                         ;   far more than one frame (hud_game.s)
+        ; ---- THE WINDOW BECOMES RAM HERE ------------------------------------
+        ; Everything from here to emit_stars reads the object pool, and the pool
+        ; is moving into $8000-$8FFF - the RAM under the cartridge window (see
+        ; window.s). ring_frame and hud_tick are ABOVE this line because they
+        ; are the frame's cartridge readers; do_explosions is the other, and it
+        ; gets the window handed back for its own borrow, below.
+        jsr     win_off
         jsr     do_input
         jsr     do_camera               ; cos/sin, then the two rotation tables
         jsr     do_ship                 ; velocity from tier + heading, integrate
@@ -1111,9 +1131,20 @@ cart_frame:
                                         ;   rocks out of the sector grid, which
                                         ;   nothing may be standing on - see
                                         ;   shots.s rock_kill
-        jsr     do_explosions           ; ...and the pixel puffs its hits threw
-                                        ;   off, which outlive the bullet that
-                                        ;   made them by a few frames
+        jsr     win_on                  ; do_explosions reads EXPL_OFF straight
+        jsr     do_explosions           ;   out of the COLD bank, so it needs a
+        jsr     win_off                 ;   cartridge to read - and it touches
+                                        ;   nothing in the object pool, so
+                                        ;   handing the window over for the
+                                        ;   length of it costs nothing. It would
+                                        ;   in fact compose without this pair -
+                                        ;   it saves and restores CART_SHADOW
+                                        ;   itself - but a pass that needs the
+                                        ;   cartridge should SAY so rather than
+                                        ;   lean on another routine's internals.
+                                        ; ...the pixel puffs its hits threw off,
+                                        ;   which outlive the bullet that made
+                                        ;   them by a few frames
         jsr     do_stars
         jsr     do_motes
         jsr     emit_ship
@@ -1137,6 +1168,14 @@ cart_frame:
         ; GPU ever runs out of frame to finish the list, what it drops should be
         ; the backdrop, not the ship or the HUD. Stars second to last, motes
         ; last, because motes are the cheapest thing on screen to lose.
+        jsr     win_on                  ; ...and the window is a cartridge again
+                                        ;   before anything can leave this
+                                        ;   routine: the OS jumps to boot_frame
+                                        ;   THROUGH the window next frame
+                                        ;   (window.s). The two backdrop layers
+                                        ;   read $0900/$0DA0 and want nothing
+                                        ;   from the pool, so this is the
+                                        ;   earliest the bracket can close.
         jsr     emit_stars
         jmp     emit_motes
 
@@ -1209,6 +1248,10 @@ cart_frame:
                                         ; SFX engine reads the step programs
                                         ; from the frame IRQ, so they have to
                                         ; live in RAM that is always mapped.
+        .include "window.s"             ; win_off / win_on - borrowing
+                                        ; $8000-$9FFF as RAM for the length of
+                                        ; a pass. See that file: the rules for
+                                        ; what may live there are in it.
 
 ; =============================================================================
 ; Data

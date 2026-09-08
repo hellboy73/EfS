@@ -80,11 +80,12 @@ boot_init:
         ; --- bank 1: CODE2 ------------------------------------------------
         ; This used to be one copy covering CODE2 AND RODATA, because the two
         ; were contiguous in the window as well as in RAM. The split pushed them
-        ; past 8 KB together and RODATA moved to a bank of its own (cart.cfg), so
-        ; it is two copies now. They still land contiguously in RAM - that is
-        ; what makes every absolute reference between them resolve - and the run
-        ; addresses come from the linker, so neither copy has an address in it
-        ; that this file could get wrong.
+        ; past 8 KB together and RODATA moved to a bank of its own (cart.cfg),
+        ; and then out of the $2000 run altogether - it lands at $A000 now, with
+        ; HIDATA. NOT ONE LINE OF THIS FILE CHANGED FOR THAT, which is the whole
+        ; argument for taking the run addresses from the linker: every copy below
+        ; says __X_RUN__ and none of them has an address this file could get
+        ; wrong when the map moves under it.
         lda     #CODE2_BANK
         sta     OS_ARG+0
         lda     #<__CODE2_LOAD__
@@ -101,7 +102,7 @@ boot_init:
         sta     OS_ARG+6
         jsr     API_CART_LOAD
 
-        ; --- bank 2: RODATA -----------------------------------------------
+        ; --- bank 2: RODATA, -> $A000 as well - see cart.cfg's RODATA MOVE --
         lda     #RODATA_BANK
         sta     OS_ARG+0
         lda     #<__RODATA_LOAD__
@@ -118,10 +119,11 @@ boot_init:
         sta     OS_ARG+6
         jsr     API_CART_LOAD
 
-        ; --- bank 3: HIDATA, -> $A000, MAD-65's separate upper RAM ---------
-        ; Not chained after RODATA: this one lands at a FIXED address outside
-        ; the $2000-$5FFF run, which is why it needs its own RUN symbols
-        ; rather than reusing __RODATA_RUN__+__RODATA_SIZE__ as a base.
+        ; --- bank 3: HIDATA, -> upper RAM, straight after RODATA -----------
+        ; Both of the last two land outside the $2000-$5FFF run, and the linker
+        ; packs them into UPPER in SEGMENTS order - so this one's address is
+        ; RODATA's end, and it gets it the only safe way: its own RUN symbol,
+        ; never __RODATA_RUN__ + __RODATA_SIZE__ arithmetic done here.
         lda     #HIDATA_BANK
         sta     OS_ARG+0
         lda     #<__HIDATA_LOAD__

@@ -939,13 +939,72 @@ These are settled and should not be re-opened without a reason:
 
     So a bank is free and RAM is not. 256 KB is 32 banks, and adding one costs a
     `cart_load` in the bootstrap; what it costs at run time is nothing at all.
-    What is scarce is the **RAM run area** — `cart.cfg` gives `CODE` + `CODE2` +
-    `RODATA` the 16 KB at `$2000-$5FFF`, and the game currently reaches `$581C`,
-    leaving about 2,000 bytes. That number, not the bank map, is what a new
-    table has to fit in.
+    What is scarce is the **RAM the code runs in**, and that is the number a new
+    routine has to fit in — not the bank map.
+
+    **AMENDED: the run area is `$1000-$5FFF` and holds only `CODE` + `CODE2`.**
+    It was `$2000-$5FFF` with `RODATA` in it too, and it had about 2,000 bytes
+    left, which is what made "where does the next subsystem go" the question
+    this section could not answer. Two moves fixed it and neither cost anything
+    a measurement can see — see 11.19 for the map they produced and the rules
+    that keep it:
+
+    * `RODATA` is 1,666 bytes of pure tables and had no reason to be in the
+      scarcest space in the machine. It runs at `$A000` now, in the same
+      full-speed upper RAM `HIDATA` uses. `bootstrap.s` did not change one line
+      — it takes every address from the linker.
+    * The object pool was 4 KB at `$1000-$1FFF`, the one data block sitting
+      **directly below the run area**, so vacating it is the only way spare data
+      RAM can turn into code space. It moved into the RAM under the cartridge
+      window (11.19), and `cart.cfg`'s `RAM` region starts at `$1000`.
+
+    Together: **7,940 bytes free in the run area** where there were 2,331, with
+    the 220-frame `tools/preview.py` trace identical before and after — every
+    ship position, star, collision and command — and the frame budget unmoved at
+    70.6%.
 
     The one deliberate exception is `BGDATA`, which stays in the window and is
     read straight out of it by `API_GPU_RECT_BG_CART` — it is never executed,
     never reached through a RAM pointer, and read once (radar.s's ring), so the
     wait states are paid twice a session rather than twice a cycle.
+
+19. **There are FOUR places a byte can live, and access pattern decides which.**
+    CPU1 has more RAM than one contiguous window suggests, and the four areas
+    are not interchangeable — each is ruled out for something. Measured, in both
+    simulators, before any of it was relied on.
+
+    | area | size | free | what belongs there |
+    |---|---|---|---|
+    | run area `$1000-$5FFF` | 20,480 | 7,940 | **code**, and nothing else if it can be helped |
+    | lower RAM `$0400-$0FFF` | 3,072 | ~0 | the hot tables — ROT, the quarter-square multiply, the star layer |
+    | under the cart `$8000-$9FFF` | 8,192 | 4,096 | bulk data walked in **bracketed passes** — the object pool is there |
+    | upper RAM `$A000-$BEFF` | 7,936 | 3,552 | `RODATA`, `HIDATA`: tables and cold code, **and anything the IRQ reads** |
+
+    **`$8000-$9FFF` is RAM, and that is not a trick.** MAD-65's upper RAM chip
+    has `/CE` = A15, so it covers `$8000-$FFFF` whole and the cartridge only
+    *overlays* it on reads. A write reaches that RAM whatever `CART_EN` says; a
+    read needs `CART_EN` clear, which is one `cart_bank` call. It is **full
+    speed** — the three wait states are the cartridge's, not this chip's.
+    Measured: an off/on bracket costs **73 cycles**, and the toggle is per
+    REGION OF CODE, not per access, so a pass brackets itself once
+    (`src/window.s`, `cart_frame`'s three pairs).
+
+    Three rules make it usable, and none of them is negotiable:
+
+    * **Nothing the IRQ reads.** `audio_tick` dereferences the SFX step program
+      live in the interrupt, and at the normal `CART_EN=1` it would read
+      cartridge ROM. That is why `sfx.s` is a `HIDATA` file end to end.
+    * **Nothing read by code executing from the window.** That code needs
+      `CART_EN` set and this RAM needs it clear; they cannot both be true. Data
+      touched by a window-resident routine belongs at `$A000` instead. See
+      `open_questions.md` F5, which is the only thing this rule constrains.
+    * **The bracket always closes.** `boot_frame` is a trampoline that executes
+      *from* the window, so no path may leave `cart_frame` or `cart_init` with
+      `CART_EN` clear.
+
+    What makes the brackets safe to nest inside is that **every routine that
+    borrows the window restores the whole `CART_SHADOW` byte**, `CART_EN`
+    included — `do_explosions` for `EXPL_OFF`, and the OS's own
+    `gpu_rect_bg_cart` on every path out. Only those two read the cartridge in
+    flight, which is why two brackets cover the whole frame.
 
