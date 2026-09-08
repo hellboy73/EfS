@@ -140,5 +140,26 @@ boot_init:
 
         jmp     cart_init               ; its rts returns to the boot ROM
 
+; -----------------------------------------------------------------------------
+; boot_frame - the OS's per-frame entry, and A TRAMPOLINE THAT LIVES IN THE
+; CARTRIDGE WINDOW.
+; -----------------------------------------------------------------------------
+; The header at $8007 hands the OS this address, the OS parks it in FRAME_VEC,
+; and every frame it is jumped to - through the $8000-$9FFF window, out of BANK
+; 0, because the BOOT segment is stored and run in place (it has to be: it is
+; what copies CODE into RAM in the first place).
+;
+; SO THE WINDOW MUST BE SHOWING BANK 0 AT THE END OF EVERY FRAME. Anything that
+; pages another bank in to read it - shots.s's do_explosions does, for EXPL_OFF
+; in the COLD segment, and level scripts and message text will - must BORROW the
+; window and hand it back before cart_frame returns. Leave a different bank
+; selected and the next frame jumps into that bank's data and the machine is
+; gone. Save CART_SHADOW, select, restore: see do_explosions for the pattern.
+;
+; (Pointing the header straight at cart_frame in RAM would remove the hazard,
+; and is a reasonable thing to do later. It is not free to do casually - the
+; boot ROM reads the vector before cart_init has run - so the constraint is
+; written down here rather than quietly designed around.)
+; -----------------------------------------------------------------------------
 boot_frame:
         jmp     cart_frame

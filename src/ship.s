@@ -357,32 +357,9 @@ do_ship:
         ldx     ZEASH
         lda     ZQ_SNAP-64,x
         sta     ZOOMH
-        ; The cull window follows the zoom: pulling back widens the visible
-        ; world, so a rock that was out of range comes into it.
-        lda     ZOOMH
-        lsr     a
-        lsr     a
-        lsr     a
-        sec
-        sbc     #$08                    ; RZ 64..128 -> 0..8
-        tax
-        lda     ZOOM_CULLH,x
-        sta     CULHI
-        txa
-        asl     a
-        tax
-        lda     ZOOM_CULLR,x
-        sta     CULRL
-        asl     a
-        sta     CUL2L
-        lda     ZOOM_CULLR+1,x
-        sta     CULRH
-        rol     a
-        sta     CUL2H
-        inc     CUL2L                   ; 2*CULR + 1, the exclusive upper bound
-        bne     :+
-        inc     CUL2H
-:
+        jsr     cull_window             ; the cull box for this zoom AND this
+                                        ;   heading (HIDATA, below)
+
         ; The scale table, rebuilt only when the reciprocal's integer part moved.
         ; ~10k cycles, so it must not run on a frame where nothing changed - and
         ; must run BEFORE do_objects, which is the next thing the frame does.
@@ -678,12 +655,148 @@ emit_ship:
 .endif
 
 ; -----------------------------------------------------------------------------
-; knb_tick / ship_die - the collision knockback, and what the ship's own
-; destruction looks like. HIDATA (cart.cfg): knb_tick is not a hot per-object
-; routine (runs once a frame), and nothing else contends for room here
-; anyway (see objects.s's shake block for the same reasoning).
+; What follows runs in HIDATA (cart.cfg): cull_window/cull_axis, and knb_tick /
+; ship_die below them. None of the four is a hot per-object routine - each runs
+; ONCE a frame at most - and CODE+CODE2+RODATA share one 16 KB window that is
+; full, while $A000 is barely touched (see objects.s's shake block for the same
+; reasoning).
 ; -----------------------------------------------------------------------------
         .segment "HIDATA"
+
+; -----------------------------------------------------------------------------
+; cull_window — this frame's cull box, from the zoom AND the heading.
+; -----------------------------------------------------------------------------
+; The cull window follows the zoom: pulling back widens the visible world, so a
+; rock that was out of range comes into it. And it follows the HEADING, which is
+; the part that is new: the screen is a rotated rectangle, so the box that has to
+; admit it is 266|cos| + 422|sin| across one world axis and 266|sin| + 422|cos|
+; across the other, not the diagonal on both. See the note on CULRL in main.s for
+; what that is worth - 63 sector cells against 121.
+;
+; ZOOM_CULLH is not read any more: the high-byte window is derived from the
+; scaled radius in cull_axis, +2 pages, which is the same clearance rule the
+; table was rounded by and now holds per axis without a table to keep in step.
+;
+; Four qmuls and two smul16q7s, measured at 1,400 cycles a frame - and it is the
+; whole price, because everything downstream reads the result rather than
+; recomputing it.
+; -----------------------------------------------------------------------------
+cull_window:
+        lda     ZOOMH
+        lsr     a
+        lsr     a
+        lsr     a
+        sec
+        sbc     #$08                    ; RZ 64..128 -> 0..8
+        asl     a
+        tax
+        lda     ZOOM_CULLR,x            ; the ISOTROPIC radius, this zoom
+        sta     CULBL
+        lda     ZOOM_CULLR+1,x
+        sta     CULBH
+
+        lda     COSV                    ; |cos| and |sin|, 0..127. do_camera has
+        bpl     :+                      ;   already run, so these are this
+        eor     #$FF                    ;   frame's.
+        inc     a
+:       sta     CULAC
+        lda     SINV
+        bpl     :+
+        eor     #$FF
+        inc     a
+:       sta     CULAS
+
+        ; The coefficients are 266 and 422 px expressed as Q0.7 fractions of the
+        ; 499 px diagonal the table already encodes: 68 and 108. The largest sum
+        ; either factor can reach is 127*sqrt(68^2+108^2)/128 = 126.6, so the cap
+        ; below is a guard against rounding, not a clamp the geometry ever hits.
+        lda     #68
+        sta     MQA
+        lda     CULAC
+        sta     MQB
+        jsr     qmul                    ; fx = (68|cos| + 108|sin|) >> 7
+        sta     CULT
+        lda     #108
+        sta     MQA
+        lda     CULAS
+        sta     MQB
+        jsr     qmul
+        clc
+        adc     CULT
+        bcs     :+
+        cmp     #$80
+        bcc     @fxok
+:       lda     #$7F
+@fxok:  sta     CULFX
+
+        lda     #108
+        sta     MQA
+        lda     CULAC
+        sta     MQB
+        jsr     qmul                    ; fy = (68|sin| + 108|cos|) >> 7
+        sta     CULT
+        lda     #68
+        sta     MQA
+        lda     CULAS
+        sta     MQB
+        jsr     qmul
+        clc
+        adc     CULT
+        bcs     :+
+        cmp     #$80
+        bcc     @fyok
+:       lda     #$7F
+@fyok:  sta     CULFY
+
+        ldx     #$00                    ; ...and now scale the radius by each,
+        jsr     cull_axis               ;   world X then world Y
+        ldx     #$01
+        jsr     cull_axis
+        rts
+
+; -----------------------------------------------------------------------------
+; cull_axis — X = 0 (world X) or 1 (world Y). Narrow this frame's isotropic cull
+; radius by that axis' heading factor, and derive everything do_objects compares
+; against: the precise radius, its doubled+1 bound, and the coarse high-byte
+; window.
+; -----------------------------------------------------------------------------
+; The +2 pages on the coarse window is the rule ZOOM_CULLH used to carry rounded
+; by hand, and it matters for the same reason: a rock outside the COARSE window
+; is frozen and not integrated, so the gap between that window and the precise
+; cull has to be wider than anything can cross in one frame. +2 pages is at least
+; 256 world units of clearance against a rock's ~13 and a boost's 127, at every
+; zoom step and now on every heading, without a table to keep in step by hand.
+; -----------------------------------------------------------------------------
+cull_axis:
+        stx     CULAX                   ; smul_core clobbers X
+        lda     CULBL
+        sta     MAL
+        lda     CULBH
+        sta     MAH
+        lda     CULFX,x
+        sta     MB
+        jsr     smul16q7
+        ldx     CULAX
+        lda     MAL
+        sta     CULRL,x
+        asl     a                       ; (the carry survives the lda/sta pair
+        sta     CUL2L,x                 ;  below, exactly as it did in the
+        lda     MAH                     ;  version this replaces)
+        sta     CULRH,x
+        rol     a
+        sta     CUL2H,x
+        inc     CUL2L,x                 ; 2*CULR + 1, the exclusive upper bound
+        bne     :+
+        inc     CUL2H,x
+:       lda     MAH                     ; the radius in whole pages, +2
+        clc
+        adc     #$02
+        sta     CULH,x
+        asl     a                       ; ...and doubled plus one, so do_objects
+        clc                             ;   does not have to
+        adc     #$01
+        sta     CULH2,x
+        rts
 
 ; -----------------------------------------------------------------------------
 ; knb_tick - fold the collision knockback into VELX/VELY (AFTER do_ship has

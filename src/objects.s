@@ -414,11 +414,6 @@ cell_unlink:
 ; integrated. That was the largest single item in the frame.
 ; -----------------------------------------------------------------------------
 do_objects:
-        lda     CULHI                   ; the coarse window, doubled once here
-        asl     a                       ;   rather than per object
-        clc
-        adc     #$01
-        sta     CULHI2
         stz     OCCN
         stz     VISN
         jsr     col_begin               ; physics.s: clear this frame's hit
@@ -429,12 +424,18 @@ do_objects:
                                         ;   its slot before any rock can - see
                                         ;   radar.s
 
-        ; The sector walk. CULHI is the coarse window in position-high-byte
-        ; units and a cell is 16 of those, so the window reaches (CULHI >> 4)
+        ; The sector walk. CULH is the coarse window in position-high-byte
+        ; units and a cell is 16 of those, so the window reaches (CULH >> 4)
         ; cells each way; +1 rounds outward, which over-covers by up to a whole
         ; cell. That slack is what keeps finding 11's staleness argument true
         ; with room to spare: the camera moves at most 93 units a frame and the
         ; margin is thousands.
+        ;
+        ; TWO reaches now, one per world axis, because the window is the bounding
+        ; box of the rotated screen and not a square (main.s, CULRL). At a heading
+        ; near an axis that is 9 columns by 7 rows where it used to be 11 by 11 -
+        ; 63 cells instead of 121, and the rocks in the 58 that went away cost
+        ; nothing at all rather than a coarse reject each.
         lda     SHXH
         lsr     a
         lsr     a
@@ -447,21 +448,31 @@ do_objects:
         lsr     a
         lsr     a
         sta     GY0
-        lda     CULHI
+        lda     CULH+0
         lsr     a
         lsr     a
         lsr     a
         lsr     a
         inc     a
-        sta     GTMP                    ; R
+        sta     GTMP                    ; Rx
         asl     a
         inc     a
-        sta     GN                      ; 2R+1 columns, and as many rows
+        sta     GN                      ; 2Rx+1 columns
         sec
         lda     GX0
         sbc     GTMP
         and     #$0F                    ; the mask IS the torus
         sta     GX0
+        lda     CULH+1
+        lsr     a
+        lsr     a
+        lsr     a
+        lsr     a
+        inc     a
+        sta     GTMP                    ; Ry
+        asl     a
+        inc     a
+        sta     GNROW                   ; ...and 2Ry+1 rows
         sec
         lda     GY0
         sbc     GTMP
@@ -524,21 +535,21 @@ do_objects:
         ; this order: a rock moves at most ~13 world units a frame and the gap
         ; between this window (CULHI * 256) and the precise cull (CULRL/H) is
         ; at least 128 units at EVERY zoom step, so nothing can cross both
-        ; tests inside one frame - see the rounding note on ZOOM_CULLH.
+        ; tests inside one frame - see the clearance note in cull_axis.
         lda     OBJXH,x
         sec
         sbc     SHXH
         clc
-        adc     CULHI
-        cmp     CULHI2
+        adc     CULH+0
+        cmp     CULH2+0
         bcc     :+
         jmp     @cull
 :       lda     OBJYH,x
         sec
         sbc     SHYH
         clc
-        adc     CULHI
-        cmp     CULHI2
+        adc     CULH+1
+        cmp     CULH2+1
         bcc     :+
         jmp     @cull
 :
@@ -626,11 +637,13 @@ do_objects:
 
         lda     PXL                     ; cull well outside the screen, so the
         ldy     PXH                     ;   transform only runs on what matters
-        jsr     in_range
+        ldx     #$00                    ;   - and each axis against its OWN
+        jsr     in_range                ;   half-extent, not the diagonal
         bcc     :+
         jmp     @cull
 :       lda     PYL
         ldy     PYH
+        ldx     #$01
         jsr     in_range
         bcc     :+
         jmp     @cull
@@ -674,13 +687,14 @@ do_objects:
 @rownext:
         inc     GDY
         lda     GDY
-        cmp     GN
+        cmp     GNROW
         bcs     :+
         jmp     @rowlp
 :       jmp     cell_flush              ; ...and only now may the lists change
 
 ; -----------------------------------------------------------------------------
-; in_range — A/Y = signed 16 world units. Carry CLEAR inside +/-CULL_R.
+; in_range — A/Y = signed 16 world units, X = which axis (0 world X, 1 world Y).
+;             Carry CLEAR inside +/- that axis' CULL_R.
 ; -----------------------------------------------------------------------------
 ; CULL_R is not "a bit more than the screen": it is what the WORST CASE needs.
 ; A rock is on camera when its rotated offset lands inside the screen grown by
@@ -692,8 +706,15 @@ do_objects:
 ; it. At the old 400 px the biggest rocks popped in and out at the screen edges,
 ; which is exactly the failure the cull radius exists to prevent.
 ; -----------------------------------------------------------------------------
-; CULRL/CULRH is this frame's radius and CUL2 is 2*it + 1; both are set in
-; do_ship from ZOOM_CULLR, because pulling the camera back widens the window.
+; ...and because the cull runs on the unrotated delta, "the worst case" used to
+; mean the DIAGONAL on BOTH axes. It does not any more: the window is the bounding
+; box of the rotated screen, so each axis gets its own half-extent (main.s, CULRL)
+; and this routine picks between them with X. Indexing costs nothing - abs,x is
+; four cycles, the same as abs.
+;
+; CULRL/CULRH is this frame's radius for that axis and CUL2 is 2*it + 1; both are
+; set in do_ship/cull_axis from ZOOM_CULLR, because pulling the camera back widens
+; the window and turning reshapes it.
 ; The test is the biased range compare: delta is in [-CULR, +CULR] exactly when
 ; (delta + CULR) read UNSIGNED is below 2*CULR + 1. That is complete on its own -
 ; a delta below -CULR wraps the sum up into the high half, which is above CUL2
@@ -705,16 +726,15 @@ do_objects:
 ; at top speed - but it was still a hole in the one test that decides what exists.
 in_range:
         clc
-        adc     CULRL
+        adc     CULRL,x
         sta     T0
         tya
-        adc     CULRH
-        tay
-        cpy     CUL2H
-        bcc     @in
+        adc     CULRH,x
+        cmp     CUL2H,x                 ; (the high byte stays in A: there is no
+        bcc     @in                     ;  cpy abs,x, and it saves the tay)
         bne     @out
         lda     T0
-        cmp     CUL2L
+        cmp     CUL2L,x
         bcc     @in
 @out:   sec
         rts

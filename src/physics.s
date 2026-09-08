@@ -1474,7 +1474,24 @@ ship_hurt:
         dec     SHIPHP
         bne     @ok
         jmp     ship_die
-@ok:    rts
+@ok:
+        ; ...and say so on the message bar. The bar de-duplicates against what is
+        ; already showing, so a ship grinding along a rock for half a second gets
+        ; one line, not thirty - see hud_game.s indicate_msg.
+        ;
+        ; X IS SAVED because the caller loaded it from COL_I before calling and
+        ; falls straight through into ship_separate afterwards; indicate_msg
+        ; walks the queue with it.
+        phx
+        lda     SHIPHP
+        cmp     #1                      ; one hit point left reads differently
+        beq     @crit                   ;   from the first scratch
+        lda     #IM_HULL
+        bra     @say
+@crit:  lda     #IM_CRITICAL
+@say:   jsr     indicate_msg
+        plx
+        rts
 
 ; -----------------------------------------------------------------------------
 ; ship_kill_pending - the deferred half of rock_take_hit_deferred. Called from

@@ -27,11 +27,34 @@ API_GPU_CLEARBG     = $FF3C     ; (no args) clear the VRAM background
 API_GPU_DOTLINE_CLIP= $FF93     ; OS_ARG+0..7 = X1,Y1,X2,Y2, signed 16 half-res.
                                 ;        Cohen-Sutherland: emits nothing when the
                                 ;        segment misses the screen entirely
+API_CART_BANK       = $FF03     ; A = CART_EN | bank -> select the $8000-$9FFF
+                                ;   window's bank. THE ONLY legal way to do it:
+                                ;   $BF60 is a WRITE-ONLY latch, and CART_SHADOW
+                                ;   below is the system's only record of what is
+                                ;   selected. Storing to the register directly
+                                ;   desynchronises the shadow and breaks every
+                                ;   OS call that borrows a bank and hands it
+                                ;   back (cart_load, gpu_load_cart,
+                                ;   rect_bg_cart, and the replay of the last).
 API_RNG             = $FF78     ; next pseudo-random byte -> A
 API_SIN             = $FF7B     ; sin(A brad) -> A, signed Q0.7 (-127..127)
 API_COS             = $FF7E     ; cos(A brad) -> A, signed Q0.7
 API_GPU_VTEXT       = $FFB4     ; OS_ARG+0 = cell 0-36, +1 = line 0-49,
                                 ;        +2 = scroll 0-7, +3..4 = ptr -> string
+API_GPU_VTEXT_BG    = $FFB7     ; the same arguments, onto the VRAM BACKGROUND -
+                                ;   which the hardware re-copies under the image
+                                ;   for free, so a line drawn here costs the GPU
+                                ;   NOTHING per frame afterwards. This is what
+                                ;   the shipping HUD uses (hud_game.s).
+                                ;
+                                ;   REPLAY CONTRACT: the OS re-issues the command
+                                ;   into the other double-buffer on the NEXT
+                                ;   frame, and it stores the POINTER, not the
+                                ;   bytes - so the string must not be touched
+                                ;   until that has happened, and a second bg
+                                ;   command inside the window stomps the replay
+                                ;   and makes the line blink. hud_game.s's
+                                ;   bgtext_claim is the arbiter for both rules.
 ; NOTE: $FF6F joy_read is deliberately NOT listed. The kernel's frame ISR calls
 ; it once per frame, before cart_frame runs, so a cartridge just reads the
 ; shadows below. Calling it again zeroes every edge byte.
@@ -85,6 +108,11 @@ API_GPU_RECT_BG_CART  = $FFE1   ; OS_ARG+0 = source bank, +1..2 = window
 
 ; --- published OS RAM ---------------------------------------------------------
 OS_ARG            = $20         ; $20-$2F - builder argument block
+CART_SHADOW       = $09         ; the OS's software copy of the write-only bank
+                                ;   latch. READ it to find out which bank is
+                                ;   selected; never write it - go through
+                                ;   API_CART_BANK, which writes both.
+CART_EN           = $80         ; bit 7 of the bank byte: 1 = cartridge enabled
 OVERRUN_FLAG      = $03         ; the OS sets this when a VSYNC fired before
                                 ;   gpu_end - i.e. the GPU drew nothing that
                                 ;   frame. STICKY: the OS never clears it.

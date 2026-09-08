@@ -209,6 +209,23 @@ EXPL_AGES   = 24                ; frames one lasts: 0.40 s at 60.317 Hz. It was
                                 ;   frame of it still costs eight adds
 EXPL_DOTS_N = 8                 ; pixels in a cloud, at its fullest
 
+; --- what the player is paid ------------------------------------------------
+; Every bullet that lands pays SCORE_HIT, and a rock that actually comes apart
+; pays SCORE_KILL on top of it - so the killing blow is worth both. Flat, not per
+; size class: a big rock takes more hits to break and is therefore already worth
+; more, without a table saying so twice.
+;
+; Taking a 192 all the way down to nothing is 31 rocks broken and 31+ hits
+; landed, so about 3,000 points; a 120-rock field cleared out is comfortably
+; inside the five digits row 2 of the HUD has room for (hud_game.s).
+SCORE_HIT   = 10                ; a bullet landed on a rock
+SCORE_KILL  = 50                ; ...and that rock came apart
+
+COLD_BANK   = 4                 ; cart.cfg: the COLD segment - data read straight
+                                ;   out of the cartridge window and never copied
+                                ;   to RAM. EXPL_OFF is its first tenant; see the
+                                ;   note above the table.
+
 ; --- state, in free game RAM above thrust.s's block --------------------------
 ; Six-entry arrays on an eight-byte stride: the slot is the index, so every
 ; access is one abs,x and the spare two bytes buy room to raise SHOT_N to 8
@@ -303,6 +320,8 @@ EXDX        = $71E0             ; the offset pair being placed
 EXDY        = $71E1
 EXPX        = $71E2             ; ...and where it landed, once it is on screen
 EXPY        = $71E3
+EXBANK      = $71E6             ; the window bank do_explosions borrowed FROM,
+                                ;   restored before it returns - see its note
 EXSTOP      = $71E4             ; bytes of the block this age still draws
 EXY         = $71E5             ; the block cursor, parked over the clip
 EXPLBUF     = $7300             ; 1 + 2*EXPL_N*EXPL_DOTS_N: the DOT_PIXELS
@@ -801,6 +820,14 @@ shot_hits:
         ldx     SHTJ
         stz     SHTLIVE,x               ; ...and the bullet is spent, whatever it
                                         ;   did to the rock
+        lda     #SCORE_HIT              ; A BULLET LANDED - and the award sits HERE
+        jsr     score_add               ;   rather than inside rock_take_hit,
+                                        ;   which is deliberately cause-agnostic
+                                        ;   ("a bullet or a ship collision both
+                                        ;   just want this rock took a hit") and
+                                        ;   would start paying the player for
+                                        ;   ramming the moment that path is
+                                        ;   re-enabled. Preserves X and Y.
         ldx     SHTOBJ
         jsr     rock_take_hit           ; dec HP; destroy, or the crack shake
         bcs     @rnext                  ;   if this landed it on 1 - see the
@@ -1258,7 +1285,28 @@ expl_at:
 ; and the motes do: DOT_PIXELS costs two bytes a pixel and one dispatch for the
 ; lot, where a command per puff would be six dispatches for the same pixels.
 ; -----------------------------------------------------------------------------
+; THE WINDOW IS BORROWED, NOT TAKEN. EXPL_OFF is not in RAM: it is read straight
+; out of the $8000-$9FFF cartridge window (cart.cfg, segment COLD / bank 4), so
+; the window has to be showing bank 4 before expl_one's `lda (EXPTR),y` - and it
+; has to be showing what it was BEFORE this routine returns.
+;
+; That second half is not politeness, it is the difference between working and
+; hanging. The OS's per-frame entry point is boot_frame, a `jmp cart_frame`
+; trampoline that lives in the BOOT segment - which is IN THE WINDOW, in bank 0,
+; because it runs before CODE has been copied to RAM. FRAME_VEC points at it, so
+; every frame the OS jumps THROUGH the window. Leave bank 4 selected and the next
+; frame executes this table's bytes as code.
+;
+; Save/select/restore through CART_SHADOW rather than assuming bank 0: the shadow
+; is the system's only record of the latch, every OS call that touches the cart
+; keeps it current, and borrows composed this way nest correctly with whatever
+; else learns to move the bank later (a bank-aware VGM tick is explicitly
+; foreseen in cpu_os.s).
 do_explosions:
+        lda     CART_SHADOW             ; remember what the window was showing
+        sta     EXBANK
+        lda     #COLD_BANK | CART_EN
+        jsr     API_CART_BANK           ; ...and page EXPL_OFF in
         stz     EXN
         stz     EXDI
         lda     #EXPL_N-1
@@ -1269,6 +1317,8 @@ do_explosions:
         jsr     expl_one
 @next:  dec     EXI
         bpl     @lp
+        lda     EXBANK                  ; hand it back on EVERY path out, before
+        jsr     API_CART_BANK           ;   anything else can run - see above
         lda     EXN
         beq     @none
         sta     EXPLBUF
@@ -1627,16 +1677,36 @@ rock_destroy:
         jsr     rock_alloc
         bcs     @blocked
 @got:   sta     SPL_S
+        jsr     rock_score              ; it came apart: pay for that too
         jmp     rock_split
-@gone:  ldx     SPL_P                   ; the smallest class just goes, and its
-        jsr     rock_kill               ;   slot is what every other split is
-        lda     SPL_P                   ;   drawing on
+@gone:  jsr     rock_score              ; ...and for the smallest class, which
+        ldx     SPL_P                   ;   has nothing left to break into
+        jsr     rock_kill               ; (its slot is what every other split is
+        lda     SPL_P                   ;  drawing on)
         jmp     rock_free
 @blocked:
         inc     NBLOCK
         ldx     SPL_P                   ; nothing to break into: the hit lands,
         inc     OBJHP,x                 ;   the rock survives it
         rts
+
+; -----------------------------------------------------------------------------
+; rock_score - pay for a rock that just came apart.
+; -----------------------------------------------------------------------------
+; Called from rock_destroy's two SUCCESS paths and from neither of the others,
+; which is the whole of the design here. Not from rock_kill, tempting as that
+; looks: recyc_drop calls rock_kill too, and a rock quietly recycled to make room
+; for someone else's split is not something the player did. Not from the top of
+; rock_destroy either, because @blocked leaves the rock alive.
+;
+; FLAT, not per size class. A 192 takes several hits and each one pays
+; SCORE_HIT, so the work is already priced by the hit count - a size table on top
+; of that would charge for the same thing twice, and in the opposite direction to
+; the hits. score_add preserves X and Y, so this is safe inside the kill path.
+; -----------------------------------------------------------------------------
+rock_score:
+        lda     #SCORE_KILL
+        jmp     score_add               ; tail
 
 ; -----------------------------------------------------------------------------
 ; rock_split — SPL_P is the parent and SPL_S the slot for its second half.
@@ -2248,6 +2318,19 @@ EXPL_BASE:  .byte   0*EXPL_AGES, 1*EXPL_AGES, 2*EXPL_AGES, 3*EXPL_AGES
 ; no tool that regenerates it, and it does not need one. Neither slowing the
 ; animation down nor adding the second size redrew the clouds - both resampled
 ; the same four, so they are the shapes they always were.
+;
+; IT LIVES IN THE CARTRIDGE, NOT IN RAM (cart.cfg, segment COLD / bank 4). At
+; 3,072 bytes it was 65% of RODATA and 18.8% of the whole $2000-$5FFF run
+; window, which had 50 free bytes left; read straight out of the $8000-$9FFF
+; window it costs none of that. The price is the cartridge's three wait states
+; per read, and the read count here is bounded and small: EXPL_DOTS averages 7
+; pixels, so six live puffs are ~84 reads a frame, ~250 cycles - 0.1% of a
+; frame, against a fifth of the RAM budget handed back.
+;
+; The label below is therefore a WINDOW address, and expl_one's `lda (EXPTR),y`
+; only returns the right byte while bank 4 is selected - which do_explosions
+; does, once a frame, before it walks the slots.
+        .segment "COLD"
 EXPL_OFF:
 ; --- size 0 (x1.0), cloud 0 ---
               .byte     2,     0,   <-2,     0,     0,     2,     0,   <-2    ; age  0, r 2.0

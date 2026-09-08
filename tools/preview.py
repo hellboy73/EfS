@@ -953,6 +953,22 @@ for f, stream in enumerate(frames):
 fail = []
 
 
+def hud_const(name):
+    """A constant out of hud_game.s, evaluated with the few others it can be
+    written in terms of - so the layout lives in ONE place and this bench cannot
+    disagree with the cartridge about where a row is."""
+    src = (SRC / "hud_game.s").read_text()
+    env = {}
+    for m in re.finditer("^([A-Z_][A-Z0-9_]*)" + chr(92) + "s*=" + chr(92) + "s*([^;" + chr(92) + "n]+)", src, re.M):
+        try:
+            env[m.group(1)] = int(eval(m.group(2).strip(), {}, dict(env)))
+        except Exception:
+            pass
+    if name not in env:
+        raise RuntimeError(f"{name} not found in hud_game.s")
+    return env[name]
+
+
 def check(name, ok, detail=""):
     print(f"  [{'PASS' if ok else 'FAIL'}] {name}")
     if not ok:
@@ -2473,7 +2489,14 @@ check("the cartridge never asks for two background writes inside the replay wind
 # already undid the RLE for decode()'s caller above) - lay it into a model of
 # the background at (RING_XB, RING_Y0), pull the art's rows and columns back
 # out, undo the TATE turn, and compare with the PNG on disk pixel for pixel.
-bg = bytearray(0x4000)
+# A SEPARATE array, and the name matters: this used to be called `bg` and it
+# REBOUND the real captured background out from under preview.png, which then
+# drew the ring from this model rather than from what the GPU actually put on
+# the layer. That is exactly backwards for the one bug this arrangement can
+# have - something else on the background erasing the ring (the HUD's rows share
+# lines 37-49 with the radar, and a background SPACE clears its cell) would have
+# been painted back in from the model and never seen.
+ring_bg = bytearray(0x4000)
 if rects:
     payload = rects[0][3]
     assert len(payload) == RING_WB * RING_ROWS, \
@@ -2481,17 +2504,21 @@ if rects:
     for r in range(RING_ROWS):
         fby = RING_Y0 + r
         row = payload[r * RING_WB:(r + 1) * RING_WB]
-        bg[fby * 50 + RING_XB:fby * 50 + RING_XB + RING_WB] = row
+        ring_bg[fby * 50 + RING_XB:fby * 50 + RING_XB + RING_WB] = row
 
 art = Image.open(ROOT / "assets/png/radar100.png").convert("RGBA")
 aw, ah = art.size
 ap = art.load()
-PX0, PY0 = 1, 298                       # where the Makefile puts it, portrait
+# Where the art was authored, in the player's portrait view. READ from the
+# generated file, not typed here: this used to be a literal pair and it went
+# stale the moment the radar moved to the right-hand edge, failing 284 pixels on
+# a picture that was in fact perfect. bggen.py records its own --at now.
+PX0, PY0 = ring_const("RING_PX0"), ring_const("RING_PY0")
 wrong = 0
 for r in range(RING_ROWS):
     fby = RING_Y0 + r
     for c in range(RING_WB):
-        byte = bg[fby * 50 + RING_XB + c]
+        byte = ring_bg[fby * 50 + RING_XB + c]
         for bit in range(8):
             fbx = (RING_XB + c) * 8 + bit
             py, px = fbx - PY0, 299 - PX0 - fby
@@ -2505,6 +2532,180 @@ for r in range(RING_ROWS):
 check("the bytes that reached the background ARE the PNG, turned",
       wrong == 0,
       f"{wrong} pixels differ from assets/png/radar100.png")
+
+# ...and, now that the two are separate arrays, that the ring SURVIVED the rest
+# of the frame. Every pixel the model lights must still be lit on the REAL layer;
+# one that a later background write cleared - a HUD row emitted a cell too wide -
+# shows up here instead of being quietly repainted from the model.
+erased = 0
+for i in range(0x4000):
+    lost = ring_bg[i] & ~bg[i] & 0xFF
+    while lost:
+        erased += lost & 1
+        lost >>= 1
+check("nothing else on the background erased the radar's ring",
+      erased == 0,
+      f"{erased} ring pixels were cleared by a later background write - the HUD "
+      f"shares lines 37-49 with the radar and a background SPACE clears its cell")
+
+# =============================================================================
+# The HUD (hud_game.s) — three background text rows, and the pacing that keeps
+# them from stomping each other
+# =============================================================================
+# The HUD is the one thing in this cartridge that writes the background EVERY
+# few frames rather than once at boot, and the OS's replay contract makes that
+# hazardous in a way nothing on the image layer is: a bg command is re-issued
+# into the other double-buffer on the FOLLOWING frame, from the POINTER, so two
+# of them inside one window means one buffer keeps the old line and the row
+# blinks as the buffers flip. That is invisible in a still and obvious in
+# motion, which is exactly the sort of thing this bench exists to catch.
+#
+# So the rules being checked are hud_game.s's own: at most one VTEXT_BG per
+# frame, never two inside BGTEXT_HOLD frames of each other, only the three rows
+# the layout declares, and nothing on the two bottom rows reaching into the
+# columns the radar now owns.
+hud_cmds = []                                   # (frame, cell, line, text)
+for f, stream in enumerate(frames):
+    for op, payload in decode(stream):
+        if op == 0x63:                          # VTEXT_BG: cell, line, scroll, str
+            txt = bytes(payload[3:-1]).decode("latin-1")
+            hud_cmds.append((f, payload[0], payload[1], txt))
+
+HUD_ROW1 = hud_const("HUD_ROW1")
+HUD_ROW2 = hud_const("HUD_ROW2")
+IND_ROW = hud_const("IND_ROW")
+HUD_RADAR_C0 = hud_const("HUD_RADAR_C0")
+BGTEXT_HOLD = hud_const("BGTEXT_HOLD")
+HUD_PERIOD = hud_const("HUD_PERIOD")
+HUD_ROWS = (HUD_ROW1, HUD_ROW2)
+
+rows_seen = sorted({c[2] for c in hud_cmds})
+print("")
+print(f"        HUD: {len(hud_cmds)} VTEXT_BG commands over {FRAMES} frames, "
+      f"rows {rows_seen}")
+check("the HUD is drawing at all", len(hud_cmds) > 0)
+want_rows = set(HUD_ROWS) | {IND_ROW}
+check("the HUD only writes the rows it declares",
+      set(rows_seen) <= want_rows,
+      f"unexpected rows {sorted(set(rows_seen) - want_rows)}")
+check("the two readouts have a clear line between them",
+      all(b - a >= 2 for a, b in zip(HUD_ROWS, HUD_ROWS[1:])),
+      f"rows {HUD_ROWS}")
+
+per_frame = {}
+for f, _, _, _ in hud_cmds:
+    per_frame[f] = per_frame.get(f, 0) + 1
+doubled = [f for f, n in per_frame.items() if n > 1]
+check("never two HUD lines in the same frame", not doubled,
+      f"{len(doubled)} frames with two, first {doubled[:3]}")
+
+# Like every background write, a HUD line appears TWICE - on the frame the
+# cartridge asked for it and again on the next, when the OS replays it into the
+# other buffer. So the stream is folded into RUNS first, exactly as the ring's
+# checks below do it, and it is the runs that carry the pacing rules. Reading
+# the raw commands instead makes every single emit look like a double.
+hud_runs = []                                   # [first frame, key, length]
+for f, cell, line, txt in hud_cmds:
+    key = (cell, line, txt)
+    if hud_runs and hud_runs[-1][1] == key and f == hud_runs[-1][0] + hud_runs[-1][2]:
+        hud_runs[-1][2] += 1
+    else:
+        hud_runs.append([f, key, 1])
+print(f"        ...which is {len(hud_runs)} commands x the OS's 2-frame replay")
+check("each HUD line was replayed exactly twice",
+      all(r[2] == 2 for r in hud_runs),
+      f"run lengths {sorted({r[2] for r in hud_runs})}")
+
+fs = sorted(r[0] for r in hud_runs)
+tooclose = [(a, b) for a, b in zip(fs, fs[1:]) if b - a < BGTEXT_HOLD]
+check("no HUD line lands inside another's two-frame replay window",
+      not tooclose,
+      f"{len(tooclose)} pairs, first {tooclose[:3]}")
+
+# Every row is emitted at most once per HUD_PERIOD - the "an indicator can change
+# at most every six frames" half of the pacing, which the per-frame check above
+# does not cover on its own.
+rate = []
+for row in rows_seen:
+    fr = sorted(r[0] for r in hud_runs if r[1][1] == row)
+    rate += [(row, a, b) for a, b in zip(fr, fr[1:]) if b - a < HUD_PERIOD]
+check("no row repaints faster than its period", not rate,
+      f"{len(rate)} too-fast repaints, first {rate[:3]}")
+
+# The radar moved into the bottom-right corner, so the two bottom rows have a
+# hard right margin. A line is padded to the full row width, so what matters is
+# where its last NON-SPACE character sits.
+# A SPACE IS NOT TRANSPARENT. TEXT_BG writes whole bytes, so every cell a line
+# covers is cleared whether it carries a glyph or a blank - which means what
+# matters is the EMITTED LENGTH, not the length after stripping the padding. The
+# first cut of the HUD blanked each row to column 36 and silently ate the radar's
+# ring; this is that bug, written down.
+over = []
+for f, cell, line, txt in hud_cmds:
+    if line in HUD_ROWS and cell + len(txt) > HUD_RADAR_C0:
+        over.append((f, line, cell + len(txt), repr(txt)))
+check("no HUD row emits a single cell into the radar's columns",
+      not over,
+      f"{len(over)} lines past cell {HUD_RADAR_C0}, first {over[:2]}")
+
+widths = {ln: sorted({len(t) for _, _, l2, t in hud_cmds if l2 == ln})
+          for ln in HUD_ROWS}
+print(f"        emitted widths by row: {widths} (radar starts at cell {HUD_RADAR_C0})")
+check("each row emits ONE fixed width, so a shorter value cannot leave a tail",
+      all(len(w) == 1 for w in widths.values() if w),
+      f"{widths}")
+
+# ...and the content itself: the level, the hull bar as the ship takes hits, the
+# score as rocks are destroyed, and a message that appears and then clears.
+r1 = [t for _, _, ln, t in hud_cmds if ln == HUD_ROW1]
+r2 = [t for _, _, ln, t in hud_cmds if ln == HUD_ROW2]
+ind = [t.strip() for _, _, ln, t in hud_cmds if ln == IND_ROW]
+check("row 1 carries the lives and the hull bar",
+      bool(r1) and r1[0].startswith("LIVES: 3") and "|" in r1[0],
+      f"first row 1 was {r1[0]!r}" if r1 else "row 1 never drew")
+SCORE_DIGITS = hud_const("SCORE_DIGITS")
+check(f"row 2 carries the level and the score, {SCORE_DIGITS} digits with its leading zeros",
+      bool(r2) and r2[0].startswith("LEVEL: 1") and "SCORE: " in r2[0]
+      and r2[0].split("SCORE: ")[1].isdigit()
+      and len(r2[0].split("SCORE: ")[1]) == SCORE_DIGITS,
+      f"first row 2 was {r2[0]!r}" if r2 else "row 2 never drew")
+
+# The point of the re-layout: the score block sits exactly under the hull bar.
+C_RIGHT = hud_const("C_RIGHT")
+check("the score block starts in the same column as the hull bar",
+      bool(r1) and bool(r2) and r1[0].index("|") == r2[0].index("SCORE: ") == C_RIGHT,
+      f"bar at {r1[0].index('|') if r1 else '-'}, score at "
+      f"{r2[0].index('SCORE: ') if r2 else '-'}, want {C_RIGHT}")
+check("...and both rows end on the same cell",
+      bool(r1) and bool(r2) and len(r1[0]) == len(r2[0]),
+      f"{len(r1[0]) if r1 else '-'} vs {len(r2[0]) if r2 else '-'}")
+
+HP_CELLS = hud_const("HP_CELLS")
+bars = {t[t.index("|"):t.rindex("|") + 1] for t in r1 if "|" in t}
+barw = {len(b) for b in bars}
+print(f"        hull bar drew {len(bars)} distinct fills, all {barw} wide "
+      f"({HP_CELLS} cells + two pipes)")
+check("the hull bar keeps its width as it empties", len(barw) == 1,
+      f"widths {sorted(barw)}")
+check("the hull bar is as wide as its constants say",
+      barw == {HP_CELLS + 2}, f"got {sorted(barw)}, want {HP_CELLS + 2}")
+check("a full hull fills the bar to its closing pipe",
+      all(b.count("x") <= HP_CELLS for b in bars)
+      and any(b.count("x") == HP_CELLS for b in bars),
+      f"fills seen: {sorted(b.count('x') for b in bars)} of {HP_CELLS}")
+
+scores = [t.split("SCORE: ")[1] for t in r2 if "SCORE: " in t]
+print(f"        score field went {scores[0]!r} -> {scores[-1]!r} over the run")
+check("the score only ever goes up",
+      all(int(b or 0) >= int(a or 0)
+          for a, b in zip(scores, scores[1:]) if a.isdigit() and b.isdigit()))
+
+msgs = [t for t in ind if t]
+print(f"        message bar: {len(msgs)} message frame(s) {sorted(set(msgs))}, "
+      f"{len(ind) - len(msgs)} clear(s)")
+check("the message bar shows a message and then clears itself",
+      bool(msgs) and len(ind) > len(msgs),
+      f"{len(msgs)} shown, {len(ind) - len(msgs)} cleared")
 
 # =============================================================================
 # preview.png — the framebuffer as the rotated monitor shows it

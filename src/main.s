@@ -135,6 +135,15 @@ START_LEVEL = 0                 ; which of levels.s's levels cart_init loads.
                                 ;   One level exists; the campaign is five
                                 ;   (design_technical 9), and picking between
                                 ;   them is the menu's job, not a constant's.
+HP_MAX      = 5                 ; the ship's hit points at full health. It lives
+                                ;   HERE, and not beside the hull bar that draws
+                                ;   it, because it is a property of the SHIP -
+                                ;   cart_init seeds SHIPHP from it and the HUD
+                                ;   scales its bar by it, and the two must not be
+                                ;   able to disagree. Expected to change: the bar
+                                ;   is proportional, not two characters per
+                                ;   point, so raising this needs no HUD edit at
+                                ;   all (hud_game.s hud_bar_fill).
 ; The HUD is SEVEN VTEXT commands and ~9,900 CPU cycles a frame (finding 18) on
 ; the IMAGE layer, which is not where the real game will put it - text is
 ; destructive, so it belongs on the background where the hardware re-copies it
@@ -532,12 +541,42 @@ ZEASH       = $62D5             ;   read by nothing but the quantiser
 ZOOMH       = $62F8             ; ...and the snapped one, which is what the whole
                                 ;   rest of the frame means by "the zoom"
 ZSHEAD      = $62D6             ; the reciprocal the ZS tables were built for
-CULRL       = $62D7             ; this frame's cull radius, from ZOOM_CULLR
-CULRH       = $62D8
-CUL2L       = $62D9             ; ...and 2*CULR + 1, which in_range compares to
-CUL2H       = $62DA
-CULHI       = $62DB             ; the high-byte window, from ZOOM_CULLH
-CULHI2      = $62E1             ; ...doubled plus one, the compare it feeds
+; The cull window is PER WORLD AXIS and follows the HEADING as well as the zoom.
+; It used to be one radius applied to both axes, which made the admitted region a
+; SQUARE of half-side CULL_R - and CULL_R has to be the worst-case DIAGONAL,
+; sqrt(422^2 + 266^2) = 499 px, because the cull runs on the UNROTATED world
+; delta. So the square stood in for a 532 x 844 px screen with a 1068 x 1068 one,
+; and the sector walk that reads it visited 121 cells where 63 would do.
+;
+; The screen is a ROTATED RECTANGLE in world space, and the bounding box of a
+; rotated rectangle is not a square:
+;
+;   max|dx| = A|cos| + B|sin|        A = 266 px, the cross-axis reach (vx)
+;   max|dy| = A|sin| + B|cos|        B = 422 px, the along-axis reach (vy)
+;
+; Both are <= 499 at every heading, and equal to it only where the diagonal lines
+; up, so this can never admit MORE than the old square did. do_ship scales
+; ZOOM_CULLR by the two factors, in Q0.7, out of the cos/sin do_camera has
+; already computed - four qmuls and two smul16q7s, once a frame.
+;
+; CULRL/CULRH and CUL2L/CUL2H are TWO-ENTRY ARRAYS - [0] = world X, [1] = world Y
+; - and in_range takes the axis in X, which costs it nothing: abs,x is the same
+; four cycles as abs. $62D7-$62DB and $62E1 came free and are not reused.
+CULRL       = $624A             ; this frame's cull radius, PER AXIS, from
+CULRH       = $624C             ;   ZOOM_CULLR scaled by CULFX / CULFY
+CUL2L       = $624E             ; ...and 2*CULR + 1, which in_range compares to
+CUL2H       = $6250
+CULH        = $6252             ; the high-byte windows, same two-entry shape...
+CULH2       = $6254             ; ...each doubled plus one, the compare it feeds
+CULFX       = $6256             ; the two shrink factors themselves, Q0.7, in the
+CULFY       = $6257             ;   same order - cull_axis reads them by axis too
+CULBL       = $6258             ; the isotropic radius the table gave, before the
+CULBH       = $6259             ;   heading narrowed it
+CULAC       = $625A             ; |cos| and |sin|, 0..127, for the four qmuls
+CULAS       = $625B
+CULT        = $625C             ; ...the first of each pair's products...
+CULAX       = $625D             ; ...and the axis, parked because smul_core
+                                ;   clobbers X
 ASHP        = $62E2             ; this rock's size class, kept because qmul
                                 ;   clobbers both index registers
 AVSTEP      = $62E3             ; bytes to the next vertex: 2, or 4 at half LOD
@@ -548,7 +587,10 @@ OCCBW       = $62E7             ; ...and how many of that band's occluders are l
 OCCBMAX     = $62E8             ; deepest band ever walked, for the harness
 GX0         = $62E9             ; the sector walk: first cell column and row...
 GY0         = $62EA
-GN          = $62EB             ; ...how many of each, 2R+1
+GN          = $62EB             ; ...how many COLUMNS, 2*Rx+1...
+GNROW       = $62EC             ; ...and how many ROWS, 2*Ry+1. Two numbers now
+                                ;   and not one: the cull window is a heading-
+                                ;   shaped box, not a square (see CULRL above)
 GDY         = $62ED             ; ...and the cursor over the rows
 GROW        = $62EE             ; this row's cell index, already shifted
 GNEXT       = $62EF             ; the successor in the cell list, read BEFORE the
@@ -892,8 +934,8 @@ cart_init:
         lda     #$3C
         sta     PRNGH
 
-        lda     #5                      ; the ship's hit points - see SHIPHP
-        sta     SHIPHP
+        lda     #HP_MAX                 ; the ship's hit points - see SHIPHP, and
+        sta     SHIPHP                  ;   HP_MAX for why the number is not here
         stz     KNBXL
         stz     KNBXH
         stz     KNBYL
@@ -916,10 +958,18 @@ cart_init:
                                         ;   load_level, because it falls through
                                         ;   into init_cells and nothing may come
                                         ;   between the two (see load_level)
+        jsr     hud_init                ; the score, the lives, the level number
+        lda     #START_LEVEL            ;   and the caches behind the two rows -
+        sta     CURLEV                  ;   none of it is zeroed for us. The level
+                                        ;   is taken here rather than inside
+                                        ;   load_level so that routine stays a
+                                        ;   pure field builder with no HUD in it
+        lda     #IM_LEVEL               ; ...and the bar opens with a word
+        jsr     indicate_msg
 .if HUD_ON
-        jmp     init_strings            ; ...and the HUD's RAM copies last, since
-.else                                   ;   it is the only thing that patches a
-        rts                             ;   string in place
+        jmp     init_strings            ; ...and the tuning readout's RAM copies
+.else                                   ;   last, since it is the only thing that
+        rts                             ;   patches a string in place
 .endif
 
 
@@ -951,6 +1001,10 @@ cart_frame:
         jsr     ring_restart            ; ...and the radar's ring goes on top of
                                         ;   the cleared background, one
                                         ;   RECT_BG_RLE command - see radar.s
+        jsr     hud_reset               ; ...and the HUD's cached inputs go with
+                                        ;   it: the clear took its text off the
+                                        ;   background, so every row has to
+                                        ;   believe it has changed
 :
         ; ---- repair after a frame we failed to deliver ----------------------
         ; OVERRUN_FLAG is set by the OS when a VSYNC fired before gpu_end. It is
@@ -973,6 +1027,8 @@ cart_frame:
         jsr     ring_restart            ; the clear takes the radar's ring with
                                         ;   it, so paint it again rather than
                                         ;   leave a hole for the session
+        jsr     hud_reset               ; ...and the HUD's rows with it, same
+                                        ;   reason as the one-shot above
 :
         jsr     ring_frame              ; the radar's furniture, one
                                         ;   RECT_BG_RLE command, retried until
@@ -980,6 +1036,15 @@ cart_frame:
                                         ;   same reason upload_step is: dropped
                                         ;   for want of PPRAM leaves a permanent
                                         ;   hole, not a one-frame blink
+        jsr     bgtext_tick             ; the shared background-text window ages
+                                        ;   BEFORE any emitter looks at it
+        jsr     hud_tick                ; ...and the HUD is the only emitter, on
+                                        ;   a 6-frame stagger: one row of text
+                                        ;   every two frames at most, never two
+                                        ;   inside the OS's replay window. EARLY
+                                        ;   in the frame for ring_frame's reason
+                                        ;   - a dropped background command costs
+                                        ;   far more than one frame (hud_game.s)
         jsr     do_input
         jsr     do_camera               ; cos/sin, then the two rotation tables
         jsr     do_ship                 ; velocity from tier + heading, integrate
@@ -1080,6 +1145,12 @@ cart_frame:
         ; every reference between them resolves after the copy - it is simply
         ; where the room is. See cart.cfg and bootstrap.s.
         .segment "CODE2"
+        .include "hud_game.s"           ; the SHIPPING HUD - two rows at the
+                                        ; bottom, a message bar at the top, all
+                                        ; three on the VRAM background where they
+                                        ; cost the GPU nothing per frame. Not to
+                                        ; be confused with hud.s above, which is
+                                        ; the tuning readout and is off.
         .include "radar.s"              ; the HUD radar: a second, wider walk of
                                         ; the same sector grid, on high bytes
                                         ; only. See that file's header.
@@ -1413,15 +1484,15 @@ ZQ_SNAP:
 
 ; What the cull has to admit, per zoom step: CULL_R scales as 128/RZ, because
 ; pulling the camera back makes the visible window that much wider in world
-; units. Indexed by (RZ >> 3) - 8, so RZ 64..128 is nine entries. Rounded UP, and
-; the high-byte window with it: the freeze-far-rocks ordering in do_objects needs
-; CULL_HI * 256 to stay at least 128 units clear of CULL_R, or a rock could cross
-; both tests inside one frame.
+; units. Indexed by (RZ >> 3) - 8, so RZ 64..128 is nine entries. Rounded UP.
+;
+; This is the ISOTROPIC radius - the worst case over every heading. cull_window
+; (ship.s) narrows it per world axis before anything reads it, and derives the
+; high-byte window from the result rather than from a second table: see CULRL in
+; the RAM map above. The table ZOOM_CULLH that used to sit here is gone with it.
 ;              RZ 64   72     80     88     96    104    112    120    128
 ZOOM_CULLR:
         .word   17088, 15190, 13671, 12428, 11392, 10516,  9765,  9114,  8544
-ZOOM_CULLH:
-        .byte      68,    61,    55,    50,    46,    43,    40,    37,    35
 ;
 ; Regenerated when the camera gained its cross-axis lean. The pivot of the world
 ; rotation is the SHIP, so moving the ship across the screen moves the pivot: the
@@ -1430,12 +1501,8 @@ ZOOM_CULLH:
 ; 499. At 483 the big rocks popped in and out at the edges - see finding 18 -
 ; and the cross axis would have started doing the same thing on hard turns.
 ;
-; The high-byte windows are now +2 rather than the minimum +1, so the smallest
-; clearance is 281 units instead of 128. That costs a coarse window 3% wider -
-; about half a rock more through the cheap test at 1:1 - and buys two things:
-; the freeze-far-rocks ordering keeps its margin at every zoom step, and the
-; BOOST's 127 units a frame plus a rock's 13 stays well inside it everywhere,
-; not just at the top tier where the boost happens to live today.
+; Those two reaches, 266 across and 422 along, are also what cull_window's
+; coefficients (68 and 108, as Q0.7 fractions of 499) are made of.
 
 ; Optional speed coupling: rate = rate * (1 + xtra/128), indexed by speed tier.
 ; Standstill is unchanged, top speed is doubled.

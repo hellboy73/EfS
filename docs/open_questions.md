@@ -579,10 +579,21 @@ The blink needs enemies to exist. `levels.s` carries them and nothing reads them
 positions and a kind byte, no behaviour.
 
 **G4. Radar shape & footprint (SETTLED — a circle in a 100x100 px box,
-bottom-left corner).** Simpler than the earlier rectangle proposal in every
+bottom-RIGHT corner).** Simpler than the earlier rectangle proposal in every
 way that matters here: the catchment test is rotation-invariant (G2), and
 because the radar's scale never changes (G1), the on-screen result is
 exactly a circle too — no ellipse correction, no separate per-axis bound.
+
+It sat in the bottom-LEFT corner until the HUD arrived (D5). The two bottom text
+rows run from the left margin, so the instrument had to vacate that side; it is
+now portrait x 199..299, hard against the right edge, and the HUD's rows are
+bounded at cell 23 by an assert in `hud_game.s` so the two cannot grow into each
+other silently. Only `RADCY` moved (`radar.s`) and the ring bitmap followed it by
+one constant, regenerated with `tools/bggen.py ... --at 199,298`. One thing the
+move surfaced: pushed against the low edge, the occlusion disc's box origin goes
+*negative*, and an unsigned byte reads that as 255 and walks the occluder band
+list off its end — `radar.s` now clamps both ends of both axes, not just the high
+ones.
 
 **G5. Ship icon & frame (SETTLED — a background bitmap, and it is built).** The
 plan was to *draw* a static ring and ship icon onto the VRAM background. **The
