@@ -17,6 +17,7 @@ cart.bin
 proto/*/*.bin
 assets/*.bin
 assets/vgm/*_stream.bin
+assets/vgm/*_stream.inc
 
 # ...and the picture `make preview` draws, for the same reason. The one in each
 # proto/ IS tracked: a frozen bench's picture is part of its record, while this

@@ -27,6 +27,16 @@ API_GPU_CLEARBG     = $FF3C     ; (no args) clear the VRAM background
 API_GPU_DOTLINE_CLIP= $FF93     ; OS_ARG+0..7 = X1,Y1,X2,Y2, signed 16 half-res.
                                 ;        Cohen-Sutherland: emits nothing when the
                                 ;        segment misses the screen entirely
+API_VGM_PLAY        = $FF66     ; OS_ARG+0 = cart bank, +1..2 = addr -> start a
+                                ;   VGM stream. $FF = "flat", i.e. the stream is
+                                ;   in RAM rather than in a bank
+API_VGM_PLAY_LOOP   = $FFAE     ; ...and the same with a SEPARATE loop anchor in
+                                ;   OS_ARG+3..5, so a one-shot intro is not
+                                ;   replayed on the loop
+API_VGM_STOP        = $FF69     ; (no args) silence SN76489 #1 + YM2413
+API_VGM_TICK        = $FF6C     ; advance the song one frame. The OS's own IRQ
+                                ;   calls this; it is exposed so a harness can
+                                ;   stand in for that IRQ - see tools/preview.py
 API_CART_BANK       = $FF03     ; A = CART_EN | bank -> select the $8000-$9FFF
                                 ;   window's bank. THE ONLY legal way to do it:
                                 ;   $BF60 is a WRITE-ONLY latch, and CART_SHADOW

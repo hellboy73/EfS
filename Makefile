@@ -18,9 +18,15 @@ UNITS = src/header.s src/bootstrap.s src/main.s
 # What cl65 READS. Everything main.s includes, so touching any of it rebuilds.
 MODULES = src/math.s src/input.s src/camera.s src/ship.s src/thrust.s \
           src/objects.s src/physics.s src/stars.s src/occlude.s src/hud.s \
-          src/hud_game.s src/radar.s src/shots.s src/sfx.s src/window.s
+          src/hud_game.s src/radar.s src/shots.s src/sfx.s src/window.s src/music.s
 DATA    = src/shapes.s src/levels.s src/radar_bg.s src/ship32.s src/flames.s
-DEPS    = $(UNITS) $(MODULES) $(DATA) src/mad65.inc cart.cfg
+
+# The song. vgmstrip.py removes the VGM header and the GD3 tag - vgm_play does
+# no header parsing, it executes commands from the address it is given - and
+# emits the loop anchor as an assembler constant in a sibling .inc. Both are
+# build outputs and gitignored; src/music.s takes them back out at MUSIC_ON=0.
+MUSIC   = assets/vgm/song_stream.bin assets/vgm/song_stream.inc
+DEPS    = $(UNITS) $(MODULES) $(DATA) $(MUSIC) src/mad65.inc cart.cfg
 
 all: $(CART)
 
@@ -35,7 +41,13 @@ run: $(CART)
 preview:
 	python tools/preview.py
 
+assets/vgm/%_stream.bin: assets/vgm/%.vgm tools/vgmstrip.py
+	python tools/vgmstrip.py $< $@ $*
+
+# ...and the .inc is a CO-PRODUCT of that same run, not a second one.
+assets/vgm/%_stream.inc: assets/vgm/%_stream.bin ;
+
 clean:
-	rm -f $(CART) *.o src/*.o    # cl65 names its intermediates <src>.<pid>.<n>.o
+	rm -f $(CART) *.o src/*.o assets/vgm/*_stream.bin assets/vgm/*_stream.inc    # cl65 names its intermediates <src>.<pid>.<n>.o
 
 .PHONY: all run preview clean

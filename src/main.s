@@ -1018,6 +1018,12 @@ cart_init:
         jsr     win_on                  ; ...and the window is a cartridge again
                                         ;   before init can return - the OS jumps
                                         ;   to boot_frame THROUGH it (window.s)
+        jsr     music_start             ; ...and the song starts here, AFTER
+                                        ;   that: vgm_play only records where
+                                        ;   the stream is, but the player
+                                        ;   begins banking the window from the
+                                        ;   next IRQ, and it must find the
+                                        ;   window as init leaves it (music.s)
 .if HUD_ON
         jmp     init_strings            ; ...and the tuning readout's RAM copies
 .else                                   ;   last, since it is the only thing that
@@ -1248,6 +1254,10 @@ cart_frame:
                                         ; SFX engine reads the step programs
                                         ; from the frame IRQ, so they have to
                                         ; live in RAM that is always mapped.
+        .include "music.s"              ; the song, and MUSIC_ON, which takes
+                                        ; it and its four banks back out. A
+                                        ; PLACEHOLDER - see that file for the
+                                        ; measurement it exists to allow.
         .include "window.s"             ; win_off / win_on - borrowing
                                         ; $8000-$9FFF as RAM for the length of
                                         ; a pass. See that file: the rules for

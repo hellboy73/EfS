@@ -518,6 +518,9 @@ SHIP_LINES = len(SHIP_SHAPE)    # ...the vertex count POLYGON16 carries, and
 STAR_N = cart_const("STAR_N")   # read, not typed: the mirror below drifted
                                 #   the moment this number was tuned
 MOTE_N = 10
+MUSIC_ON = int(re.search(r"^MUSIC_ON\s*=\s*(\d+)",
+                         open(SRC / "music.s").read(), re.M).group(1))
+API_VGM_TICK = 0xFF6C           # the OS entry the VSYNC IRQ calls (mad65.inc)
 NOBJ = cart_const("NOBJ")               # read, not typed: the split moved it
 VIS_MAX = 64                    # the packed visible list, mirrored from main.s
 VISIDX, VSXL, VSXH = (cart_addr(n) for n in ("VISIDX", "VSXL", "VSXH"))
@@ -583,8 +586,20 @@ CART_FRAME = CART[7] | (CART[8] << 8)
 print(f"cart_init @ ${CART_INIT:04X}, cart_frame @ ${CART_FRAME:04X}")
 
 
-def call(mpu, addr, limit=5_000_000):
-    """JSR addr, run until it returns. Returns cycles consumed."""
+def call(mpu, addr, limit=5_000_000, irq_at=None, irq_addr=None):
+    """JSR addr, run until it returns. Returns cycles consumed.
+
+    `irq_at` stands in for the OS's VSYNC interrupt: after that many
+    instructions, registers are saved, `irq_addr` is called, and the registers
+    and pc are put back - which is what the OS's handler does around vgm_tick.
+
+    It is not decoration. The song's player is the ONE thing in the machine that
+    re-banks the cartridge window from an interrupt, so it can land in the
+    middle of a win_off bracket (src/window.s), where the game is reading the
+    object pool out of the RAM underneath. It saves and restores the whole
+    CART_SHADOW byte, CART_EN included, so a bracket should get its cleared bit
+    handed back - and firing it at a different point in every frame is how that
+    stops being a reading of cpu_os.s and becomes a measurement."""
     ret = SENTINEL - 1
     mpu.memory[0x0100 + mpu.sp] = (ret >> 8) & 0xFF
     mpu.sp = (mpu.sp - 1) & 0xFF
@@ -593,12 +608,20 @@ def call(mpu, addr, limit=5_000_000):
     mpu.pc = addr
     start = mpu.processorCycles
     n = 0
+    irq_cost = 0
     while mpu.pc != SENTINEL:
         mpu.step()
         n += 1
+        if n == irq_at:
+            a, x, y, p, pc = mpu.a, mpu.x, mpu.y, mpu.p, mpu.pc
+            inside = not cart_bank[0] & 0x80    # ...was it inside a bracket?
+            irq_cost = call(mpu, irq_addr)
+            handed_back = (not cart_bank[0] & 0x80) == inside
+            irq_landings.append((inside, handed_back))
+            mpu.pc, mpu.a, mpu.x, mpu.y, mpu.p = pc, a, x, y, p
         if n > limit:
             raise RuntimeError(f"runaway at ${mpu.pc:04X}")
-    return mpu.processorCycles - start
+    return mpu.processorCycles - start - irq_cost
 
 
 # =============================================================================
@@ -624,6 +647,9 @@ for i, b in enumerate(CPU_ROM):
 # hardware one. It is also the argument for Model B: copy the code into RAM at
 # boot and these reads become RAM reads at full speed.
 cart_reads = [0]
+# Where each injected vgm_tick landed, and what it left behind:
+# (was the window already switched to RAM?, was it that way afterwards too?)
+irq_landings = []
 
 # ...and the BANK the window is showing. The cart is two banks now (cart.cfg),
 # so the window is not the whole image any more: bootstrap.s asks the OS to copy
@@ -819,7 +845,14 @@ for f in range(FRAMES):
     prev_joy1 = joy1
     call(cpu, API_GPU_BEGIN)
     cart_reads[0] = 0
-    c = call(cpu, CART_FRAME)
+    # A VSYNC lands wherever it lands, so sweep the injection point across the
+    # frame instead of picking one: 220 frames at a stride coprime with the
+    # sweep put it inside a win_off bracket over and over. The cycles it costs
+    # are subtracted, because the budget line below is about the GAME's frame -
+    # the player's own cost is the OS's, and it is charged whether or not this
+    # bench models it.
+    irq = (2000 + f * 977) % 24000 if MUSIC_ON else None
+    c = call(cpu, CART_FRAME, irq_at=irq, irq_addr=API_VGM_TICK)
     cycles.append((c, cart_reads[0]))
     call(cpu, API_GPU_END)
     end = cpu_mem[0x04] | (cpu_mem[0x05] << 8)  # PPWP points AT the WAI
@@ -1082,6 +1115,28 @@ def pix(fx, fy):
 
 
 print("\nchecks:")
+
+if MUSIC_ON:
+    # THE MEASUREMENT src/music.s EXISTS FOR - open_questions.md F5. The song's
+    # player is the only thing in the machine that re-banks the cartridge window
+    # from an interrupt, and design_technical.md 11.19 reads the object pool with
+    # that window switched to RAM. If vgm_tick handed a bracket back a SET
+    # CART_EN, the rest of the pass would read cartridge ROM where the pool
+    # should be - so this is a prerequisite for the whole memory map, not a
+    # detail about music.
+    inside = [ok for was_in, ok in irq_landings if was_in]
+    print("")
+    print("the song's IRQ against the window brackets:")
+    check("vgm_tick landed inside a win_off bracket often enough to mean anything",
+          len(inside) > 20,
+          "%d of %d injections landed inside one" % (len(inside), len(irq_landings)))
+    check("...and every one handed the window back the way it found it",
+          all(ok for _, ok in irq_landings),
+          "%d left CART_EN wrong" % sum(1 for _, ok in irq_landings if not ok))
+    print("        %d of %d VSYNCs fell inside a bracket, and the frame's own "
+          "trace is byte-identical to the silent build either way"
+          % (len(inside), len(irq_landings)))
+
 check("nothing was written at or past the register overlay (offset 16320)",
       not regs_hit)
 

@@ -1008,3 +1008,11 @@ These are settled and should not be re-opened without a reason:
     `gpu_rect_bg_cart` on every path out. Only those two read the cartridge in
     flight, which is why two brackets cover the whole frame.
 
+    The one borrow that is not the game's to schedule is the **VGM player**:
+    `vgm_tick` re-banks the window from the VSYNC interrupt, so it lands wherever
+    the game happens to be, brackets included. It composes, and that is measured
+    rather than read: `tools/preview.py` stands in for the interrupt and fires it
+    at a different point in every frame — **216 of 220 landed inside a bracket,
+    every one restored the cleared `CART_EN`, and the frame trace is identical to
+    a silent build.** See `open_questions.md` F5.
+

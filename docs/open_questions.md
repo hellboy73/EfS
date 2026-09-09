@@ -483,12 +483,19 @@ Two things have to be settled before it is used, and neither has been measured:
   cannot touch the object pool, and its own data has to be in the same bank or
   at `$A000`. Putting the interpreter and the level scripts in ONE bank makes
   that a feature — no bank switching at all inside the pass.
-* The rule that such code **may never re-bank the window it is executing from**
-  (`bootstrap.s`) has never been tested against the OS's `vgm_tick`, which
-  re-banks from the IRQ. It saves and restores the whole `CART_SHADOW`, so it
-  should compose — but no song has played yet, so "should" is all there is. That
-  measurement is the prerequisite, and it is the same one 11.19's brackets are
-  waiting on.
+* ~~The rule that such code **may never re-bank the window it is executing
+  from** has never been tested against the OS's `vgm_tick`, which re-banks from
+  the IRQ.~~ **MEASURED, and it composes.** `src/music.s` puts a placeholder song
+  in banks 5-8 and `tools/preview.py` now stands in for the VSYNC interrupt,
+  firing `vgm_tick` at a different point in every frame so it lands where a real
+  one would: **216 of 220 injections fell inside a `win_off` bracket, every one
+  handed the window back the way it found it, and the 220-frame trace is
+  byte-identical to the silent build.** So the player's `CART_SHADOW`
+  save/restore covers `CART_EN` in practice and not only in `cpu_os.s`, and
+  11.19's brackets are safe against the one thing that could break them
+  asynchronously. Still untested is the REVERSE direction — an interrupt landing
+  in code that is executing *from* the window — which is this question's own
+  risk and cannot be measured until such code exists.
 
 **F3. Music: how many tracks, how long (TBD).** The biggest single consumer of a
 256 KB cartridge. If the campaign wants more music than fits, the options are a
