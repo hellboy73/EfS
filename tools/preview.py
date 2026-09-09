@@ -761,7 +761,6 @@ RAD_SH = radar_const("RAD_SH")
 RAD_SCR = RAD_RH >> RAD_SH              # ...and on screen, in half-res cells
 RADCX, RADCY = radar_const("RADCX"), radar_const("RADCY")
 RAD_MAX = radar_const("RAD_MAX")
-RAD_CLASSES = radar_const("RAD_CLASSES")
 RAD_BLINK_N = radar_const("RAD_BLINK_N")
 RAD_BLINK_ON = radar_const("RAD_BLINK_ON")
 RAD_ORDER = [5, 0, 1, 2, 3, 4]          # enemies, then biggest rock class first
@@ -902,23 +901,41 @@ for f in range(FRAMES):
     # Python integers. Agreement between the two is the only reason to believe
     # either.
     shxh, shyh = cpu_mem[0x8C], cpu_mem[0x8F]
-    # The class window, worked out here the way radar_sens works it out there:
-    # the RAD_CLASSES largest classes that still have a rock in them.
+    # THE ALLOCATION, worked out here the way radar_alloc works it out there:
+    # RAD_MAX slots handed over the classes BY SIZE, biggest first, out of the
+    # per-class census. want[c] is that class' ceiling for the frame; the
+    # cartridge's gate is the contiguous run of classes that got one.
     live = [0] * 5
     for i in range(nrock):
         cls = ram(OBJSHP_A + i)
         if cls != SHP_DEAD:
             live[cls] += 1
-    sens = next((c for c in range(5) if live[c]), 4)
-    rocks_in = []
-    for i in range(nrock):
+    want, left = [0] * 5, RAD_MAX
+    for c in range(5):
+        want[c] = min(left, live[c])
+        left -= want[c]
+    given = [c for c in range(5) if want[c]]
+    sens = given[0] if given else 4
+    winw = given[-1] - given[0] + 1 if given else 0
+    # ...and the scan that spends it. Slot order, HIGHEST FIRST, exactly as
+    # do_radar walks it - which is what decides WHICH of a class' rocks get in
+    # when there are more of them than slots. It stops the moment the whole
+    # allocation is filled, and so does the cartridge.
+    rocks_in, per, budget = [], [0] * 5, sum(want)
+    for i in range(nrock - 1, -1, -1):
+        if budget <= 0:
+            break
         cls = ram(OBJSHP_A + i)
-        if not (sens <= cls < sens + RAD_CLASSES):
+        if not (sens <= cls < sens + winw):
             continue                                    # not what it is hunting
+        if per[cls] >= want[cls]:
+            continue                                    # this class is full
         dx = sb8((ram(OBJXH + i) - shxh) & 0xFF)
         dy = sb8((ram(OBJYH + i) - shyh) & 0xFF)
         if dx * dx + dy * dy <= RAD_R2:
             rocks_in.append(cls)
+            per[cls] += 1
+            budget -= 1
     foes_in = 0
     for i in range(cpu_mem[0x6E1C]):                    # NFOE
         dx = sb8((cpu_mem[0x6F10 + i] - shxh) & 0xFF)   # FOEXH
@@ -936,6 +953,9 @@ for f in range(FRAMES):
     radar.append({"drawn": cpu_mem[0x6E06], "admit": cpu_mem[0x6E0A],
                   "visit": cpu_mem[0x6E09], "blink": cpu_mem[0x6E07],
                   "sens": cpu_mem[0x6E10], "want_sens": sens,
+                  "want": want, "winw": winw,
+                  "cart_want": [cpu_mem[0x6E1F + c] for c in range(5)],
+                  "cart_winw": cpu_mem[0x6E13],
                   "live": live, "cart_live": [cpu_mem[0x6E0B + c] for c in range(5)],
                   "lists": [cpu_mem[0x6E00 + c] for c in range(6)],
                   "rocks_in": rocks_in, "foes_in": foes_in,
@@ -2431,8 +2451,9 @@ rad_pts = [[p for lst in ls for p in lst] for ls in rad_lists]
 print(f"\n        radar: reach {RAD_RH * 256:,} world units ({RAD_SCR} half-res "
       f"cells on screen); {sum(len(p) for p in rad_pts)} contacts over {FRAMES} "
       f"frames, worst frame {max(len(p) for p in rad_pts)} of {RAD_MAX} slots")
-print(f"        class window: {RAD_CLASSES} classes from {radar[-1]['sens']}, "
-      f"so {radar[-1]['visit']} objects of {nrocks_total} rocks + "
+print(f"        allocation: {radar[-1]['cart_want']} of {RAD_MAX} slots by size, "
+      f"{radar[-1]['cart_winw']} class(es) from {radar[-1]['sens']}, so "
+      f"{radar[-1]['visit']} objects of {nrocks_total} rocks + "
       f"{cpu_mem[0x6E1C]} enemies got past the first compare, and "
       f"{radar[-1]['admit']} got inside the circle")
 
@@ -2487,11 +2508,25 @@ bad = [(n, r["admit"], len(r["rocks_in"]) + r["foes_in"])
 print(f"        admitted {radar[-1]['admit']} of {radar[-1]['visit']} walked on "
       f"the last frame; the field has {nrocks_total} rocks and "
       f"{radar[-1]['foes_in']} enemies inside the circle")
-# THE CLASS WINDOW. The instrument hunts the RAD_CLASSES largest classes that
-# still exist and ignores the rest - a gameplay rule (the radar retunes itself
-# as the player clears a field) that is also what pays for the reach. Two
-# things to hold it to: the window the cartridge picked, and that nothing
-# outside it ever reached a list.
+# THE ALLOCATION. RAD_MAX slots are handed out by size, biggest class first, so
+# the display fills gradually from the top instead of waiting for a class to be
+# cleared - a gameplay rule (the player is not flying blind) that is also what
+# bounds the scan. Four things to hold it to: the ceilings the cartridge worked
+# out, the window they imply, the census under them, and that nothing outside
+# ever reached a list.
+check("the cartridge's allocation is the one the census justifies",
+      all(r["cart_want"] == r["want"] for r in radar),
+      f"first disagreement at frame "
+      f"{next((n for n, r in enumerate(radar) if r['cart_want'] != r['want']), None)}: "
+      f"cart {next((r['cart_want'] for r in radar if r['cart_want'] != r['want']), None)} "
+      f"vs {next((r['want'] for r in radar if r['cart_want'] != r['want']), None)}")
+check("...and it never hands out more slots than there are",
+      all(sum(r["cart_want"]) <= RAD_MAX for r in radar),
+      f"worst frame handed out {max(sum(r['cart_want']) for r in radar)} of {RAD_MAX}")
+check("the class run the gate uses spans exactly the classes that got slots",
+      all(r["cart_winw"] == r["winw"] for r in radar),
+      f"first disagreement at frame "
+      f"{next((n for n, r in enumerate(radar) if r['cart_winw'] != r['winw']), None)}")
 check("the cartridge's class window is the one the field justifies",
       all(r["sens"] == r["want_sens"] for r in radar),
       f"first disagreement at frame "
@@ -2500,7 +2535,7 @@ check("the per-class census matches the field",
       all(r["cart_live"] == r["live"] for r in radar),
       f"cart {radar[-1]['cart_live']} vs field {radar[-1]['live']}")
 outside = [(n, c) for n, r in enumerate(radar) for c in range(5)
-           if r["lists"][c] and not (r["sens"] <= c < r["sens"] + RAD_CLASSES)]
+           if r["lists"][c] and not (r["sens"] <= c < r["sens"] + r["winw"])]
 check("no rock outside the class window ever reached a list",
       not outside, f"{len(outside)} slips, first {outside[0] if outside else ''}")
 
@@ -2527,6 +2562,11 @@ for n, (ls, r) in enumerate(zip(rad_lists, radar)):
 check("the lists go out biggest-class-first, truncated by the slot cap",
       not order_bad,
       f"{len(order_bad)} frames wrong, first {order_bad[0] if order_bad else ''}")
+
+over = [(n, c, r["lists"][c], r["cart_want"][c]) for n, r in enumerate(radar)
+        for c in range(5) if r["lists"][c] > r["cart_want"][c]]
+check("no class list ever grew past the share it was allocated",
+      not over, f"{len(over)} slips, first {over[0] if over else ''}")
 
 check("no frame drew more contacts than there are slots",
       all(len(p) <= RAD_MAX for p in rad_pts),
@@ -2827,7 +2867,8 @@ r1 = [t for _, _, ln, t in hud_cmds if ln == HUD_ROW1]
 r2 = [t for _, _, ln, t in hud_cmds if ln == HUD_ROW2]
 ind = [t.strip() for _, _, ln, t in hud_cmds if ln == IND_ROW]
 check("row 1 carries the lives and the hull bar",
-      bool(r1) and r1[0].startswith("LIVES: 3") and "|" in r1[0],
+      bool(r1) and r1[0].startswith(f"LIVES: {hud_const('LIVES_START')}")
+      and "|" in r1[0],
       f"first row 1 was {r1[0]!r}" if r1 else "row 1 never drew")
 SCORE_DIGITS = hud_const("SCORE_DIGITS")
 check(f"row 2 carries the level and the score, {SCORE_DIGITS} digits with its leading zeros",

@@ -158,6 +158,10 @@ HP_MAX      = 5                 ; the ship's hit points at full health. It lives
 ; of 78 vertices against 104. With it off, hud.s assembles to nothing at all.
 HUD_ON      = 0
 
+; TEMPORARY, and one edit removes every byte of it: the class census top left,
+; five hex counts one under the other, largest class first. See hud_game.s.
+DBG_CLASSES = 1
+
 ; Which opcode draws a rock. All three are the SAME command - one closed figure
 ; per outline, with the centre, the angle, the scale and the RAW shape sent as
 ; data - and the GPU does the rotate, the scale and the clip. They differ only in
@@ -1236,6 +1240,16 @@ cart_frame:
         ; missing contact is a worse loss than a missing star, and a better one
         ; than a missing rock. See open_questions G7 for the priority INSIDE it,
         ; which is CPU1's own business - the GPU can only drop whole commands.
+.if DBG_CLASSES
+        jsr     dbg_classes             ; TEMPORARY - the class census, top left.
+.endif                                  ;   BEFORE emit_radar, because from there
+                                        ;   to emit_stars the list is one
+                                        ;   contiguous run of DOT_PIXELS that has
+                                        ;   to END it: the backdrop is appended
+                                        ;   last so that a GPU running out of
+                                        ;   frame drops the starfield rather than
+                                        ;   the ship. A VTEXT in the middle of
+                                        ;   that run breaks the invariant
         jsr     emit_radar
 
         ; The two decorative layers are appended LAST, and in this order: if the

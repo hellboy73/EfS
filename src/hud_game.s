@@ -75,6 +75,13 @@
 ; count of characters.
 ; =============================================================================
 
+LIVES_START  = 9                ; ships in hand at the start of a game. NINE
+                                ;   while the field is being flown for tuning;
+                                ;   the shipping number is 3. It is a constant so
+                                ;   that tools/preview.py reads it rather than
+                                ;   hard-coding a digit and going red every time
+                                ;   it is changed. LIVES is one digit, so 9 is as
+                                ;   high as the readout goes.
 HUD_ROW1     = 47               ; LIVES and the hull bar
 HUD_ROW2     = 49               ; LEVEL and SCORE
 IND_ROW      = 2                ; the message bar - third text row from the top,
@@ -178,6 +185,38 @@ IND_QN      = $70A3             ; how many are queued
 IND_QD      = $70A4             ; ...and their ids, IND_QMAX of them
 HUD_N       = $70A8             ; scratch: a length or a carry, over one call
 
+; -----------------------------------------------------------------------------
+; DBG_CLASSES - a TEMPORARY class census, top left, one line per size class
+; -----------------------------------------------------------------------------
+; Not part of the game, and one edit removes every byte of it. Five short VTEXT
+; commands at cell 0 of lines DBG_ROW0..+4 - the largest class at the top, the
+; smallest at the bottom - each showing that class' RKLIVE as two hex digits.
+;
+; On the IMAGE, not the background, and that is the whole reason it can exist at
+; all: the background carries the shipping HUD's two-frame replay schedule, and
+; the bench checks it (never two lines in one frame, none inside another's replay
+; window). A debug tool must not have to join that. The image is rebuilt from the
+; background every frame, so it is re-issued every frame; what happens every
+; DBG_PERIOD frames is the RE-READ of the census, which is all that was wanted.
+; Two glyphs a line is a few hundred GPU cycles, against ~7,000 for a full row.
+;
+; It starts below IND_ROW rather than at line 0: the message bar spans its whole
+; row, and the image composites over the background, so overlapping it would put
+; digits on top of "STAY ALIVE".
+                                ; DBG_CLASSES itself lives in main.s beside
+                                ;   HUD_ON, because cart_frame's .if reads it
+                                ;   before this file is included
+DBG_PERIOD  = 10                ; frames between re-reads of the census
+DBG_ROW0    = 3                 ; the largest class' line; the rest follow down
+DBG_CELL    = 0                 ; hard against the left margin
+.if DBG_CLASSES
+DBG_BUF     = $70B0             ; 5 x 4: two hex digits, a NUL, and a spare byte
+                                ;   so the stride is a shift and not a multiply
+DBG_WAIT    = $70C4             ; frames left before the next re-read
+        .assert DBG_ROW0 > IND_ROW, error, "hud_game.s: the census would land on the message bar"
+        .assert DBG_ROW0 + 4 <= 49, error, "hud_game.s: the census runs off the line grid"
+.endif
+
 ; The one zero-page pointer this file needs, and it is BORROWED. $80-$FF is the
 ; cartridge's entire zero page and it has four free bytes left, no two of them
 ; adjacent - so ind_build reads its message text through DEC0/DEC1, the decimal
@@ -193,6 +232,76 @@ HUD_PTR     = DEC0
 ; -----------------------------------------------------------------------------
 ; RAM is not cleared for us - the boot ROM does not zero the cartridge's pages -
 ; so every byte the HUD reads has to be written here.
+.if DBG_CLASSES
+; -----------------------------------------------------------------------------
+; dbg_classes - re-read the census every DBG_PERIOD frames, draw it every frame.
+; -----------------------------------------------------------------------------
+dbg_classes:
+        lda     DBG_WAIT
+        beq     @read
+        dec     DBG_WAIT
+        bra     @draw
+@read:  lda     #DBG_PERIOD
+        sta     DBG_WAIT
+        ldx     #$00                    ; class 0 first, so the biggest rocks are
+        ldy     #$00                    ;   the top line. Y walks DBG_BUF.
+@rl:    lda     RKLIVE,x
+        lsr     a
+        lsr     a
+        lsr     a
+        lsr     a
+        jsr     dbg_hex
+        sta     DBG_BUF,y
+        iny
+        lda     RKLIVE,x
+        and     #$0F
+        jsr     dbg_hex
+        sta     DBG_BUF,y
+        iny
+        lda     #$00
+        sta     DBG_BUF,y
+        iny
+        iny                             ; the spare byte of the 4-wide stride
+        inx
+        cpx     #$05
+        bne     @rl
+
+@draw:  ldx     #$00
+@dl:    lda     #DBG_CELL
+        sta     OS_ARG+0
+        txa
+        clc
+        adc     #DBG_ROW0
+        sta     OS_ARG+1
+        stz     OS_ARG+2                ; no sub-cell scroll
+        txa                             ; the string: DBG_BUF + class * 4
+        asl     a
+        asl     a
+        clc
+        adc     #<DBG_BUF
+        sta     OS_ARG+3
+        lda     #>DBG_BUF
+        adc     #$00
+        sta     OS_ARG+4
+        phx
+        jsr     API_GPU_VTEXT
+        plx
+        inx
+        cpx     #$05
+        bne     @dl
+        rts
+
+; A = a nibble 0-15, out as its ASCII digit. The carry is doing real work here:
+; the compare leaves it SET for 10-15, so the +6 arrives as +7, and CLEAR again
+; before the +'0' on both paths.
+dbg_hex:
+        cmp     #$0A
+        bcc     :+
+        adc     #$06
+:       adc     #'0'
+        rts
+.endif
+
 ; -----------------------------------------------------------------------------
 hud_init:
         ldx     #SCORE_DIGITS-1         ; "000000": the score IS these digits
@@ -200,7 +309,7 @@ hud_init:
 @sc:    sta     SCORE,x
         dex
         bpl     @sc
-        lda     #3                      ; ships in hand at the start of a game
+        lda     #LIVES_START            ; ships in hand at the start of a game
         sta     LIVES
         stz     CURLEV
         stz     BGTEXT_GAP

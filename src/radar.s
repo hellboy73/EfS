@@ -132,17 +132,18 @@ RAD_BY1     = 149
 RAD_BY1     = RADCY + RAD_OCR
 .endif
 
-; WHICH SIZE CLASSES THE RADAR IS LOOKING FOR - "sensitivity", and the reason
-; this file is affordable at all now that the reach has doubled. The instrument
-; shows the RAD_CLASSES largest classes that still exist, and nothing smaller:
-; at the start of a level that is the 192s and the 128s, and as the player
-; clears a class out the window steps down of its own accord until it is hunting
-; the 16s. Enemies are never subject to it.
+; WHAT THE INSTRUMENT OWES THE PLAYER is that they are not flying blind looking
+; for rocks, and the honest answer to that is THE BIGGEST RAD_MAX ROCKS THERE
+; ARE, filled gradually from the top down.
 ;
-; It is a gameplay idea that happens to be a performance one. Two classes is
-; 30 rocks of a 120-rock field, so five sixths of the scan ends at one compare -
-; and the ones it drops are the ones that were least worth a pixel anyway.
-RAD_CLASSES = 2
+; It used to be a window of the RAD_CLASSES largest classes that still existed,
+; which stepped down only when one of them was cleared out. That coupled two
+; classes that have nothing to do with each other and left the display half empty
+; for most of a level - a radar showing 30 contacts with 18 slots going spare.
+;
+; radar_alloc replaces it: the frame's RAD_MAX slots are handed out over the
+; classes by size, biggest first, straight out of RKLIVE. See it for what the
+; estimate costs.
 
 ; The slot cap, and the priority that spends it (G7). The GPU can only drop
 ; whole COMMANDS off the end of a list, so ordering points inside one
@@ -151,48 +152,21 @@ RAD_CLASSES = 2
 ; class the cap lands in is truncated. Small debris is what stops appearing
 ; under load, and it comes back on its own when the field thins.
 RAD_MAX     = 48                ; contacts drawn per frame, all classes together
-RAD_CLS_MAX = 100               ; ...and per list, which is only a bound on the
-                                ;   page each list lives in (1 + 2*100 = 201)
+                                ;   ...and the per-list ceiling is no longer a
+                                ;   constant at all: RADWANT holds each class'
+                                ;   share of exactly these slots, worked out
+                                ;   once a frame by radar_alloc.
 
-; SATURATION - the instrument FAILS rather than eating the frame.
+; THE OUTAGE IS A STORY BEAT, not a valve. It used to arm itself when the field
+; got crowded, because do_radar's cost grew with the field and nothing else
+; stopped it. Something does now: the allocation above never hands out more than
+; RAD_MAX slots, radar_plot refuses a contact past its class' share for about ten
+; cycles, and the scan STOPS the moment every allocated slot is filled - so a
+; saturated field is bounded work rather than unbounded.
 ;
-; The class window above is a performance valve only while there are MORE classes
-; than it admits. Break the field all the way down and the two classes it admits
-; ARE the field: the window then lets 100% of it through, "five sixths of the
-; scan ends at one compare" stops being true, and do_radar costs what a flat scan
-; over every rock costs. Measured on dumps/00016882 - 154 rocks, all of them
-; class 2 and 3, RVISIT 154 of 154 - do_radar was 31,378 cycles, 13.2% of CPU1's
-; frame. The same field with one rock of a class above it alive: 3,670.
-;
-; So it is given a failure mode instead of a slow path, and the trigger is FREE:
-; RKLIVE is a census kept incrementally by rock_kill / rock_split / recyc_drop,
-; so "how many rocks would the window admit" is RAD_CLASSES adds and no scan at
-; all. A saturation test that had to look at the field would cost what it saves.
-;
-; Both thresholds are RAD_MAX rather than free numbers, because RAD_MAX is where
-; the display stops being able to tell the truth anyway: past it the cap is
-; throwing contacts away without saying which, and an instrument that admits it
-; is down is more honest than one quietly showing 48 of 74.
-; IT NARROWS BEFORE IT FAILS. RAD_CLASSES is already "the largest classes that
-; still exist, and nothing smaller", and the window steps down of its own accord
-; as the player clears a class out - so showing ONE class instead of two is not a
-; new gesture, it is the same one taken further. Three stages, one threshold:
-;
-;   the pair fits            -> both classes, as always
-;   the pair does not        -> the largest class alone
-;   the largest alone does not -> down, RADAR ERROR
-;
-; As a performance measure the middle stage is weaker than it looks, and the
-; reason is which way a split floods the field: on dumps/00018207 the window was
-; classes 2 and 3 at 116 and 38, so dropping the smaller one sheds a quarter of
-; the work. Half a level later the ratio has inverted and it sheds most of it.
-; What it reliably buys is an instrument that degrades where it used to die.
-RAD_SAT_ON  = 2 * RAD_MAX       ; census the shown window may not exceed...
-RAD_SAT_OFF = RAD_MAX           ; ...and below which an outage may end
-RAD_SAT_WIDE = RAD_SAT_ON - RAD_MAX / 2
-                                ; ...and where a narrowed window opens again.
-                                ;   Hysteresis, so the small class does not
-                                ;   blink in and out along the threshold
+; Nothing arms it any more. Write RADDOWN and the instrument goes down for that
+; many frames, blinking RADAR ERROR across the disc, which is what it is wanted
+; for: something in the story breaking it, at a chosen moment.
 RAD_DOWN_N  = 90                ; frames it stays down after that, ~1.5 s at
                                 ;   60.317 Hz - long enough to read as a fault
                                 ;   rather than as a flicker
@@ -233,14 +207,11 @@ FOE_MAX     = 16                ; enemy slots. levels.s authors more than this
         .assert RADCY - RAD_SCR >= 0, error, "radar.s: a blip would land off the half-res screen (-y)"
         .assert RAD_BX0 >= 0 && RAD_BY0 >= 0, error, "radar.s: the occluder box starts off screen"
         .assert 2*RAD_OCR <= 255, error, "radar.s: r^2 = f(2R) needs 2R to index QS"
-        .assert 1 + 2*RAD_CLS_MAX <= 255, error, "radar.s: a class list would run off its page"
+        .assert 1 + 2*RAD_MAX <= 255, error, "radar.s: a class list would run off its page"
         .assert RAD_BLINK_ON <= RAD_BLINK_N, error, "radar.s: the blink is lit for longer than its cycle"
-        .assert RAD_CLASSES >= 1, error, "radar.s: a radar that shows no rock class at all"
-        .assert RAD_SAT_OFF < RAD_SAT_ON, error, "radar.s: the outage has no hysteresis and will chatter"
         .assert RAD_ERR_X + RAD_ERR_N <= 37, error, "radar.s: the fault message runs off the cell grid"
         .assert RAD_ERR_Y2 <= 49, error, "radar.s: the fault message runs off the line grid"
         .assert RAD_ERR_Y2 > RAD_ERR_Y1 + 1, error, "radar.s: the two words need a blank line between them"
-        .assert RAD_SAT_WIDE < RAD_SAT_ON, error, "radar.s: the narrowing has no hysteresis and will blink"
         .assert RAD_ERR_X >= 24, error, "radar.s: the fault message reaches into the HUD cells"
 
 ; --- RAM ---------------------------------------------------------------------
@@ -259,7 +230,9 @@ RADN        = $6E00             ; 6 bytes: points in each list
 RADRAWN     = $6E06             ; ...and how many were actually emitted
 RBLINK      = $6E07             ; the blink counter, 0..RAD_BLINK_N-1
 RVISIT      = $6E09             ; objects the class window let through
-RADMIT      = $6E0A             ; ...and the ones that got inside the circle
+RADMIT      = $6E0A             ; ...and the ones that got inside the circle AND
+                                ;   into a list - past the cap a contact is
+                                ;   refused before the round test can judge it
 RKLIVE      = $6E0B             ; 5 bytes: rocks still alive in each size class
 RADSENS     = $6E10             ; ...and the largest class that still has any -
                                 ;   the window's lower edge. See radar_sens.
@@ -273,14 +246,15 @@ RORD        = $6E1A             ; the emit's cursor over RAD_ORDER
 RTMP        = $6E1B             ; emit / load_foes scratch
 NFOE        = $6E1C             ; enemies the level actually placed
 RADDOWN     = $6E11             ; frames left on the outage; 0 = the instrument
-                                ;   is working. See radar_health.
-RADLOAD     = $6E12             ; ...and what the FULL class window would admit,
-                                ;   off the census rather than off the field
-RADWIN      = $6E13             ; how many classes it is showing right now, 1 or
-                                ;   RAD_CLASSES - and its own hysteresis state
-RADSHOW     = $6E08             ; ...and the census of just those classes, which
-                                ;   is what decides the outage
-        .assert RADLOAD < RDXB, error, "radar.s: the outage bytes ran into RDXB"
+                                ;   is working. Nothing sets it automatically -
+                                ;   see RAD_DOWN_N.
+RADWIN      = $6E13             ; how many classes in a row got slots this frame
+RADWANT     = $6E1F             ; 6 bytes: each list's ceiling for the frame -
+                                ;   classes 0..4 out of radar_alloc, and FOE_MAX
+                                ;   at 5 for the enemies
+RADLEFT     = $6E25             ; contacts still to be plotted before the whole
+                                ;   budget is spent. The scan stops at zero.
+        .assert RADLEFT = RADWANT + 6, error, "radar.s: RADWANT's six bytes ran into RADLEFT"
 
 FOEXL       = $6F00             ; the enemies, FOE_MAX of each. Only the high
 FOEXH       = $6F10             ;   bytes are read by anything here; the low
@@ -439,27 +413,33 @@ add_radar_occluder:
         rts
 
 ; -----------------------------------------------------------------------------
-; radar_census / radar_sens — which size classes the instrument is hunting.
+; radar_census / radar_alloc - who gets this frame's RAD_MAX slots.
 ; -----------------------------------------------------------------------------
-; The window is the RAD_CLASSES largest classes that still have a rock in them.
 ; RKLIVE is the population per class, counted once when the level loads; the
-; moment anything starts destroying rocks it decrements that and the window
-; steps down on its own, with no event and nothing to remember to call.
+; moment anything destroys a rock it decrements that, so the allocation below
+; retunes itself with no event and nothing to remember to call.
 ;
-; It is a gameplay rule first - an instrument that quietly retunes itself to
-; whatever is left says something about the situation the player is in - and a
-; budget rule second, which is the only reason the reach could double.
+; radar_alloc hands RAD_MAX slots out BY SIZE, biggest class first: class 0 takes
+; as many as it has rocks, class 1 takes what is left, and so on down until the
+; budget runs out. RADWANT[c] is that class' ceiling for the frame, RADSENS the
+; first class that got anything and RADWIN how many classes in a row did - so the
+; scan's gate stays the two instructions it always was. The display fills
+; gradually from the top instead of waiting for a whole class to be cleared.
+;
+; IT IS AN ESTIMATE, in one direction. RKLIVE counts the whole world while the
+; radar's circle covers about 62% of it, so a class can be allocated slots it
+; cannot fill, and a few smaller contacts go unshown that there was room for.
+; That is the cheap way to be wrong: the alternative is plotting every small rock
+; in the field to discover the big ones were going to take every slot anyway.
 ; -----------------------------------------------------------------------------
 radar_census:
         stz     RADDOWN                 ; a restart must not inherit an outage,
-        lda     #RAD_CLASSES            ;   and nothing zeroes cartridge RAM for
-        sta     RADWIN                  ;   us - game_start is what calls this
-        ldx     #$04
+        ldx     #$04                    ;   and nothing zeroes cartridge RAM
 :       stz     RKLIVE,x
         dex
         bpl     :-
         ldx     NROCK
-        beq     radar_sens
+        beq     radar_alloc
 @lp:    dex
         ldy     OBJSHP,x                ; read-add-write, because INC abs,y does
         cpy     #$05                    ;   not exist - the same trap occ_bands
@@ -472,93 +452,67 @@ radar_census:
         bne     @lp
         ; fall through
 
-radar_sens:
+radar_alloc:
+        lda     #RAD_MAX
+        sta     RADLEFT                 ; slots still to hand out
+        stz     RADSENS
+        stz     RADWIN
         ldx     #$00
-@lp:    lda     RKLIVE,x
-        bne     @got                    ; ...the largest class still out there
-        cpx     #$04
-        bcs     @got                    ; nothing left anywhere: sit on the
-        inx                             ;   smallest class rather than run off
-        bra     @lp                     ;   the end of the table
-@got:   stx     RADSENS
-        rts
-
-; -----------------------------------------------------------------------------
-; radar_load / radar_health - is the instrument up this frame?
-; -----------------------------------------------------------------------------
-; radar_load reads the CENSUS, never the field. RKLIVE is maintained one rock at
-; a time by rock_kill, rock_split and recyc_drop, so what the class window would
-; admit is RAD_CLASSES adds - which is the whole point, see RAD_SAT_ON.
-;
-; radar_health returns carry SET when the radar is down. While the census stays
-; at or above RAD_SAT_OFF the outage timer is held FULL, so the instrument cannot
-; flicker back on in the middle of a fight; once the field falls below it the
-; timer runs down and the radar returns RAD_DOWN_N frames later.
-; -----------------------------------------------------------------------------
-radar_load:
-        ldx     RADSENS
-        lda     RKLIVE,x
-        ldy     #RAD_CLASSES-1
-        beq     @done                   ; a one-class window reads one entry
-@lp:    inx
-        cpx     #$05                    ; the window hangs off the end of the
-        bcs     @done                   ;   table at the smallest class
-        clc
-        adc     RKLIVE,x
-        bcc     :+
-        lda     #$FF                    ; NOBJ cannot overflow a byte today, but
-        bra     @done                   ;   the running sum must not wrap if the
-:       dey                             ;   window ever widens
+        ldy     #$FF                    ; the last class given anything, or none
+@lp:    stz     RADWANT,x
+        lda     RADLEFT
+        beq     @next                   ; the budget is spent - everything from
+        cmp     RKLIVE,x                ;   here down gets nothing
+        bcc     :+                      ; fewer slots left than rocks: take them
+        lda     RKLIVE,x                ; ...otherwise take every rock there is
+:       beq     @next                   ; ...and this class has none
+        sta     RADWANT,x
+        sec
+        lda     RADLEFT
+        sbc     RADWANT,x
+        sta     RADLEFT
+        cpy     #$FF
+        bne     :+
+        stx     RADSENS                 ; the FIRST class to be given anything
+:       txa
+        tay                             ; ...and the last one, so far
+@next:  inx
+        cpx     #$05
         bne     @lp
-@done:  sta     RADLOAD
+
+        lda     #FOE_MAX                ; the enemies' list is outside the size
+        sta     RADWANT+5               ;   budget: emit_radar serves them ahead
+                                        ;   of every rock class anyway
+        cpy     #$FF
+        beq     @none
+        tya                             ; RADWIN = last - first + 1, so the gate
+        sec                             ;   stays one subtract and one compare
+        sbc     RADSENS
+        inc     a
+        sta     RADWIN
+        sec                             ; ...and RADLEFT stops being "budget
+        lda     #RAD_MAX                ;   remaining" and becomes "contacts still
+        sbc     RADLEFT                 ;   to plot", which is what the scan
+        sta     RADLEFT                 ;   watches
+        rts
+@none:  stz     RADWIN                  ; nothing alive: the gate admits nothing
+        stz     RADLEFT
         rts
 
-; radar_narrow - how many classes the window shows this frame, and what that
-; window holds. RADWIN is its own hysteresis state: it takes RAD_SAT_ON to close
-; and the lower RAD_SAT_WIDE to open again, so the small class does not blink in
-; and out while the census sits on the threshold.
-radar_narrow:
-        lda     RADLOAD                 ; the pair, always measured the same way
-        ldx     RADWIN                  ;   so the decision cannot oscillate
-        cpx     #RAD_CLASSES
-        bcc     @isone                  ; already narrowed: a lower bar to widen
-        cmp     #RAD_SAT_ON
-        bcc     @both
-        bra     @one
-@isone: cmp     #RAD_SAT_WIDE
-        bcs     @one
-@both:  ldx     #RAD_CLASSES            ; the pair fits: show both, and the
-        bra     @set                    ;   census of the shown window IS RADLOAD
-@one:   ldx     RADSENS                 ; it does not: the largest class alone
-        lda     RKLIVE,x
-        ldx     #$01
-@set:   stx     RADWIN
-        sta     RADSHOW
-        rts
-
+; -----------------------------------------------------------------------------
+; radar_health - is the instrument up this frame?
+; -----------------------------------------------------------------------------
+; Carry SET when it is down. Nothing arms this automatically any more - see the
+; note on RAD_DOWN_N - so all it is is the countdown a scripted failure starts by
+; writing RADDOWN.
+; -----------------------------------------------------------------------------
 radar_health:
-        jsr     radar_load
-        jsr     radar_narrow            ; ...and RADSHOW, which is what the tests
-                                        ;   below read: the outage is about what
-                                        ;   the instrument is TRYING to draw, not
-                                        ;   about what exists
         lda     RADDOWN
         beq     @up
-        lda     RADSHOW                 ; DOWN: hold the timer FULL while the
-        cmp     #RAD_SAT_OFF            ;   field is still crowded, so the outage
-        bcs     @arm                    ;   outlasts the crowd rather than the
-        dec     RADDOWN                 ;   other way round
-        bne     @down
-        clc                             ; ...and it ran out on a field that has
-        rts                             ;   thinned: the instrument is back
-@up:    lda     RADSHOW
-        cmp     #RAD_SAT_ON
-        bcc     @ok
-@arm:   lda     #RAD_DOWN_N
-        sta     RADDOWN
-@down:  sec
+        dec     RADDOWN
+        sec
         rts
-@ok:    clc
+@up:    clc
         rts
 
 ; -----------------------------------------------------------------------------
@@ -597,7 +551,7 @@ do_radar:
         lda     #$00
 :       sta     RBLINK
 
-        jsr     radar_sens              ; ...and which classes are in play
+        jsr     radar_alloc             ; ...and who gets this frame's slots
         jsr     radar_health            ; ...and whether the instrument is up at
         bcc     :+                      ;   all. The six lists are already empty,
         rts                             ;   so a downed radar draws nothing, and
@@ -606,12 +560,14 @@ do_radar:
         ldx     NROCK
         beq     radar_foes
 @lp:    dex
-        lda     OBJSHP,x                ; THE CLASS WINDOW, first and cheapest:
-        sec                             ;   classes RADSENS .. RADSENS+RAD_CLASSES-1
-        sbc     RADSENS                 ;   and nothing else. Below RADSENS the
-        cmp     RADWIN                  ;   subtract goes negative and the
-        bcs     @next                   ;   unsigned compare catches it too
-        inc     RVISIT
+        lda     OBJSHP,x                ; THE CLASS GATE, first and cheapest:
+        sec                             ;   classes RADSENS .. RADSENS+RADWIN-1,
+        sbc     RADSENS                 ;   which is exactly the run radar_alloc
+        cmp     RADWIN                  ;   gave slots to. Below RADSENS the
+        bcs     @next                   ;   subtract goes negative and the
+        inc     RVISIT                  ;   unsigned compare catches that too
+                                        ;   (RADWIN 0 = nothing alive, admits
+                                        ;   nothing)
 
         ; The box reject. A signed byte delta is inside [-RAD_RH, +RAD_RH]
         ; exactly when the delta plus RAD_RH is below 2*RAD_RH+1 read as
@@ -639,6 +595,15 @@ do_radar:
         phx
         jsr     radar_plot
         plx
+        lda     RADLEFT                 ; STOP: every slot the allocation handed
+        beq     radar_foes              ;   out is filled, so nothing further in
+                                        ;   the field can reach the display
+                                        ;   however long the scan goes on. This
+                                        ;   is the bound - past here the rest of
+                                        ;   the field is not looked at at all.
+                                        ;   Enemies are unaffected: this lands ON
+                                        ;   radar_foes, and emit_radar gives them
+                                        ;   their slots ahead of every rock.
 @next:  cpx     #$00
         bne     @lp
         ; fall through to the enemies
@@ -694,6 +659,18 @@ radar_foes:
 ; this cartridge does across a JSR.
 ; -----------------------------------------------------------------------------
 radar_plot:
+        ; --- the share, FIRST ------------------------------------------------
+        ; RADWANT is this class' ceiling for the frame, out of radar_alloc - not
+        ; a constant, because a class only gets the slots the bigger ones left.
+        ; The test used to sit after the round test AND the rotation, so a
+        ; contact past the cap paid the whole ~290 cycles to be thrown away at
+        ; the last instruction. Here it is about ten.
+        ldx     RCLS
+        lda     RADN,x
+        cmp     RADWANT,x
+        bcc     :+
+        rts
+:
         ; --- the round test --------------------------------------------------
         ; f(x) = floor(x*x/4) and f(2a) = a*a EXACTLY for a <= 127, so a square
         ; is one indexed read of the table the multiply already built - the
@@ -786,10 +763,8 @@ radar_plot:
         sta     RPY
 
         inc     RADMIT
-        ldx     RCLS
-        lda     RADN,x
-        cmp     #RAD_CLS_MAX
-        bcs     @full
+        ldx     RCLS                    ; (the cap was spent at the top; the
+        lda     RADN,x                  ;  rotation clobbered X, so re-read it)
         asl     a                       ; the write index: 1 + 2N, because byte
         inc     a                       ;   0 of the page is the count
         tay
@@ -804,6 +779,9 @@ radar_plot:
         lda     RPY
         sta     (RPTRL),y
         inc     RADN,x
+        dec     RADLEFT                 ; ...and one slot of the frame's budget is
+                                        ;   spent. do_radar stops the scan when
+                                        ;   this reaches zero.
 @full:  rts
 
 ; -----------------------------------------------------------------------------
