@@ -221,11 +221,12 @@ load_level:
 ; the only way anything in the frame reaches an object.
 ; -----------------------------------------------------------------------------
 init_cells:
-        lda     #$FF                    ; every cell empty
+        lda     #$FF                    ; every cell empty...
         ldx     #$00
 :       sta     CELLHD,x
-        inx
-        bne     :-
+        stz     OBJSLP,x                ; ...and every slot awake. game_start runs
+        inx                             ;   this a second time and nothing else
+        bne     :-                      ;   clears the sleep counters
         stz     PENDN
         stz     GPENDMX
 
@@ -523,6 +524,11 @@ do_objects:
         lda     OBJNXT,x                ; the successor, read BEFORE the body -
         sta     GNEXT                   ;   see cell_flush
         ldx     OBJI
+        lda     OBJSLP,x                ; ASLEEP: it was more than SLEEP_MRG off
+        beq     :+                      ;   screen when it was last transformed,
+        dec     OBJSLP,x                ;   and the camera cannot have reached it
+        jmp     @next                   ;   since - see SLEEP_N in main.s
+:
         ; The coarse reject comes FIRST, before the rock has even moved. Any
         ; object whose high byte is more than CULHI from the ship's cannot
         ; survive the precise cull below, and an object that is not drawn does
@@ -651,6 +657,17 @@ do_objects:
         jsr     view_xform              ; -> VXL/VXH, VYL/VYH, still world units
         jsr     zoom_fb                 ; ...and then the zoom and the centring
 
+        lda     FXL                     ; ...and only now is it known whether the
+        ldy     FXH                     ;   rock is on screen at all. Well outside
+        ldx     #$00                    ;   the MARGIN, not the edge, and it can
+        jsr     slp_out                 ;   be left alone for SLEEP_N frames
+        bcs     @sleep
+        lda     FYL
+        ldy     FYH
+        ldx     #$01
+        jsr     slp_out
+        bcs     @sleep
+
         ldy     VISN                    ; it survived: append it to the list
         cpy     #VIS_MAX
         bcs     @next                   ; ...unless the list is full
@@ -670,6 +687,16 @@ do_objects:
         ldx     GCELL
         lda     GNEXT
         jmp     @lp
+
+@sleep: lda     OBJI                    ; SLEEP_N plus the SLOT'S OWN PHASE, and
+        and     #SLEEP_N-1              ;   the phase is not decoration: stamped
+        clc                             ;   with a flat SLEEP_N the whole herd
+        adc     #SLEEP_N                ;   wakes on the same frame, and measured
+        ldx     OBJI                    ;   on dumps/00018207 that was 56.6% of
+        sta     OBJSLP,x                ;   the frame every fourth one against
+        bra     @next                   ;   35.5% on the other three. The average
+                                        ;   is not what overruns a frame; the
+                                        ;   spike is. (slp_out took X for the axis)
 
 @cellnext:
         inx
@@ -739,6 +766,41 @@ in_range:
 @out:   sec
         rts
 @in:    clc
+        rts
+
+; -----------------------------------------------------------------------------
+; slp_out - A/Y = signed 16 FULL-RES SCREEN coordinate, X = axis (0 = fb x,
+;           1 = fb y). Carry SET when it lies outside that axis of the
+;           framebuffer grown by SLEEP_MRG at both ends.
+; -----------------------------------------------------------------------------
+; The same biased range compare in_range uses, for the same reason: adding the
+; margin turns "inside [-MRG, EXTENT+MRG]" into one unsigned compare against
+; EXTENT + 2*MRG, so a coordinate off the low end wraps up into the high half and
+; is rejected by that same compare - no sign test on the common path.
+;
+; This runs on a rock that already survived the world-space cull, so it is the
+; SECOND range test it passes and it looks redundant. It is not: that one is in
+; world units against the bounding box of the rotated screen, this one is in
+; screen pixels after the rotation, and the whole point of the sleep is that only
+; the second can tell the 42 from the 7.
+; -----------------------------------------------------------------------------
+SLP2L:  .byte   <SLP_XLIM, <SLP_YLIM
+SLP2H:  .byte   >SLP_XLIM, >SLP_YLIM
+slp_out:
+        clc
+        adc     #SLEEP_MRG
+        sta     T0
+        tya
+        adc     #$00
+        cmp     SLP2H,x                 ; (the high byte stays in A, exactly as
+        bcc     @sin                    ;  in_range does it)
+        bne     @sout
+        lda     T0
+        cmp     SLP2L,x
+        bcc     @sin
+@sout:  sec
+        rts
+@sin:   clc
         rts
 
 ; -----------------------------------------------------------------------------

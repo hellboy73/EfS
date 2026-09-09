@@ -736,6 +736,57 @@ OBJSPNH     = $7600             ;   signed 8.8 brad per frame. It starts as a
                                 ;   It costs nothing: reading two bytes indexed
                                 ;   by the rock is CHEAPER than indexing a table
                                 ;   by its class, so do_objects got faster.
+; THE SLEEP, and why it is temporal and not spatial. do_objects transforms every
+; rock inside CULRL/CULRH, and on a busy frame nearly all of that work is thrown
+; away: measured on dumps/00018207, 88 rocks were linked in the sector window, 53
+; survived the coarse reject, 49 were fully transformed - and SEVEN were drawn.
+; The 42 transforms in between cost 38,000 cycles, 16% of CPU1's frame, and
+; produced nothing at all.
+;
+; THEY CANNOT BE CULLED EARLIER. CULRL/CULRH is already the tightest AXIS-ALIGNED
+; box that contains the rotated screen, and those 42 are off screen only BECAUSE
+; of the rotation - which is exactly what view_xform computes. There is no
+; cheaper test that separates them: a circular one is worse, because the circle
+; circumscribing that box is larger than the box.
+;
+; So the answer is to do the work LESS OFTEN rather than to avoid it. A rock
+; whose screen centre lands more than SLEEP_MRG outside the framebuffer is put to
+; sleep for SLEEP_N frames, and the walk then skips it for about seven cycles
+; instead of twelve hundred. The margin is what makes that safe: the camera moves
+; at most ~93 world units a frame, SLEEP_MRG is 128 full-res pixels, and nothing
+; can cross from outside the margin onto the screen inside SLEEP_N frames.
+;
+; WHAT IT COSTS is that a sleeping rock neither moves nor collides, so a rock
+; between the screen edge and the cull edge drifts at 1/SLEEP_N speed. That is
+; not a new kind of lie - everything past the COARSE window is already frozen
+; solid, and this is the gentler version of the same decision applied one ring
+; further in. At ~13 world units a frame against a screen some 12,600 units wide
+; it is a third of a pixel a frame.
+;
+; The radar is deliberately NOT told. It scans flat by slot and reads a position
+; at most SLEEP_N frames stale - about 40 units against a radar pixel worth 1,024
+; - so a sleeping rock stays a contact, and RKLIVE is untouched, so it stays part
+; of the level the player has to clear.
+; The stamp is SLEEP_N + (slot & SLEEP_N-1), never a flat SLEEP_N, so the sleepers
+; wake spread over SLEEP_N frames instead of all at once. Measured both ways on
+; that dump: flat gave 56.6% of the frame every fourth one and 35.5% on the rest,
+; and it is the spike that overruns a frame, not the average.
+SLEEP_N     = 4                 ; frames a rock stays asleep once it is stamped
+        .assert (SLEEP_N & (SLEEP_N-1)) = 0, error, "main.s: SLEEP_N must be a power of two - the phase is an AND"
+SLEEP_MRG   = 128               ; ...and the full-res margin round the 400 x 300
+                                ;   framebuffer that decides who is stamped
+SLP_XLIM    = 400 + 2*SLEEP_MRG ; the biased range compare's limit per axis -
+SLP_YLIM    = 300 + 2*SLEEP_MRG ;   see slp_out
+        .assert SLP_XLIM <= $7FFF && SLP_YLIM <= $7FFF, error, "main.s: the sleep margin broke slp_out's compare"
+
+OBJSLP      = $9000             ; NOBJ bytes: frames left asleep, 0 = awake.
+                                ;   It lives in the 4 KB that sits BESIDE the
+                                ;   pool under the window, and the numbers there
+                                ;   are two different things: BGDATA's labels
+                                ;   start at $919D and are cartridge ROM in bank
+                                ;   1, read with CART_EN SET, while this is the
+                                ;   RAM underneath, read with it CLEAR. They do
+                                ;   not overlap either way - see cart.cfg.
 FREEL       = $7700             ; NOBJ bytes: the FREE SLOT STACK. Which slots are
                                 ;   not carrying a rock, most recently freed on
                                 ;   top - see rock_alloc / rock_free. Without it
