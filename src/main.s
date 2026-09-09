@@ -288,17 +288,25 @@ SHIP_PAGE   = $10               ; ...and the GPU RAM page its 256 bytes land on
 ; every bench that measured it found headroom there while CPU1 was the tighter
 ; side. The authored reduced shapes are left in shapes.s, unused rather than
 ; deleted, in case that balance moves back the other way.
-; THE FRAME CANNOT BE ALLOWED TO OVERRUN, and the reason is far worse than a
-; dropped frame. The ping-pong SRAMs swap owner at EVERY VSYNC, unconditionally,
+; THE FRAME SHOULD NOT OVERRUN - though the reason is no longer the one this note
+; was written for. The ping-pong SRAMs swap owner at EVERY VSYNC, unconditionally,
 ; in hardware. If CPU1 is still building when that happens, the rest of its list
-; lands in the OTHER chip - on top of the list from two frames ago - and then
-; gpu_end stamps CPU_READY on that splice. The GPU has no way to tell, walks into
-; the seam mid-command, and starts executing whatever follows as opcodes. What
+; lands in the OTHER chip - on top of the list from two frames ago - and gpu_end
+; USED TO stamp CPU_READY on that splice. The GPU had no way to tell, walked into
+; the seam mid-command, and started executing whatever followed as opcodes. What
 ; follows is the HUD, and HUD text is full of live opcodes: ' ' is CLEAR_BG, '0'
 ; is LOAD (258 bytes into an arbitrary GPU page), 'D' is DOT_LINE with letters
-; for coordinates. That is how a late frame writes to the background layer and
-; how it eventually latches BLINDER and kills the screen for good. Reproduced,
+; for coordinates. That is how a late frame wrote to the background layer and how
+; it eventually latched BLINDER and killed the screen for good. Reproduced,
 ; decoded out of an F2 dump, and written up in README finding 30.
+;
+; THE OS CLOSED THAT HOLE on 2026-08-27 (MAD-65 firmware changelog): pp_room
+; refuses once VSYNC_FLAG is set, and gpu_end withholds CPU_READY and lays down
+; no WAI, so a list straddling a swap is never published. A late frame now costs
+; two undrawn frames and nothing else - one, if ABORT_VEC ($0246) is ever given a
+; handler. Still a frame the player does not get, which is what the budget below
+; is for; no longer damage. What came of treating it as damage AFTER the hole was
+; sealed is the OVERRUN_FLAG block in cart_frame.
 ;
 ; The GPU has its OWN version of this, and moving work there is what makes it
 ; ours to worry about. Its policy is "the new frame wins": the ping-pong swap is
@@ -1053,29 +1061,31 @@ cart_frame:
                                         ;   background, so every row has to
                                         ;   believe it has changed
 :
-        ; ---- repair after a frame we failed to deliver ----------------------
+        ; ---- a frame we failed to deliver: COUNT IT, DO NOT REPAIR IT ------
         ; OVERRUN_FLAG is set by the OS when a VSYNC fired before gpu_end. It is
         ; sticky and the OS never clears it, so a cartridge that reads and clears
-        ; it gets per-frame detection - and this one needs it, because a late
-        ; frame here does not merely blink. See the note on AST_BUDGET: the list
-        ; gets spliced across both ping-pong chips and stamped CPU_READY, the GPU
-        ; executes HUD text as opcodes, and ' ' (CLEAR_BG) and '0' (LOAD) are
-        ; among them. Re-issuing CLEAR_BG cannot undo a LOAD, but it does repair
-        ; the background layer, which is the damage that persists and accumulates.
+        ; it gets per-frame detection - and the count is all this one wants.
         ;
-        ; This is a mitigation, not a fix. The fix is four bytes in the OS: do not
-        ; stamp CPU_READY when VSYNC_FLAG is already set. os_run computes exactly
-        ; that condition one instruction too late.
+        ; THERE IS NOTHING LEFT TO REPAIR. This used to re-issue CLEAR_BG, because
+        ; a late list was published spliced and the GPU ran HUD text as opcodes
+        ; into the BACKGROUND layer - the one plane not rebuilt every frame, so
+        ; the damage accumulated. The OS sealed that on 2026-08-27; see the note
+        ; on AST_BUDGET. A straddling list is never published now.
+        ;
+        ; And keeping the repair was far worse than the fault. CLEAR_BG is the
+        ; most expensive opcode in the instruction set - 9.6 ms, 58% of a GPU
+        ; frame (gpu_os.s, op_clear_bg) - and the OS's two-frame auto-replay
+        ; charges it AGAIN on the next frame. Neither frame could finish, so the
+        ; repair caused the next overrun, which issued another one; replay and new
+        ; command then met in a single list, 116% of a frame before a pixel, and
+        ; the GPU never got past clearing. One dropped frame became seconds of
+        ; black screen with the radar's ring wiped off the background. Measured in
+        ; dumps/00256035: GPU 100% util, PC inside clear_vram_bg, both VRAM planes
+        ; all-zero, and a command list of eight polygons.
         lda     OVERRUN_FLAG
         beq     :+
         stz     OVERRUN_FLAG
         inc     OVRCNT
-        jsr     API_GPU_CLEARBG
-        jsr     ring_restart            ; the clear takes the radar's ring with
-                                        ;   it, so paint it again rather than
-                                        ;   leave a hole for the session
-        jsr     hud_reset               ; ...and the HUD's rows with it, same
-                                        ;   reason as the one-shot above
 :
         jsr     sfx_tick                ; the sound layer's own frame: age the
                                         ;   noise voice's claim, then the
