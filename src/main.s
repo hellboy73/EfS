@@ -88,7 +88,7 @@
         .export cart_frame
 
 ; --- tunables ----------------------------------------------------------------
-STAR_N      = 66                ; stars in the layer; ~46% are on screen at once.
+STAR_N      = 50                ; stars in the layer; ~46% are on screen at once.
                                 ;   Was 88, thinned by a quarter: the field is
                                 ;   backdrop, and the radar now owns a corner of
                                 ;   the screen that used to be sky
@@ -777,11 +777,30 @@ OBJSPNH     = $7600             ;   signed 8.8 brad per frame. It starts as a
 ; and it is the spike that overruns a frame, not the average.
 SLEEP_N     = 4                 ; frames a rock stays asleep once it is stamped
         .assert (SLEEP_N & (SLEEP_N-1)) = 0, error, "main.s: SLEEP_N must be a power of two - the phase is an AND"
-SLEEP_MRG   = 128               ; ...and the full-res margin round the 400 x 300
-                                ;   framebuffer that decides who is stamped
-SLP_XLIM    = 400 + 2*SLEEP_MRG ; the biased range compare's limit per axis -
-SLP_YLIM    = 300 + 2*SLEEP_MRG ;   see slp_out
-        .assert SLP_XLIM <= $7FFF && SLP_YLIM <= $7FFF, error, "main.s: the sleep margin broke slp_out's compare"
+; THE MARGIN IS THE ROCK'S OWN, and it was not: a flat 128 px was sized for the
+; largest rock in the game and then applied to the smallest. What a rock actually
+; needs is its own radius - so that a body poking onto the screen with its centre
+; outside still draws - plus slack for the camera's motion while it sleeps.
+;
+; SLEEP_SLACK is exactly what the old flat 128 had left over the biggest rock,
+; which is 2 x 48 full-res: the number has not changed, only who it is added to.
+; Class 0 therefore keeps the 128 it had, and a 32 px rock drops from 128 to 48.
+;
+; Measured on dumps/00031125, a field of 58 class-2 and 110 class-3: 26 rocks got
+; the full transform and ELEVEN were then thrown away by emit_asteroids' own
+; cull - inside the old margin, off the screen, ~990 cycles each for nothing.
+;
+; SLP_R* is 2 x shapes.s SHAPE_R for that class, and shapes.s is written by
+; tools/shape_editor.py so it cannot be restructured to share one constant.
+; tools/preview.py checks the two against each other instead, which is what this
+; project does about stale mirrors.
+SLEEP_SLACK = 32                ; full-res px beyond the rock's own radius
+SLP_R0      = 96                ; ...and the radii, 2 * SHAPE_R per size class
+SLP_R1      = 64
+SLP_R2      = 32
+SLP_R3      = 16
+SLP_R4      = 8
+        .assert SLP_R0 + SLEEP_SLACK = 128, error, "main.s: the biggest rock's margin changed - it was 128 and nothing measured says it should move"
 
 OBJSLP      = $9000             ; NOBJ bytes: frames left asleep, 0 = awake.
                                 ;   It lives in the 4 KB that sits BESIDE the

@@ -1887,6 +1887,19 @@ check("the rock discs are actually covering ground", suppressed > 20000,
 budgets = [t['ABUDGET'] for t in trace]
 print(f"        outline work budget: {AST_BUDGET} a frame, low-water mark "
       f"{min(budgets)}; the OS reported {trace[-1]['OVRCNT']} overrun(s)")
+# THE SLEEP MARGIN IS A MIRROR OF SHAPE_R. A rock is put to sleep on its screen
+# centre landing more than its own radius plus SLEEP_SLACK outside the
+# framebuffer (main.s), and that radius has to be written out by hand because
+# shapes.s is read AND WRITTEN by tools/shape_editor.py and cannot share a
+# constant with main.s. So this is the guard: SLP_R<c> must stay 2 * SHAPE_R for
+# that class - SHAPE_R is half-res, the sleep test is full-res - and SHAPE_R
+# repeats each class' radius AST_TYPES times, size-major.
+_at = shapes_const("AST_TYPES")
+_bad_r = [(c, cart_const(f"SLP_R{c}"), 2 * SHAPE_R_FULL[c * _at]) for c in range(5)
+          if cart_const(f"SLP_R{c}") != 2 * SHAPE_R_FULL[c * _at]]
+check("the sleep margins are still the shapes' own radii",
+      not _bad_r, f"(class, SLP_R, 2*SHAPE_R) = {_bad_r}")
+
 check("the outline budget was never exhausted on this flight",
       min(budgets) > 0,
       f"hit zero - rocks were dropped. That is the valve working, but it means "

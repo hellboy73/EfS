@@ -657,16 +657,11 @@ do_objects:
         jsr     view_xform              ; -> VXL/VXH, VYL/VYH, still world units
         jsr     zoom_fb                 ; ...and then the zoom and the centring
 
-        lda     FXL                     ; ...and only now is it known whether the
-        ldy     FXH                     ;   rock is on screen at all. Well outside
-        ldx     #$00                    ;   the MARGIN, not the edge, and it can
-        jsr     slp_out                 ;   be left alone for SLEEP_N frames
-        bcs     @sleep
-        lda     FYL
-        ldy     FYH
-        ldx     #$01
-        jsr     slp_out
-        bcs     @sleep
+        ldx     OBJI                    ; ...and only now is it known whether the
+        ldy     OBJSHP,x                ;   rock is on screen at all. Well outside
+        jsr     slp_out                 ;   ITS OWN margin - a 32 px rock does not
+        bcs     @sleep                  ;   need a 192 px one - and it can be left
+                                        ;   alone for SLEEP_N frames
 
         ldy     VISN                    ; it survived: append it to the list
         cpy     #VIS_MAX
@@ -784,24 +779,61 @@ in_range:
 ; screen pixels after the rotation, and the whole point of the sleep is that only
 ; the second can tell the 42 from the 7.
 ; -----------------------------------------------------------------------------
-SLP2L:  .byte   <SLP_XLIM, <SLP_YLIM
-SLP2H:  .byte   >SLP_XLIM, >SLP_YLIM
+; Per SIZE CLASS, because the margin is the rock's own radius plus SLEEP_SLACK -
+; see main.s. Class 0 is the 128 the flat constant used to be for everything.
+;
+; In RODATA, which RUNS from the upper RAM at $A000 and is always readable, not
+; in CODE: twenty-five bytes of tables put bank 0 over its 8 KB, and read-only
+; data is what that move exists for (cart.cfg, THE RODATA MOVE).
+        .segment "RODATA"
+SLPM:   .byte   SLP_R0+SLEEP_SLACK, SLP_R1+SLEEP_SLACK, SLP_R2+SLEEP_SLACK
+        .byte   SLP_R3+SLEEP_SLACK, SLP_R4+SLEEP_SLACK
+SLPX2L: .byte   <(400+2*(SLP_R0+SLEEP_SLACK)), <(400+2*(SLP_R1+SLEEP_SLACK))
+        .byte   <(400+2*(SLP_R2+SLEEP_SLACK)), <(400+2*(SLP_R3+SLEEP_SLACK))
+        .byte   <(400+2*(SLP_R4+SLEEP_SLACK))
+SLPX2H: .byte   >(400+2*(SLP_R0+SLEEP_SLACK)), >(400+2*(SLP_R1+SLEEP_SLACK))
+        .byte   >(400+2*(SLP_R2+SLEEP_SLACK)), >(400+2*(SLP_R3+SLEEP_SLACK))
+        .byte   >(400+2*(SLP_R4+SLEEP_SLACK))
+SLPY2L: .byte   <(300+2*(SLP_R0+SLEEP_SLACK)), <(300+2*(SLP_R1+SLEEP_SLACK))
+        .byte   <(300+2*(SLP_R2+SLEEP_SLACK)), <(300+2*(SLP_R3+SLEEP_SLACK))
+        .byte   <(300+2*(SLP_R4+SLEEP_SLACK))
+SLPY2H: .byte   >(300+2*(SLP_R0+SLEEP_SLACK)), >(300+2*(SLP_R1+SLEEP_SLACK))
+        .byte   >(300+2*(SLP_R2+SLEEP_SLACK)), >(300+2*(SLP_R3+SLEEP_SLACK))
+        .byte   >(300+2*(SLP_R4+SLEEP_SLACK))
+        .segment "CODE2"                ; ...and the routine into bank 1, which has
+                                        ;   the room bank 0 has not. Both run from
+                                        ;   RAM at $1000-$5FFF, so the call from
+                                        ;   do_objects is a plain JSR.
 slp_out:
-        clc
-        adc     #SLEEP_MRG
+        clc                             ; X first...
+        lda     FXL
+        adc     SLPM,y
         sta     T0
-        tya
+        lda     FXH
         adc     #$00
-        cmp     SLP2H,x                 ; (the high byte stays in A, exactly as
-        bcc     @sin                    ;  in_range does it)
+        cmp     SLPX2H,y                ; (the high byte stays in A, exactly as
+        bcc     @xin                    ;  in_range does it)
         bne     @sout
         lda     T0
-        cmp     SLP2L,x
+        cmp     SLPX2L,y
+        bcs     @sout
+@xin:   clc                             ; ...then Y, on the same margin
+        lda     FYL
+        adc     SLPM,y
+        sta     T0
+        lda     FYH
+        adc     #$00
+        cmp     SLPY2H,y
         bcc     @sin
-@sout:  sec
-        rts
+        bne     @sout
+        lda     T0
+        cmp     SLPY2L,y
+        bcs     @sout
 @sin:   clc
         rts
+@sout:  sec
+        rts
+        .segment "CODE"                 ; back to bank 0 for the rest of this file
 
 ; -----------------------------------------------------------------------------
 ; screen shake - a fixed screen-space rattle, independent of zoom (folded into
