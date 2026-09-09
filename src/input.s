@@ -20,6 +20,27 @@
 ; comparing settings back to back, and are gone now that the values are fixed.
 ; -----------------------------------------------------------------------------
 do_input:
+        ; ---- the stick, or nothing at all -----------------------------------
+        ; While SHIPGONE there is no pilot: the three joystick bytes are
+        ; republished as zero and EVERY reader in the program - the turn and
+        ; throttle below, the boost gesture, the teleport, thrust.s's five
+        ; nozzles and their puffs, shots.s's gun - reads the republished copy.
+        ; One test here instead of a guard in each of them, and the one control
+        ; that must still work with no ship (FIRE, to start a new game) is read
+        ; by gameover.s straight off the hardware byte.
+        lda     SHIPGONE
+        bne     @dead
+        lda     JOY1
+        sta     JOYIN
+        lda     JOY1_PRESS
+        sta     JOYINP
+        lda     JOY1_PREV
+        sta     JOYINV
+        bra     @stick
+@dead:  stz     JOYIN
+        stz     JOYINP
+        stz     JOYINV
+@stick:
         ldx     TURNIX                  ; this frame's rate, 8.8 brad per frame
         txa
         asl     a
@@ -64,7 +85,7 @@ do_input:
         ; two can be compared back to back.
         stz     T0                      ; T0/T1 = the target
         stz     T1
-        lda     JOY1
+        lda     JOYIN
         and     #JOY_LEFT
         beq     :+
         sec
@@ -74,7 +95,7 @@ do_input:
         lda     #$00
         sbc     RATEH
         sta     T1
-:       lda     JOY1
+:       lda     JOYIN
         and     #JOY_RIGHT
         beq     :+
         lda     RATEL
@@ -136,7 +157,7 @@ do_input:
         ; the same smul16q7 the speed-coupled turn rate above already uses.
         ; THRTL_ACCEL is a first cut (TBM): full range in THRTL_MAX/THRTL_ACCEL
         ; frames, about 1.3 s at 60.317 Hz - the number to retune by flying it.
-        lda     JOY1
+        lda     JOYIN
         and     #JOY_UP
         beq     :+
         clc
@@ -158,7 +179,7 @@ do_input:
         lda     #>THRTL_MAX
         sta     THRTLH
 @thok:
-:       lda     JOY1
+:       lda     JOYIN
         and     #JOY_DOWN
         beq     :+
         sec
@@ -171,6 +192,9 @@ do_input:
         bcs     :+
         stz     THRTLL
         stz     THRTLH
+:       lda     SHIPGONE                ; ...and with nobody holding it, the
+        beq     :+                      ;   throttle walks itself back to the
+        jsr     throttle_rest           ;   resting tier - see that routine
 :       lda     THRTLL                  ; TIER = THRTL >> 7: the top bit of the
         asl     a                       ;   low byte joins the high byte's *2.
         lda     THRTLH
@@ -180,7 +204,7 @@ do_input:
         and     #$7F
         sta     THFRAC
 
-        lda     JOY1_PRESS              ; FIRE2: TELEPORT
+        lda     JOYINP              ; FIRE2: TELEPORT
         and     #JOY_FIRE2
         beq     :+
         inc     TPGO
@@ -207,10 +231,10 @@ do_input:
 ; through the tiers to it.
 ; -----------------------------------------------------------------------------
 do_boost:
-        lda     JOY1_PREV               ; forward held last frame...
+        lda     JOYINV               ; forward held last frame...
         and     #JOY_UP
         beq     @boost_check            ;   ...wasn't - no release to arm on
-        lda     JOY1
+        lda     JOYIN
         and     #JOY_UP
         bne     @boost_check            ;   ...and still is - not a release
         lda     TIER
@@ -224,7 +248,7 @@ do_boost:
         beq     @boost_fire
         stz     BOOSTARM                ; off the top tier: the gesture lapsed
 @boost_fire:
-        lda     JOY1_PRESS              ; forward, chosen again
+        lda     JOYINP              ; forward, chosen again
         and     #JOY_UP
         beq     :+
         lda     BOOSTARM
@@ -237,11 +261,67 @@ do_boost:
         lda     #BOOST_FRAMES
         sta     BOOSTN
         lda     #SE_BOOST               ; ...and the hiss under the whole of it.
-        jsr     noise_fire              ;   Here, on the one edge that starts a
+        jsr     sfx_fire                ;   Here, on the one edge that starts a
                                         ;   boost, because se_boost's envelope
                                         ;   IS the boost's length - fire it once
                                         ;   and the two end together with
                                         ;   nothing watching either (sfx.s)
 :       rts
+
+; -----------------------------------------------------------------------------
+; throttle_rest — the ship is gone: walk THRTL back to THRTL_REST, one
+; THRTL_ACCEL a frame, and stop exactly on it.
+; -----------------------------------------------------------------------------
+; ONE STEP A FRAME AND NOT A SNAP, and that is the whole point of the routine.
+; Everything the camera does hangs off this one number - the speed, the screen
+; slide (SHOFF), the zoom rung - so setting it to rest on the frame the ship
+; dies would stop the whole world dead in one frame, which reads as the game
+; crashing rather than as the ship dying. Stepped at the same rate the player's
+; own thumb would have moved it, the field coasts to a halt and the zoom eases
+; out to 1:1 underneath the wreck, in about the time the wreck takes to go.
+;
+; The ease itself is not here and never was: ZEAS follows ZOOM and SHOFF
+; follows its own target every frame (ship.s), whatever moved them. This only
+; has to move the input they are all watching.
+;
+; The step cannot underflow: THRTL_REST is 384, so the only path that
+; subtracts is one where THRTL is already above it by more than THRTL_ACCEL.
+; -----------------------------------------------------------------------------
+throttle_rest:
+        jsr     thr_cmp_rest
+        beq     @done                   ; already there
+        bcs     @down
+        clc                             ; below rest: come UP to it
+        lda     THRTLL
+        adc     #THRTL_ACCEL
+        sta     THRTLL
+        bcc     :+
+        inc     THRTLH
+:       jsr     thr_cmp_rest
+        bcc     @done                   ; still short - next frame
+        bra     @snap                   ; reached or overshot: land on it
+@down:  sec                             ; above rest: come DOWN to it
+        lda     THRTLL
+        sbc     #THRTL_ACCEL
+        sta     THRTLL
+        bcs     :+
+        dec     THRTLH
+:       jsr     thr_cmp_rest
+        bcs     @done                   ; still above - next frame
+@snap:  lda     #<THRTL_REST
+        sta     THRTLL
+        lda     #>THRTL_REST
+        sta     THRTLH
+@done:  rts
+
+; C SET = THRTL >= THRTL_REST, Z SET = exactly on it. An unsigned 16-bit
+; compare, which is what THRTL is: 0..THRTL_MAX.
+thr_cmp_rest:
+        lda     THRTLH
+        cmp     #>THRTL_REST
+        bne     @ne
+        lda     THRTLL
+        cmp     #<THRTL_REST
+@ne:    rts
 
         .segment "CODE"                 ; back to bank 0 for the rest of this file

@@ -555,6 +555,11 @@ absa:
 ; VELXL/VELXH standing in for OBJVX.
 ; -----------------------------------------------------------------------------
 ship_test:
+        lda     SHIPGONE                ; broken up: there is nothing here to
+        bne     @no                     ;   touch. The ONE gate - ship_hurt and
+                                        ;   ship_respond are only ever reached
+                                        ;   through this test, so neither needs
+                                        ;   a guard of its own
         lda     PXH                     ; the coarse reject again, and the ship's
         clc                             ;   window is narrower than a rock pair's
         adc     #SHIP_HIW               ;   because the ship is small: nothing
@@ -1472,17 +1477,32 @@ rock_take_hit_deferred:
 ; -----------------------------------------------------------------------------
 ship_hurt:
         lda     #SE_KLANG               ; METAL ON STONE - BOTH halves of it,
+                                        ;   and they are fired whether or not
+                                        ;   the hull pays below: a ram you can
+                                        ;   see and feel but cannot hear is a
+                                        ;   worse lie than one that costs
+                                        ;   nothing
         jsr     sfx_fire                ;   the strike on the ship's own tone
         lda     #SE_KLANG_N             ;   voice and the crunch on the shared
-        jsr     noise_fire              ;   noise one (sfx.s se_klang). Fired
+        jsr     sfx_fire                ;   noise one (sfx.s se_klang). Fired
                                         ;   here, at the top, so the hit that
                                         ;   kills the ship is heard landing
                                         ;   before ship_die takes the frame
                                         ;   away. X is the caller's (COL_I) and
                                         ;   both calls preserve it
+        lda     SHIPINV                 ; still blinking from the last life
+        bne     @free                   ;   lost? Then the ram happened - the
+                                        ;   bounce, the shake and the klang are
+                                        ;   all real - and the HULL DOES NOT
+                                        ;   PAY. Not intangibility: flying
+                                        ;   straight through a rock whose far
+                                        ;   side you can see reads as a broken
+                                        ;   collision test, not as mercy. See
+                                        ;   ship.s ship_die
         dec     SHIPHP
         bne     @ok
         jmp     ship_die
+@free:  rts
 @ok:
         ; ...and say so on the message bar. The bar de-duplicates against what is
         ; already showing, so a ship grinding along a rock for half a second gets

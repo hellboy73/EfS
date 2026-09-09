@@ -581,6 +581,9 @@ vel_shl:
 ; shape is authored - shapes.s's header says which axis is which.
 ; -----------------------------------------------------------------------------
 emit_ship:
+        jsr     ship_hidden             ; broken up, or on the hidden half of a
+        bcs     @gone                   ;   respawn blink - gameover.s owns that
+                                        ;   question, and flame_draw asks it too
 .if SHIP_SPRITE
         lda     #SPR_SHIP
         sta     OS_ARG+0
@@ -658,6 +661,7 @@ emit_ship:
         sta     OS_ARG+1
         jmp     API_GPU_POLYGON16       ; tail call: its own rts returns for us
 .endif
+@gone:  rts
 
 ; -----------------------------------------------------------------------------
 ; What follows runs in HIDATA (cart.cfg): cull_window/cull_axis, and knb_tick /
@@ -882,12 +886,28 @@ knb_tick:
         rts
 
 ; -----------------------------------------------------------------------------
-; ship_die - HP just reached 0 (physics.s ship_hurt). The same puff a rock hit
-; gets, at the ship's own position; then a respawn stub - there is no
-; lives/game-over state yet, so it just comes back to full HP where it is.
-; The visual for the ship coming apart is still an open question (a first cut
-; - six radiating open segments - did not read well and was pulled; revisit
-; separately).
+; ship_die - HP just reached 0 (physics.s ship_hurt). A life is spent: the puff
+; a rock hit gets, at the ship's own position, the loss tune, and then one of
+; two endings.
+; -----------------------------------------------------------------------------
+; A LIFE IN HAND: the ship comes straight back where it stood, full hull, and
+; blinks for SHIP_INVULN frames while it cannot be hurt. This is CETAS's
+; hero_hit respawn, transplanted (its hero.s), and it is deliberately IN PLACE
+; rather than a jump to a clear spot: the world wraps and the camera rides the
+; ship, so there is no "middle of the screen" to come back to, and three
+; seconds of not being hurt is the mercy the moment needs.
+;
+; The invulnerability is NOT intangibility. CETAS's whale swims through what
+; hit it; this ship still rams, still bounces, still rings - only the hull
+; stops paying (ship_hurt, physics.s). A ship gliding through the middle of a
+; rock whose far side you can see would read as a broken collision test, not as
+; a grace period.
+;
+; THE LAST LIFE: SHIPGONE, and the hull comes apart into four drifting pieces
+; of itself (debris.s). Everything that follows from that byte - the outline
+; and the flames not drawn, the stick masked, the throttle walking back to
+; rest, the banner at the end of the wreck - is in gameover.s and input.s;
+; nothing else here has to know.
 ; -----------------------------------------------------------------------------
 ship_die:
         lda     SHXL                    ; the puff, at the ship's own position
@@ -900,13 +920,38 @@ ship_die:
         sta     EXTYH
         jsr     expl_at
 
-        lda     #5                      ; --- respawn stub (TBD: there is no
-        sta     SHIPHP                  ;   game-over/lives state to hand this
-        stz     KNBXL                   ;   to yet - revisit once there is one)
-        stz     KNBXH
+        lda     #SE_DEATH               ; THREE VOICES, together: the warbling
+        jsr     sfx_fire                ;   fall on the ship's own tone voice,
+        lda     #SE_DEATH_LOW           ;   the slower body under it, and the
+        jsr     sfx_fire                ;   blast the two of them ride on. See
+        lda     #SE_DEATH_N             ;   sfx.s se_death for why one voice was
+        jsr     sfx_fire                ;   not enough, and PRI_DEATH for what
+                                        ;   stops the next ram cutting it short.
+                                        ;   The scream cuts the klang that fired
+                                        ;   on that voice an instant earlier,
+                                        ;   which is right: the ram has been
+                                        ;   heard, and what follows it owns the
+                                        ;   speaker
+
+        stz     KNBXL                   ; whatever knocked the ship about is
+        stz     KNBXH                   ;   spent either way
         stz     KNBYL
         stz     KNBYH
-        rts
+
+        dec     LIVES
+        beq     @last
+        lda     #HP_MAX                 ; a ship in hand: back on its feet where
+        sta     SHIPHP                  ;   it stood, and untouchable while it
+        lda     #SHIP_INVULN            ;   blinks
+        sta     SHIPINV
+        lda     #IM_LIFE
+        jmp     indicate_msg            ; tail
+@last:
+        stz     SHIPHP
+        lda     #1
+        sta     SHIPGONE
+        jmp     debris_spawn            ; tail - the wreck, and gameover.s takes
+                                        ;   it from there
 
         .segment "CODE"                 ; back to bank 0 for the rest of this file
 

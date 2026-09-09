@@ -737,3 +737,69 @@ Ties to **E8** (instrument deception): everything above is the honest v1
 pipeline. The lying radar from level 5 on is a filter/parameter set applied
 on top of it — missing contacts, ghost contacts, wrong bearings — not a
 separate rendering path.
+
+## H. Death, screens and the flow between them
+
+**H1. The screens the two-state machine is a placeholder for (TBD).**
+`design_technical.md` 11.20 settles what happens when a life is lost and when
+the last one is: the blink, the wreck, the banner, `game_start`. It settles
+nothing about the **screens**. There is no title, no attract mode, no level
+summary, no continue window, no hall of fame — and CETAS has all five, each
+with its own bitmap, its own song and its own typewriter. Today's "GAME OVER /
+PUSH FIRE TO RESTART" is two lines of background text over the still-running
+field, and it restarts a whole new game from level 1 with a fresh score.
+
+That is deliberate. What is fixed is the SHAPE — one `GSTATE` byte and one
+`game_start` entry point — so the screens can be attached without unpicking the
+frame loop first. **How to settle:** with F1, because a level summary and a
+mission-complete screen are the same machinery, and it is worth building all of
+them once rather than the game-over one alone.
+
+**H2. The wreck's numbers (TBM, and being flown).** `DEBRIS_FRAMES` 120,
+`DEBRIS_K` 11, `DEBRIS_JIT` 32, `DEBRIS_SPIN` 2 (`src/debris.s`). It has already
+moved twice — 45/28/64/4, then 60/21/64/4, now this — and the lesson each time
+was that the four are **one setting**: `design_technical.md` 11.20 gives the two
+formulas that tie them, and halving `K`/`SPIN` while doubling `FRAMES` is what
+"slower and longer" actually means. **How to settle:** keep flying it in madsim;
+the shape of the break-up comes from `SHIP_SHAPE` itself, so these four numbers
+are the whole of what there is to tune.
+
+Two known simplifications, both deliberate and both documented in the file:
+
+* **The spread is not scaled by the zoom**, only each piece's own shape is (the
+  GPU's `SCALE`). `smul16q7` cannot take 128 — its magnitude is seven bits — so
+  correcting it needs the reciprocal-table treatment, for an error that is
+  shrinking to nothing anyway while `ZEASH` eases back to 1:1 over exactly those
+  frames. Revisit only if a death ever has to happen at a held zoom.
+* **The explosion is still the rock's puff.** A sprite explosion at the ship's
+  centre was asked for and is not built; the wreck currently opens with the same
+  `expl_at` cloud a rock hit throws off. That is a sprite-authoring job, not an
+  engine one. The SOUND of it is no longer a placeholder — three layers, see
+  `design_technical.md` 11.20 — so the picture is now the half that is behind.
+
+**H4. What else wants the voice arbiter (TBD).** Making the claim per voice
+(`sfx.s` `VPRI`/`VLEN`, `design_technical.md` 11.20) settled the loss tune being
+cut, and it is the mechanism anything long will need: an enemy's warning sound,
+a level's opening sting, a boss. **Open:** whether `PRI_DEATH` should stay the
+only thing above `PRI_BOOM`, or whether the scale needs a band for "narrative"
+sounds that outrank gameplay feedback but yield to a death. Decide when the
+first one exists, not before.
+
+**H3. The death path is not in the headless bench (TBD, and it should be).**
+`tools/preview.py` flies 220 frames and never rams anything hard enough to die,
+so every check it makes is a check on a living ship. The break-up, the blink,
+the banner and the restart were verified by a throwaway probe built on the same
+harness — it poked `LIVES` and called `ship_die` through the real code, then
+watched the command list — and that probe is gone. It confirmed: four OPEN
+polygons of 6/3/6/3 vertices for exactly `DEBRIS_FRAMES` frames with no ship
+outline and no flame sprite, no piece left with a zero tumble, `GS_OVER` on the
+frame after them, the banner appearing at cell 14 of row 24 one frame later and
+alternating its two words at exactly 64-frame gaps, and FIRE restoring the ship and blanking the banner on the same frame. It
+also found the off-by-one that made the wreck 59 frames long, which is the kind
+of thing only a bench finds.
+
+**How to settle:** a second short run appended to `preview.py` after the main
+one. The thing in the way is that the probe hardcoded `ship_die`'s address,
+which moves on every build, and `preview.py`'s whole discipline is to parse
+addresses out of the source instead. Either export the handful of labels a bench
+needs, or have the Makefile emit a label file beside `map.txt`.

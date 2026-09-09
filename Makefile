@@ -18,7 +18,8 @@ UNITS = src/header.s src/bootstrap.s src/main.s
 # What cl65 READS. Everything main.s includes, so touching any of it rebuilds.
 MODULES = src/math.s src/input.s src/camera.s src/ship.s src/thrust.s \
           src/objects.s src/physics.s src/stars.s src/occlude.s src/hud.s \
-          src/hud_game.s src/radar.s src/shots.s src/sfx.s src/window.s src/music.s
+          src/hud_game.s src/gameover.s src/debris.s src/radar.s \
+          src/shots.s src/sfx.s src/window.s src/music.s
 DATA    = src/shapes.s src/levels.s src/radar_bg.s src/ship32.s src/flames.s
 
 # The song. vgmstrip.py removes the VGM header and the GD3 tag - vgm_play does

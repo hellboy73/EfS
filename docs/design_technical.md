@@ -1016,3 +1016,169 @@ These are settled and should not be re-opened without a reason:
     every one restored the cleared `CART_EN`, and the frame trace is identical to
     a silent build.** See `open_questions.md` F5.
 
+
+20. **A LIFE LOST AND A GAME OVER: two states, and the ship comes apart into
+    four pieces of itself.** `src/gameover.s`, `src/debris.s`, `ship.s
+    ship_die`.
+
+    Lives were a number in the HUD's corner that nothing decremented. They now
+    mean something, and the two endings are deliberately different in kind:
+
+    * **A ship in hand.** The puff a rock's death throws off, on the ship's own
+      position; `SE_DEATH`, CETAS's loss tune transplanted verbatim; and the
+      ship comes straight back **where it stood**, full hull, blinking for
+      `SHIP_INVULN` = 180 frames (3 s, CETAS's own number). In place, not
+      teleported to a clear spot: the world wraps and the camera rides the ship,
+      so there is no middle of the screen to come back to.
+
+      The grace period is **NOT intangibility**. CETAS's whale swims through
+      what hit it; this ship still rams, still bounces, still rings — only
+      `SHIPHP` stops paying (`physics.s ship_hurt`). A ship gliding through the
+      middle of a rock whose far side you can see reads as a broken collision
+      test, not as mercy. The blink is `SHIPINV & 8`: eight frames shown, eight
+      hidden, 3.75 Hz — measured, not copied; CETAS's own comment on that test
+      says 4/4 and is wrong.
+
+    * **The last ship.** `SHIPGONE`, and the hull comes apart. `SHIP_SHAPE` is a
+      closed ring of fourteen vertices, and `debris.s` cuts that ring into
+      **four runs** — the port nozzle pod (0..5), the nose (5,6,7), the
+      starboard pod (7..12) and the tail spike (12,13,0) — each drawn as one
+      `$4E` POLYGON16 with N's OPEN bit set. Consecutive runs share their end
+      vertex, so the four together are exactly the fourteen segments the intact
+      hull draws, and an `.assert` in the file says so. **A pod comes off as a
+      pod:** a recognisable part of the ship you were flying, not an anonymous
+      stick. An earlier cut spawned six generic radiating strokes and read as a
+      starburst placed where a ship had been.
+
+      Nothing is authored beyond the four cut points. Change the ship in
+      `tools/shape_editor.py` and the wreck changes with it, in step.
+
+    **THERE IS NO ANIMATION TABLE AND NO ANIMATION EDITOR, and that is the
+    decision, not an omission.** A keyframed break-up would be kilobytes of data
+    per ship, would need a tool to author it, and would still have to
+    interpolate — which is the multiply this does not do. The whole motion is
+    four constants (`DEBRIS_FRAMES` 120, `DEBRIS_K` 11, `DEBRIS_JIT` 32,
+    `DEBRIS_SPIN` 2) and one add per piece per frame. A piece's launch velocity
+    is its own pivot offset times `DEBRIS_K`, so the four leave together but not
+    in step; the jitter is what stops them reading as one hull being inflated,
+    because a pure radial scale-up of a shape is still that shape.
+
+    **THE FOUR ARE ONE SETTING, NOT FOUR**, and the file says so at the top of
+    them, because it cost three passes to learn:
+
+        radius reached = |c| * (1 + DEBRIS_FRAMES * DEBRIS_K / 256)
+        tumble         = DEBRIS_FRAMES * DEBRIS_SPIN, brad (256 = one turn)
+
+    So *halving* `K` and `SPIN` while *doubling* `FRAMES` is the same break-up in
+    slow motion — same distance, same amount of tumble, twice the time to read
+    it — and that is exactly the move that took it 60 → 120. Changing the
+    duration alone changes how far the wreck flies and how many times it turns,
+    which is a different break-up, not a slower one. `JIT` scales with `K` for a
+    third reason: left at 64 against `K` = 11 it exceeds the smallest launch
+    component (the pods' 22) and throws a piece sideways faster than it was ever
+    aimed. The wreck ran at 45/28/64/4, then 60/21/64/4, and is now 120/11/32/2.
+
+    The spin is also **punctured**: a plain centred range includes zero, and at
+    `SPIN` = 2 that leaves one piece in four not tumbling at all, which reads as
+    a piece that got stuck rather than one that drew a low number. Folding
+    `0..SPIN-1` up to `1..SPIN` makes the range symmetric and zero-free for two
+    bytes.
+
+    The wreck is drawn for **exactly** `DEBRIS_FRAMES` frames, and getting that
+    right needed one non-obvious thing: `do_debris` tests `SHIPGONE` and
+    `GSTATE`, **not** `DBN`. `state_tick` runs early in the frame and has
+    already counted `DBN` down by the time the draw pass reaches it, so a draw
+    gated on `DBN` silently loses the wreck's last frame — the first cut drew 59
+    of 60. The banner is armed on the frame *after* the count reaches zero, for
+    the same reason, and winds `HUD_PHASE` as it does so: the beat between the
+    wreck vanishing and the words appearing should be chosen, not whatever the
+    paint stagger happened to be on the frame the ship died.
+
+    **The wreck is SCREEN-anchored, not world-anchored** — offsets are full-res
+    screen pixels from where the ship's centre is drawn, so no piece goes
+    through `view_xform` or `zoom_fb`. That is free, and it is also right: from
+    the frame the ship dies the throttle walks itself back to the resting tier
+    (`input.s throttle_rest`), one `THRTL_ACCEL` a frame, so the world coasts to
+    a halt and the zoom eases out to 1:1 underneath a wreck that stays put.
+    Snapping the throttle instead would stop the world dead in one frame, which
+    reads as the game crashing rather than as the ship dying.
+
+    **The state machine is TWO states and stops there.** `GS_PLAY` and
+    `GS_OVER`, one `GSTATE` byte, one `game_start` entry point that `cart_init`
+    also calls — so the boot path and the restart path cannot drift apart. CETAS
+    has a title screen, a level summary, a continue countdown and a hall of
+    fame; none of those exists here yet, and inventing them as a side effect of
+    "the ship should explode" would be the wrong way round. What this fixes is
+    the SHAPE, so they have somewhere to attach.
+
+    **The banner is ONE line, and the two words trade places on it.** "GAME
+    OVER" and "PUSH FIRE" are both nine characters — not a coincidence, the
+    constraint the second was written against — so they occupy the same nine
+    cells on the screen's middle row and swap every `GO_SWAP` = 64 frames
+    (~1.06 s). Nothing moves: the line does not change width, there is no second
+    row competing with it, and the alternation itself is what draws the eye. Two
+    static rows said the same thing and sat there.
+
+    It is background text on a paint phase of `hud_game.s`'s own arbiter — which
+    is what finally makes that file's "four emitters" header true and its
+    `HUD_PERIOD` 8 rather than 6 — so the whole price of the alternation is one
+    command every 64 frames and nothing at all in between. `GO_SWAP` is asserted
+    to be a whole number of paint periods: the swap then always lands the same
+    distance before the row's phase, and the cadence is exactly 64 frames rather
+    than 64 plus whatever the stagger felt like.
+
+    FIRE is armed only once the wreck is gone, so the reflexive shot a player
+    fires as the ship dies cannot skip it, and the edge is consumed so it does
+    not also come out of the new game's first gun frame.
+
+    **`JOYIN` / `JOYINP` / `JOYINV`.** While `SHIPGONE`, `do_input` republishes
+    the three joystick bytes as zero and every reader in the program — the turn,
+    the throttle, the boost gesture, the teleport, `thrust.s`'s five nozzles and
+    their puffs, `shots.s`'s gun — reads the republished copy. One test in one
+    place instead of six scattered guards. `state_tick` reads the raw
+    `JOY1_PRESS`, because the one control that must work when there is no ship
+    is the one that starts a new game.
+
+    **THE SOUND OF IT IS THREE VOICES, AND THE ARBITER HAD TO BECOME GENERAL.**
+    The first cut was CETAS's `se_death` taken across whole — five steps falling
+    72 → 55 on one voice — and it read as what it literally is, a few square
+    notes. One square wave playing five pitches is a *tune*, and losing the ship
+    is not a tune. It is now three simultaneous layers, all authored to the same
+    91 frames so they end together: a **warble that falls** on `VOICE_SHIP` (six
+    one-frame alternations are heard as one unstable tone, not as six notes, and
+    that instability is the sound of something tearing; the alternation then
+    widens and slows into a plain fall onto the engine's lowest note), a
+    **slower, lower second voice** on `VOICE_GUN` that beats against it — two
+    square waves a fraction apart is the only chorus a PSG has — and a **noise
+    blast** underneath, mode 6, peaking at 14 and decaying over the full 91.
+
+    That exposed a real hole. The loss tune sits on `VOICE_SHIP` with the klang
+    and the teleport, and the ship goes on ramming rocks while it plays —
+    *especially* while it is invulnerable and blinking, when grinding along one
+    is the normal case — so every ram shot the tune out from under itself after
+    four notes. `sfx.s` already had an arbiter for exactly this failure, but
+    only for the single noise voice (a thruster puff cutting the boost hiss).
+    It is now **per voice**: `VPRI`/`VLEN` × 4, `sfx_fire` itself is the door
+    everything goes through, `noise_fire` is gone, and one priority scale covers
+    all four voices because priorities are only ever compared *within* one.
+    `PRI_DEATH` outranks everything, so for its ~1.5 s the death owns the chip.
+
+    The one deliberate exception is the body layer, which is `PRI_FEEDBACK` and
+    therefore loses its voice to the player's gun. On a life that is *not* the
+    last one the ship is back immediately, and a shot taken in the next second
+    and a half has to be heard. Losing the bass of a chord to the player's own
+    trigger is the right trade; losing the whole death to it is not.
+
+    Cost: **+400 cycles median** on CPU1, 0.17% of the frame, and the 220-frame
+    `tools/preview.py` trace is otherwise byte-identical to the build before it.
+
+    **The trap this cost a debugging session to find, and it is a rule now:**
+    RAM in this cartridge is hand-placed equates spread over four files, and
+    they do not collide loudly. The first cut of the death state took
+    `$6248-$624C`, which looks free from `main.s`'s own page — the names around
+    `SHIPHP` stop at `$6247` — and is not: `physics.s`'s `COL_UX`/`COL_UY` and
+    `main.s`'s own `CULRL`/`CULRH` both claim bytes in it. The collision normal
+    and the cull window came out as the joystick, and the **only** symptom was a
+    preview whose score came out different. Before placing a byte, grep the
+    whole of `src/` for its address range, and assert both ends of the block
+    against its neighbours the way `main.s` now does.

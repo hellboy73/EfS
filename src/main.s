@@ -757,6 +757,50 @@ OBJANGF     = $6100             ; ...and the fraction, so a spin can be far slow
 SHIPHP      = $6241             ; the ship's hit points, starts at 5 (cart_init)
                                 ;   - 1 per collision (physics.s ship_respond),
                                 ;   0 = broken apart (ship_die)
+SHIPINV     = $6FC2             ; frames of post-respawn INVULNERABILITY left,
+                                ;   0 = the hull pays for hits again. It is
+                                ;   NOT intangibility: the ship still rams,
+                                ;   bounces and rings (ship_hurt keeps the
+                                ;   klang and drops only the hit point) -
+                                ;   flying THROUGH a rock you can see the far
+                                ;   side of reads as a bug, not as mercy.
+                                ;   Bit 3 of the counter is the blink phase,
+                                ;   4 frames shown / 4 hidden - see ship_hidden
+SHIPGONE    = $6FC3             ; 1 from the frame the LAST life is lost until
+                                ;   the next game_start. The ship is not drawn,
+                                ;   not flown and not collided against, and the
+                                ;   stick it would have read is masked to zero
+                                ;   (input.s JOYIN) so nothing downstream -
+                                ;   flames, nozzle puffs, the gun - has to test
+                                ;   for it separately
+JOYIN       = $6FC4             ; THE STICK AS THE GAME SEES IT: JOY1 / _PRESS /
+JOYINP      = $6FC5             ;   _PREV, or all three zero while SHIPGONE.
+JOYINV      = $6FC6             ;   do_input publishes them at the top of the
+                                ;   frame and input.s, thrust.s and shots.s read
+                                ;   these and never the hardware bytes, so "a
+                                ;   dead ship does not turn, throttle, boost,
+                                ;   teleport, puff or shoot" is ONE test in ONE
+                                ;   place rather than six scattered guards.
+                                ;   gameover.s's state_tick still reads the RAW
+                                ;   JOY1_PRESS - the one control that has to
+                                ;   work when there is no ship is the one that
+                                ;   starts a new game
+        .assert SHIPINV > OVSUB && JOYINV < FLWDIR, error, "main.s: the death/state block no longer fits between gameover.s's bytes and thrust.s's"
+                                ; THESE FIVE LIVE AT $6FC2, NOT DOWN HERE WITH
+                                ; SHIPHP, and the assert above is why. $6240-$625D
+                                ; LOOKS free from this page - the names around
+                                ; SHIPHP stop at $6247 - but physics.s's COL_UX/UY
+                                ; and this file's own CULRL/CULRH further up both
+                                ; claim bytes in it, and hand-placed equates in
+                                ; four files do not collide loudly: the first cut
+                                ; of this block sat on all four, the cull window
+                                ; and the collision normal came out as the
+                                ; joystick, and the only symptom was a 220-frame
+                                ; preview whose score came out different. They sit
+                                ; with debris.s and gameover.s instead, at the top
+                                ; of the one genuinely empty stretch left below
+                                ; thrust.s ($6F50-$6FFF), and the assert nails
+                                ; both ends of it.
 KNBXL       = $6242             ; the KNOCKBACK: a decaying velocity added on
 KNBXH       = $6243             ;   top of the throttle-computed VELX/VELY every
 KNBYL       = $6244             ;   frame (ship.s knb_tick, in HIDATA) - not
@@ -776,8 +820,13 @@ BGFLASH     = $6246             ; the explosion flash's two-frame state machine
 PSST_WT     = $625E             ; last frame's turn want (thrust.s FLWDIR)
 PSST_WA     = $625F             ; ...the throttle's (JOY_UP)
 PSST_WB     = $6260             ; ...and the brake's (thrust.s FLBW)
-NOISEPRI    = $6261             ; priority of the noise effect now playing
-NOISELEFT   = $6262             ; ...and the frames it has left, 0 = voice free
+VPRI        = $6263             ; VOICE_N bytes: the priority of whatever now
+VLEN        = $6267             ;   owns each voice, and the frames it has left
+                                ;   (0 = that voice is free). Four claims, not
+                                ;   the one the noise voice used to have alone -
+                                ;   the ship's death put a long effect on a tone
+                                ;   voice that a ram was cutting to pieces. See
+                                ;   sfx.s's PRI_ block
 SHIPKILL_PEND = $6247           ; a rock's slot ($FF = none) that reached 0 HP
                                 ;   from a ship collision, held until do_objects'
                                 ;   grid walk is over - rock_destroy relinks the
@@ -928,93 +977,33 @@ cart_init:
         stz     FRAME
         stz     FRAME+1
         stz     BGDONE
-        stz     HEAD
-        lda     #<(TIER_ZERO*128)       ; THRTL starts at TIER_ZERO exactly, so
-        sta     THRTLL                  ;   TIER derives to TIER_ZERO and THFRAC
-        lda     #>(TIER_ZERO*128)       ;   to 0 on the very first frame - see
-        sta     THRTLH                  ;   do_input for the shift that recovers
-        lda     #TIER_ZERO              ;   both from this
-        sta     TIER
-        sta     ETIER
-        stz     BOOSTN
-        stz     BOOSTARM
-        lda     #1                      ; unlimited for now - see BOOST_AVAIL
-        sta     BOOST_AVAIL
-        stz     SHOFFL
-        stz     SHOFFH
         lda     #3                      ; 2.83 s per revolution - the settled-on
         sta     TURNIX                  ;   default; see design_technical.md 11.15
-        stz     TURNVL
-        stz     TURNVH
         lda     #2                      ; the settled-on wind-up; ramp/tscale no
         sta     RAMPIX                  ;   longer change at runtime - see do_input
-        stz     PSHOFFL
-        stz     PSHOFFH
-        stz     HEADF
         lda     #2                      ; the settled-on speed-coupled turn rate,
         sta     TSCALE                  ;   x1.25 at the top tier
         stz     SPRSTEP
-
-                                        ; (the ship's world position and its
-                                        ;  heading are not set here any more:
-                                        ;  they are level data, and load_level
-                                        ;  below writes them)
-        stz     TRAVL
-        stz     TRAVH
-        lda     #$80                    ; != HEAD (0), so frame 1 builds the
-        sta     BASEHEAD                ;   tables and rebases the star bases
-        sta     ROTHEAD
-        lda     #128                    ; 1:1, and ZSHEAD != it so frame 1 builds
-        sta     ZOOMH                   ;   the scale table too
-        sta     ZEASH
-        stz     ZEASL
-        stz     ZSHEAD
+        stz     OVC                     ; the background opens CLEAR, so that is
+                                        ;   what the banner believes is showing
+                                        ;   (GO_BLANK) - see gameover.s
 
         lda     #$A5                    ; any nonzero seed; see prng
         sta     PRNGL
         lda     #$3C
         sta     PRNGH
 
-        lda     #HP_MAX                 ; the ship's hit points - see SHIPHP, and
-        sta     SHIPHP                  ;   HP_MAX for why the number is not here
-        stz     KNBXL
-        stz     KNBXH
-        stz     KNBYL
-        stz     KNBYH
-        lda     #$FF
-        sta     SHIPKILL_PEND
-        stz     BGFLASH                 ; idle - nothing zeroes cartridge RAM
-                                        ;   for us, and a stray 1 here would
-                                        ;   open the game on a lit screen
-        stz     NOISEPRI                ; ...and the noise voice is nobody's,
-        stz     NOISELEFT               ;   or the first explosion is refused
-        stz     PSST_WT                 ; ...and no nozzle was firing last
-        stz     PSST_WA                 ;   frame, or the game opens on a puff
-        stz     PSST_WB
-
         jsr     init_qs
-        jsr     shots_init              ; ...and every gun and puff slot free -
-                                        ;   nothing zeroes cartridge RAM for us
         jsr     init_stars
         jsr     init_motes
-        ldx     #START_LEVEL            ; ...and the field, the ship's place in
-        jsr     load_level              ;   it and the sector grid, all out of
-        jsr     radar_census            ;   levels.s. The radar's per-class rock
-                                        ;   count is taken here, once, off the
-                                        ;   field load_level just built - see
-                                        ;   radar_sens
-        jsr     load_foes               ;   ...and then the enemies - AFTER
-                                        ;   load_level, because it falls through
-                                        ;   into init_cells and nothing may come
-                                        ;   between the two (see load_level)
-        jsr     hud_init                ; the score, the lives, the level number
-        lda     #START_LEVEL            ;   and the caches behind the two rows -
-        sta     CURLEV                  ;   none of it is zeroed for us. The level
-                                        ;   is taken here rather than inside
-                                        ;   load_level so that routine stays a
-                                        ;   pure field builder with no HUD in it
-        lda     #IM_LEVEL               ; ...and the bar opens with a word
-        jsr     indicate_msg
+
+        ; ...and everything a NEW GAME resets - the ship, the field, the HUD -
+        ; is game_start (gameover.s), because FIRE on the game-over screen has
+        ; to do exactly the same thing and a second copy of this list would
+        ; drift from the first the day either changed. What stays above is only
+        ; what a SESSION does once: the tables, the two backdrop layers, the
+        ; seed, the settled flight-model dials.
+        jsr     game_start
         jsr     win_on                  ; ...and the window is a cartridge again
                                         ;   before init can return - the OS jumps
                                         ;   to boot_frame THROUGH it (window.s)
@@ -1116,6 +1105,15 @@ cart_frame:
         ; are the frame's cartridge readers; do_explosions is the other, and it
         ; gets the window handed back for its own borrow, below.
         jsr     win_off
+        jsr     state_tick              ; the two states, and the line between
+                                        ;   them (gameover.s): the respawn blink
+                                        ;   ages, the wreck drifts, and FIRE on
+                                        ;   a game over starts a new one. FIRST
+                                        ;   in the bracket for two reasons - the
+                                        ;   blink counter has to age before
+                                        ;   anything reads its phase, and a
+                                        ;   restart walks the object pool, which
+                                        ;   is what the bracket is for
         jsr     do_input
         jsr     do_camera               ; cos/sin, then the two rotation tables
         jsr     do_ship                 ; velocity from tier + heading, integrate
@@ -1156,6 +1154,15 @@ cart_frame:
         jsr     emit_ship
         jsr     do_flames                ; the side thruster flames, riding the
                                         ; screen centre emit_ship just placed
+        jsr     do_debris               ; ...and, when there is no ship left to
+                                        ;   hang them on, the four pieces of it
+                                        ;   (debris.s). AFTER do_flames, not
+                                        ;   before: that pass is what computes
+                                        ;   FLCX/FLCY, the ship's drawn screen
+                                        ;   centre with the shake folded in, and
+                                        ;   it goes on computing them after the
+                                        ;   ship stops being drawn precisely so
+                                        ;   this can read them
         jsr     do_radar                ; the contact lists - built BEFORE the HUD
                                         ;   because the HUD reads the count, and
                                         ;   emitted AFTER it because the list
@@ -1244,6 +1251,16 @@ cart_frame:
         .include "radar.s"              ; the HUD radar: a second, wider walk of
                                         ; the same sector grid, on high bytes
                                         ; only. See that file's header.
+        .include "gameover.s"           ; the two game states, the banner across
+                                        ; the middle of the screen and the
+                                        ; new-game entry point cart_init also
+                                        ; uses. AFTER hud_game.s: its banner
+                                        ; rows are emitters on that file's paint
+                                        ; schedule and are asserted against its
+                                        ; constants.
+        .include "debris.s"             ; ...and what is drawn where the ship
+                                        ; was: four runs of SHIP_SHAPE's own
+                                        ; ring, drifting apart. See that file.
         .include "shots.s"              ; the gun: six OPEN POLYGON16 bullets,
                                         ; and what a hit takes off a rock. Here
                                         ; rather than in bank 0 for the room,

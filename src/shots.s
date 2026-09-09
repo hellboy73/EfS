@@ -419,7 +419,7 @@ shot_draw:
 ; that turns a stick into intent; this is the file that acts on this one.
 ; -----------------------------------------------------------------------------
 shot_fire:
-        lda     JOY1_PRESS
+        lda     JOYINP
         and     #JOY_FIRE
         beq     @none
         ldx     #SHOT_N-1               ; the first free slot, if there is one
@@ -1719,10 +1719,11 @@ rock_destroy:
 rock_boom:
         jsr     bgflash_arm             ; preserves A, X and Y
         lda     #SE_ROCK_BOOM
-        jmp     noise_fire              ; tail - through the arbiter, not
-                                        ;   sfx_fire: the noise voice is shared
-                                        ;   with the thrusters now, and this is
-                                        ;   the one that outranks them
+        jmp     sfx_fire                ; tail - and sfx_fire is the arbiter,
+                                        ;   so the noise voice it shares with
+                                        ;   the thrusters is claimed at
+                                        ;   PRI_BOOM and held for the whole
+                                        ;   boom (sfx.s)
 
 ; -----------------------------------------------------------------------------
 ; rock_score - pay for a rock that just came apart.

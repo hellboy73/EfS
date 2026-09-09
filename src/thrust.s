@@ -70,8 +70,10 @@ FLAME_RZ_MED    = 110           ; ZOOMH >= this -> large art; down to this,
 FLAME_RZ_SMALL  = 80            ;   medium; below this, small. ZOOMH's own
                                 ;   range is 64..128 (main.s's ZOOM_RZ).
 
-; --- flame animation state, free game RAM (radar.s's own block ends at
-;     $6F50; nothing else reaches $7000) --------------------------------------
+; --- flame animation state, free game RAM. $6F50-$6FC6 is no longer free:
+;     debris.s, gameover.s and the death/state bytes main.s declares now fill
+;     it (see design_technical.md 11.20 on why they had to go somewhere nothing
+;     else had claimed). $7000 up is still this file's. ---------------------
 FLWDIR      = $7000             ; wanted direction this frame: 0 none, 1 left, 2 right
 FLDIR       = $7001             ; the direction actually ramping/held
 FLTARGET    = $7002             ; FLPHASE's target for this frame's tick: 0 or 3
@@ -214,10 +216,10 @@ do_flames:
         ; is eased and made the flames visibly lag the key. The FLPHASE ramp
         ; below is the only intentional lag left, and it is a growth effect,
         ; not an input delay.
-        lda     JOY1
+        lda     JOYIN
         and     #JOY_LEFT
         bne     @wdir_left
-        lda     JOY1
+        lda     JOYIN
         and     #JOY_RIGHT
         bne     @wdir_right
         lda     #0
@@ -278,7 +280,7 @@ do_flames:
         ; main drive has to keep showing through that gap. ----
         lda     BOOSTN
         bne     @ew_yes
-        lda     JOY1
+        lda     JOYIN
         and     #JOY_UP
         bne     @ew_yes
         lda     FLWDIR
@@ -303,7 +305,7 @@ do_flames:
         ; ---- brake wanted / target: plain JOY_DOWN, ramped the same shape as
         ; the turn pair (FLBRACKET's small-bracket snap applies here too - it
         ; is the same A/B art, just both firing together). ----
-        lda     JOY1
+        lda     JOYIN
         and     #JOY_DOWN
         beq     @bw_no
         lda     #1
@@ -621,7 +623,22 @@ flame_draw:
 ; flame_place - A = sprite slot, FLTMPA/FLTMPB = signed offset from the ship's
 ; screen centre (FLCXL/H, FLCYL/H). Issues one SPRITE draw.
 ; -----------------------------------------------------------------------------
+; THE ONE GATE FOR ALL FIVE NOZZLES, and it is here rather than in flame_draw
+; because flame_draw_e reaches the hardware through this too - every flame this
+; file ever places goes past this line. The nozzles blink with the hull and go
+; with it: a flame left burning where no ship is drawn is exactly the bug CETAS
+; found with a boost sticker floating over a whale on the hidden half of its
+; blink (its hero_boost_draw note).
+;
+; It suppresses the EMIT and not the STATE. do_flames has already ticked its
+; ramps by the time anything is placed, so they wind down properly rather than
+; freezing mid-grow and snapping back when the ship returns.
+; -----------------------------------------------------------------------------
 flame_place:
+        pha
+        jsr     ship_hidden
+        pla
+        bcs     @gone
         sta     OS_ARG+0
         ldy     #$00
         lda     FLTMPA
@@ -646,6 +663,7 @@ flame_place:
         adc     FLCYH
         sta     OS_ARG+4
         jmp     API_GPU_SPRITE
+@gone:  rts
 
 ; -----------------------------------------------------------------------------
 ; flame_draw_e - place the main-drive flame. In: FLEART (which of E_ART_*'s

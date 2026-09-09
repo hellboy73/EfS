@@ -142,6 +142,12 @@ def decode(stream):
         if op == 0x20:                          # CLEAR_BG
             out.append((op, b""))
             i += 1
+        elif op in (0x12, 0x13):                # VIDEO_REG: BG_REG on / off, no
+            out.append((op, b""))               #   args. sfx.s's explosion flash
+            i += 1                              #   emits these, first in the
+                                                #   frame - so a run where a rock
+                                                #   actually comes apart used to
+                                                #   desync the whole list here
         elif op in (0x45, 0x4A, 0x47):          # DOT_LINES / LINES / DOT_PIXELS:
             n = stream[i + 1]                   #   N, then N (+1 for a chain)
             k = n if op == 0x47 else n + 1      #   coordinate pairs

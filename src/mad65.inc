@@ -91,8 +91,16 @@ API_GPU_DOTPOLYGON  = $FFD2     ; OS_ARG+0..1 = ptr -> one argument block:
                                 ;   it ON THE GPU - and ALWAYS CLIPPED, properly
                                 ;   cut rather than clamped. Offsets are signed
                                 ;   bytes from the centre, unrotated and unscaled:
-                                ;   the raw shape, exactly as authored. N vertices
-                                ;   = N segments; the figure closes itself.
+                                ;   the raw shape, exactly as authored.
+                                ;   N's BIT 7 IS THE OPEN FLAG: clear = CLOSED,
+                                ;   K vertices = K segments and the figure joins
+                                ;   its own ends; set = OPEN, K vertices = K-1
+                                ;   segments and no closing edge - a rotated,
+                                ;   scaled polyline. Bits 0-6 are the count,
+                                ;   0-127. shots.s draws a bullet as $82 (one
+                                ;   segment) and debris.s the wreck's four runs
+                                ;   the same way; objects.s appends a crack to a
+                                ;   damaged rock with it.
                                 ;   2N + 8 PPRAM bytes. This builder is a COPY -
                                 ;   CPU1 does no per-vertex work at all.
 API_GPU_POLYGON     = $FFD5     ; the same block, SOLID half-res ($4D)

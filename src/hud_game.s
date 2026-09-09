@@ -125,13 +125,22 @@ HUD_L2_LEN   = C_SCORE_NUM + SCORE_DIGITS
 BGTEXT_HOLD  = 2                ; frames a bg text line owns the layer - the OS
                                 ;   replays the command into the other buffer on
                                 ;   the FOLLOWING frame
-HUD_PERIOD   = 6                ; frames between repaints of any one line
+HUD_PERIOD   = 8                ; frames between repaints of any one line
 HUD_PH_ROW1  = 0                ; ...and the phase each takes. Two apart, so no
 HUD_PH_ROW2  = 2                ;   two ever land inside another's replay window
 HUD_PH_IND   = 4
+HUD_PH_OVER  = 6                ; ...and the game-over banner, which is an
+                                ;   emitter like any other and goes through the
+                                ;   same arbiter (gameover.s). It is what makes
+                                ;   the period 8 rather than 6, and what makes
+                                ;   the header's "four emitters" line above true
+                                ;   at last; each row now repaints at ~7.5 Hz
+                                ;   rather than 10, which is still far faster
+                                ;   than a number needs to be read
         .assert HUD_PH_ROW2 - HUD_PH_ROW1 >= BGTEXT_HOLD, error, "hud_game.s: rows 1 and 2 collide"
         .assert HUD_PH_IND - HUD_PH_ROW2 >= BGTEXT_HOLD, error, "hud_game.s: row 2 and the bar collide"
-        .assert HUD_PERIOD - HUD_PH_IND >= BGTEXT_HOLD, error, "hud_game.s: the bar wraps onto row 1"
+        .assert HUD_PH_OVER - HUD_PH_IND >= BGTEXT_HOLD, error, "hud_game.s: the bar and the banner collide"
+        .assert HUD_PERIOD - HUD_PH_OVER >= BGTEXT_HOLD, error, "hud_game.s: the banner wraps onto row 1"
 
 ; --- the message bar ---------------------------------------------------------
 IND_TICKS    = 120              ; frames a message is held (~2 s at 60.317 Hz)
@@ -142,6 +151,7 @@ IQ_NONE      = $FF              ; nothing on the bar (IND_CUR only)
 IM_HULL      = 0                ; the ship took a hit
 IM_CRITICAL  = 1                ; ...and it is down to its last hit point
 IM_LEVEL     = 2                ; a level just started
+IM_LIFE      = 3                ; ...and a ship was lost, but not the last one
 
 ; --- RAM ---------------------------------------------------------------------
 ; $7030-$70FF was the last clear stretch of the page thrust.s and shots.s share
@@ -271,9 +281,13 @@ hud_tick:
         beq     hud_row2
         cmp     #HUD_PH_IND
         beq     @bar
+        cmp     #HUD_PH_OVER
+        beq     @over
         rts
 @bar:   jmp     indicate_tick           ; a jmp, not a branch: the builders and the
                                         ;   emitters sit between here and there
+@over:  jmp     gameover_row            ; ...and the banner's, which lives in
+                                        ;   gameover.s with the state it reads
 
 ; --- row 1: LIVES and the hull bar -------------------------------------------
 hud_row1:
@@ -745,8 +759,9 @@ STR_LIVES:  .byte   "LIVES: "
 IM_HULL_S:  .byte   "HULL BREACH", 0
 IM_CRIT_S:  .byte   "HULL CRITICAL", 0
 IM_LEVEL_S: .byte   "STAY ALIVE", 0
+IM_LIFE_S:  .byte   "SHIP LOST", 0
 
-IND_LO:     .byte   <IM_HULL_S, <IM_CRIT_S, <IM_LEVEL_S
-IND_HI:     .byte   >IM_HULL_S, >IM_CRIT_S, >IM_LEVEL_S
+IND_LO:     .byte   <IM_HULL_S, <IM_CRIT_S, <IM_LEVEL_S, <IM_LIFE_S
+IND_HI:     .byte   >IM_HULL_S, >IM_CRIT_S, >IM_LEVEL_S, >IM_LIFE_S
 
         .segment "CODE2"
