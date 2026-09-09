@@ -154,6 +154,40 @@ RAD_MAX     = 48                ; contacts drawn per frame, all classes together
 RAD_CLS_MAX = 100               ; ...and per list, which is only a bound on the
                                 ;   page each list lives in (1 + 2*100 = 201)
 
+; SATURATION - the instrument FAILS rather than eating the frame.
+;
+; The class window above is a performance valve only while there are MORE classes
+; than it admits. Break the field all the way down and the two classes it admits
+; ARE the field: the window then lets 100% of it through, "five sixths of the
+; scan ends at one compare" stops being true, and do_radar costs what a flat scan
+; over every rock costs. Measured on dumps/00016882 - 154 rocks, all of them
+; class 2 and 3, RVISIT 154 of 154 - do_radar was 31,378 cycles, 13.2% of CPU1's
+; frame. The same field with one rock of a class above it alive: 3,670.
+;
+; So it is given a failure mode instead of a slow path, and the trigger is FREE:
+; RKLIVE is a census kept incrementally by rock_kill / rock_split / recyc_drop,
+; so "how many rocks would the window admit" is RAD_CLASSES adds and no scan at
+; all. A saturation test that had to look at the field would cost what it saves.
+;
+; Both thresholds are RAD_MAX rather than free numbers, because RAD_MAX is where
+; the display stops being able to tell the truth anyway: past it the cap is
+; throwing contacts away without saying which, and an instrument that admits it
+; is down is more honest than one quietly showing 48 of 74.
+RAD_SAT_ON  = 2 * RAD_MAX       ; census at which the radar goes down...
+RAD_SAT_OFF = RAD_MAX           ; ...and below which it may come back
+RAD_DOWN_N  = 90                ; frames it stays down after that, ~1.5 s at
+                                ;   60.317 Hz - long enough to read as a fault
+                                ;   rather than as a flicker
+
+; WHERE THE FAULT MESSAGE SITS. Cells 24-36 are the radar's (the HUD stops at 23)
+; and the disc spans lines 37-49. Eleven characters from cell 26 run 26-36, which
+; is portrait x 208-295 against a disc of 199-301: 9 px of rim on the left and 6
+; on the right, the best a 88 px string centres in a 102 px circle on an 8 px
+; grid. Line 43 is the disc's middle row and is clear of the HUD's 47 and 49.
+RAD_ERR_X   = 26
+RAD_ERR_Y   = 43
+RAD_ERR_N   = 11                ; "RADAR ERROR"
+
 RAD_BLINK_N = 20                ; the enemy blink: a 20-frame cycle at 60.317 Hz
 RAD_BLINK_ON = 10               ; ...lit for the first half of it, ~3 Hz. The
                                 ;   dark phase is skipped at LIST-BUILD time, so
@@ -179,6 +213,9 @@ FOE_MAX     = 16                ; enemy slots. levels.s authors more than this
         .assert 1 + 2*RAD_CLS_MAX <= 255, error, "radar.s: a class list would run off its page"
         .assert RAD_BLINK_ON <= RAD_BLINK_N, error, "radar.s: the blink is lit for longer than its cycle"
         .assert RAD_CLASSES >= 1, error, "radar.s: a radar that shows no rock class at all"
+        .assert RAD_SAT_OFF < RAD_SAT_ON, error, "radar.s: the outage has no hysteresis and will chatter"
+        .assert RAD_ERR_X + RAD_ERR_N <= 37, error, "radar.s: the fault message runs off the cell grid"
+        .assert RAD_ERR_X >= 24, error, "radar.s: the fault message reaches into the HUD cells"
 
 ; --- RAM ---------------------------------------------------------------------
 ; Six DOT_PIXELS payloads, one per priority class, each on its own page: byte 0
@@ -209,6 +246,11 @@ RSLOT       = $6E19             ; slots left in the frame's budget
 RORD        = $6E1A             ; the emit's cursor over RAD_ORDER
 RTMP        = $6E1B             ; emit / load_foes scratch
 NFOE        = $6E1C             ; enemies the level actually placed
+RADDOWN     = $6E11             ; frames left on the outage; 0 = the instrument
+                                ;   is working. See radar_health.
+RADLOAD     = $6E12             ; ...and what the class window would admit, off
+                                ;   the census rather than off the field
+        .assert RADLOAD < RDXB, error, "radar.s: the outage bytes ran into RDXB"
 
 FOEXL       = $6F00             ; the enemies, FOE_MAX of each. Only the high
 FOEXH       = $6F10             ;   bytes are read by anything here; the low
@@ -409,6 +451,57 @@ radar_sens:
         rts
 
 ; -----------------------------------------------------------------------------
+; radar_load / radar_health - is the instrument up this frame?
+; -----------------------------------------------------------------------------
+; radar_load reads the CENSUS, never the field. RKLIVE is maintained one rock at
+; a time by rock_kill, rock_split and recyc_drop, so what the class window would
+; admit is RAD_CLASSES adds - which is the whole point, see RAD_SAT_ON.
+;
+; radar_health returns carry SET when the radar is down. While the census stays
+; at or above RAD_SAT_OFF the outage timer is held FULL, so the instrument cannot
+; flicker back on in the middle of a fight; once the field falls below it the
+; timer runs down and the radar returns RAD_DOWN_N frames later.
+; -----------------------------------------------------------------------------
+radar_load:
+        ldx     RADSENS
+        lda     RKLIVE,x
+        ldy     #RAD_CLASSES-1
+        beq     @done                   ; a one-class window reads one entry
+@lp:    inx
+        cpx     #$05                    ; the window hangs off the end of the
+        bcs     @done                   ;   table at the smallest class
+        clc
+        adc     RKLIVE,x
+        bcc     :+
+        lda     #$FF                    ; NOBJ cannot overflow a byte today, but
+        bra     @done                   ;   the running sum must not wrap if the
+:       dey                             ;   window ever widens
+        bne     @lp
+@done:  sta     RADLOAD
+        rts
+
+radar_health:
+        jsr     radar_load
+        lda     RADDOWN
+        beq     @up
+        lda     RADLOAD                 ; DOWN: hold the timer FULL while the
+        cmp     #RAD_SAT_OFF            ;   field is still crowded, so the outage
+        bcs     @arm                    ;   outlasts the crowd rather than the
+        dec     RADDOWN                 ;   other way round
+        bne     @down
+        clc                             ; ...and it ran out on a field that has
+        rts                             ;   thinned: the instrument is back
+@up:    lda     RADLOAD
+        cmp     #RAD_SAT_ON
+        bcc     @ok
+@arm:   lda     #RAD_DOWN_N
+        sta     RADDOWN
+@down:  sec
+        rts
+@ok:    clc
+        rts
+
+; -----------------------------------------------------------------------------
 ; do_radar — build the frame's contact lists. Draws nothing.
 ; -----------------------------------------------------------------------------
 ; Runs AFTER do_objects, so the rocks it reads have already moved. It reads
@@ -445,6 +538,10 @@ do_radar:
 :       sta     RBLINK
 
         jsr     radar_sens              ; ...and which classes are in play
+        jsr     radar_health            ; ...and whether the instrument is up at
+        bcc     :+                      ;   all. The six lists are already empty,
+        rts                             ;   so a downed radar draws nothing, and
+:                                       ;   emit_radar says so instead
 
         ldx     NROCK
         beq     radar_foes
@@ -670,7 +767,10 @@ emit_radar:
                                         ;   was to emit before the HUD, which
                                         ;   would rank the radar below it in the
                                         ;   list, and it is not below it
-        lda     #RAD_MAX
+        lda     RADDOWN                 ; the instrument is down: do_radar built
+        beq     :+                      ;   no lists at all, so say so rather than
+        jmp     radar_fault             ;   emit six empty ones
+:       lda     #RAD_MAX
         sta     RSLOT
         stz     RORD
 @lp:    ldx     RORD
@@ -762,4 +862,35 @@ load_foes:
 ; The priority order the emit spends its slots in: enemies first, then the rock
 ; classes from 0 (192 px across) down to 4 (16 px). A table rather than a loop
 ; bound, so "what matters most" is one line to re-argue.
+; -----------------------------------------------------------------------------
+; radar_fault - what a downed instrument shows.
+; -----------------------------------------------------------------------------
+; One VTEXT on the IMAGE, and deliberately not on the background where the ring
+; and the HUD live: there it would need the two-frame replay, it would fight
+; ring_frame for the replay window, and taking it off again would mean clearing
+; the ring with it. On the image it costs one command a frame and vanishes by
+; itself the moment it stops being issued.
+;
+; It blinks on RBLINK - the counter the enemy contacts already share, and which
+; do_radar still advances before it gives up - so the alarm and the enemies pulse
+; together, and the dark half of the cycle costs nothing at all.
+; -----------------------------------------------------------------------------
+radar_fault:
+        lda     RBLINK
+        cmp     #RAD_BLINK_ON
+        bcs     @done
+        lda     #RAD_ERR_X
+        sta     OS_ARG+0
+        lda     #RAD_ERR_Y
+        sta     OS_ARG+1
+        stz     OS_ARG+2                ; no sub-cell scroll
+        lda     #<RAD_ERR_STR
+        sta     OS_ARG+3
+        lda     #>RAD_ERR_STR
+        sta     OS_ARG+4
+        jmp     API_GPU_VTEXT           ; tail
+@done:  rts
+
+RAD_ERR_STR: .byte "RADAR ERROR", 0
+
 RAD_ORDER:  .byte   5, 0, 1, 2, 3, 4
