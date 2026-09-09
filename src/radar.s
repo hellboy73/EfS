@@ -173,20 +173,43 @@ RAD_CLS_MAX = 100               ; ...and per list, which is only a bound on the
 ; the display stops being able to tell the truth anyway: past it the cap is
 ; throwing contacts away without saying which, and an instrument that admits it
 ; is down is more honest than one quietly showing 48 of 74.
-RAD_SAT_ON  = 2 * RAD_MAX       ; census at which the radar goes down...
-RAD_SAT_OFF = RAD_MAX           ; ...and below which it may come back
+; IT NARROWS BEFORE IT FAILS. RAD_CLASSES is already "the largest classes that
+; still exist, and nothing smaller", and the window steps down of its own accord
+; as the player clears a class out - so showing ONE class instead of two is not a
+; new gesture, it is the same one taken further. Three stages, one threshold:
+;
+;   the pair fits            -> both classes, as always
+;   the pair does not        -> the largest class alone
+;   the largest alone does not -> down, RADAR ERROR
+;
+; As a performance measure the middle stage is weaker than it looks, and the
+; reason is which way a split floods the field: on dumps/00018207 the window was
+; classes 2 and 3 at 116 and 38, so dropping the smaller one sheds a quarter of
+; the work. Half a level later the ratio has inverted and it sheds most of it.
+; What it reliably buys is an instrument that degrades where it used to die.
+RAD_SAT_ON  = 2 * RAD_MAX       ; census the shown window may not exceed...
+RAD_SAT_OFF = RAD_MAX           ; ...and below which an outage may end
+RAD_SAT_WIDE = RAD_SAT_ON - RAD_MAX / 2
+                                ; ...and where a narrowed window opens again.
+                                ;   Hysteresis, so the small class does not
+                                ;   blink in and out along the threshold
 RAD_DOWN_N  = 90                ; frames it stays down after that, ~1.5 s at
                                 ;   60.317 Hz - long enough to read as a fault
                                 ;   rather than as a flicker
 
 ; WHERE THE FAULT MESSAGE SITS. Cells 24-36 are the radar's (the HUD stops at 23)
-; and the disc spans lines 37-49. Eleven characters from cell 26 run 26-36, which
-; is portrait x 208-295 against a disc of 199-301: 9 px of rim on the left and 6
-; on the right, the best a 88 px string centres in a 102 px circle on an 8 px
-; grid. Line 43 is the disc's middle row and is clear of the HUD's 47 and 49.
-RAD_ERR_X   = 26
-RAD_ERR_Y   = 43
-RAD_ERR_N   = 11                ; "RADAR ERROR"
+; and the disc spans lines 37-49. One word per line, a blank line between them,
+; centred on the disc's middle row: five glyphs from cell 29 run 29-33, portrait
+; x 232-271 against a disc of 199-301, and lines 42 and 44 straddle line 43.
+;
+; Each string is the WORD AND ONE TRAILING SPACE, not a padded field. Nothing
+; needs clearing - this goes on the IMAGE, which the hardware rebuilds from the
+; background every frame, so the message disappears the moment it stops being
+; issued - and a line of spaces would be glyphs the GPU draws for nothing.
+RAD_ERR_X   = 29
+RAD_ERR_Y1  = 42                ; "RADAR"
+RAD_ERR_Y2  = 44                ; ...one blank line, then "ERROR"
+RAD_ERR_N   = 6                 ; the longest word plus its trailing space
 
 RAD_BLINK_N = 20                ; the enemy blink: a 20-frame cycle at 60.317 Hz
 RAD_BLINK_ON = 10               ; ...lit for the first half of it, ~3 Hz. The
@@ -215,6 +238,9 @@ FOE_MAX     = 16                ; enemy slots. levels.s authors more than this
         .assert RAD_CLASSES >= 1, error, "radar.s: a radar that shows no rock class at all"
         .assert RAD_SAT_OFF < RAD_SAT_ON, error, "radar.s: the outage has no hysteresis and will chatter"
         .assert RAD_ERR_X + RAD_ERR_N <= 37, error, "radar.s: the fault message runs off the cell grid"
+        .assert RAD_ERR_Y2 <= 49, error, "radar.s: the fault message runs off the line grid"
+        .assert RAD_ERR_Y2 > RAD_ERR_Y1 + 1, error, "radar.s: the two words need a blank line between them"
+        .assert RAD_SAT_WIDE < RAD_SAT_ON, error, "radar.s: the narrowing has no hysteresis and will blink"
         .assert RAD_ERR_X >= 24, error, "radar.s: the fault message reaches into the HUD cells"
 
 ; --- RAM ---------------------------------------------------------------------
@@ -248,8 +274,12 @@ RTMP        = $6E1B             ; emit / load_foes scratch
 NFOE        = $6E1C             ; enemies the level actually placed
 RADDOWN     = $6E11             ; frames left on the outage; 0 = the instrument
                                 ;   is working. See radar_health.
-RADLOAD     = $6E12             ; ...and what the class window would admit, off
-                                ;   the census rather than off the field
+RADLOAD     = $6E12             ; ...and what the FULL class window would admit,
+                                ;   off the census rather than off the field
+RADWIN      = $6E13             ; how many classes it is showing right now, 1 or
+                                ;   RAD_CLASSES - and its own hysteresis state
+RADSHOW     = $6E08             ; ...and the census of just those classes, which
+                                ;   is what decides the outage
         .assert RADLOAD < RDXB, error, "radar.s: the outage bytes ran into RDXB"
 
 FOEXL       = $6F00             ; the enemies, FOE_MAX of each. Only the high
@@ -421,6 +451,9 @@ add_radar_occluder:
 ; budget rule second, which is the only reason the reach could double.
 ; -----------------------------------------------------------------------------
 radar_census:
+        stz     RADDOWN                 ; a restart must not inherit an outage,
+        lda     #RAD_CLASSES            ;   and nothing zeroes cartridge RAM for
+        sta     RADWIN                  ;   us - game_start is what calls this
         ldx     #$04
 :       stz     RKLIVE,x
         dex
@@ -480,18 +513,45 @@ radar_load:
 @done:  sta     RADLOAD
         rts
 
+; radar_narrow - how many classes the window shows this frame, and what that
+; window holds. RADWIN is its own hysteresis state: it takes RAD_SAT_ON to close
+; and the lower RAD_SAT_WIDE to open again, so the small class does not blink in
+; and out while the census sits on the threshold.
+radar_narrow:
+        lda     RADLOAD                 ; the pair, always measured the same way
+        ldx     RADWIN                  ;   so the decision cannot oscillate
+        cpx     #RAD_CLASSES
+        bcc     @isone                  ; already narrowed: a lower bar to widen
+        cmp     #RAD_SAT_ON
+        bcc     @both
+        bra     @one
+@isone: cmp     #RAD_SAT_WIDE
+        bcs     @one
+@both:  ldx     #RAD_CLASSES            ; the pair fits: show both, and the
+        bra     @set                    ;   census of the shown window IS RADLOAD
+@one:   ldx     RADSENS                 ; it does not: the largest class alone
+        lda     RKLIVE,x
+        ldx     #$01
+@set:   stx     RADWIN
+        sta     RADSHOW
+        rts
+
 radar_health:
         jsr     radar_load
+        jsr     radar_narrow            ; ...and RADSHOW, which is what the tests
+                                        ;   below read: the outage is about what
+                                        ;   the instrument is TRYING to draw, not
+                                        ;   about what exists
         lda     RADDOWN
         beq     @up
-        lda     RADLOAD                 ; DOWN: hold the timer FULL while the
+        lda     RADSHOW                 ; DOWN: hold the timer FULL while the
         cmp     #RAD_SAT_OFF            ;   field is still crowded, so the outage
         bcs     @arm                    ;   outlasts the crowd rather than the
         dec     RADDOWN                 ;   other way round
         bne     @down
         clc                             ; ...and it ran out on a field that has
         rts                             ;   thinned: the instrument is back
-@up:    lda     RADLOAD
+@up:    lda     RADSHOW
         cmp     #RAD_SAT_ON
         bcc     @ok
 @arm:   lda     #RAD_DOWN_N
@@ -549,7 +609,7 @@ do_radar:
         lda     OBJSHP,x                ; THE CLASS WINDOW, first and cheapest:
         sec                             ;   classes RADSENS .. RADSENS+RAD_CLASSES-1
         sbc     RADSENS                 ;   and nothing else. Below RADSENS the
-        cmp     #RAD_CLASSES            ;   subtract goes negative and the
+        cmp     RADWIN                  ;   subtract goes negative and the
         bcs     @next                   ;   unsigned compare catches it too
         inc     RVISIT
 
@@ -879,18 +939,23 @@ radar_fault:
         lda     RBLINK
         cmp     #RAD_BLINK_ON
         bcs     @done
+        lda     #RAD_ERR_Y1             ; the first word, then fall through into
+        ldx     #<RAD_ERR_S1            ;   the same setup for the second - the
+        ldy     #>RAD_ERR_S1            ;   tail below returns for both
+        jsr     @word
+        lda     #RAD_ERR_Y2
+        ldx     #<RAD_ERR_S2
+        ldy     #>RAD_ERR_S2
+@word:  sta     OS_ARG+1
+        stx     OS_ARG+3
+        sty     OS_ARG+4
         lda     #RAD_ERR_X
         sta     OS_ARG+0
-        lda     #RAD_ERR_Y
-        sta     OS_ARG+1
         stz     OS_ARG+2                ; no sub-cell scroll
-        lda     #<RAD_ERR_STR
-        sta     OS_ARG+3
-        lda     #>RAD_ERR_STR
-        sta     OS_ARG+4
         jmp     API_GPU_VTEXT           ; tail
 @done:  rts
 
-RAD_ERR_STR: .byte "RADAR ERROR", 0
+RAD_ERR_S1: .byte "RADAR ", 0
+RAD_ERR_S2: .byte "ERROR ", 0
 
 RAD_ORDER:  .byte   5, 0, 1, 2, 3, 4
