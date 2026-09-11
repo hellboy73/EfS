@@ -90,13 +90,26 @@ SHT_SWEEP   = 36                ; how far BEHIND its tip a bullet still counts
                                 ;   it can travel in a frame with the boost on.
                                 ;   See the note on tunnelling below
 
-HIT_M       = 80                ; the hit pass's screen window, full-res px. The
+SHOT_HITR   = 2                 ; the bullet's HIT-TEST radius only, full-res px
+                                ;   at 1:1 - it is still drawn and moved as a
+                                ;   point (the line's own tip). Added to every
+                                ;   target's own radius in shot_hits AND
+                                ;   foe_hits, so a rock or a UFO is a fraction
+                                ;   easier to hit across the board and NOT a
+                                ;   second opinion about how big anything IS -
+                                ;   BODY_R, SHAPE_OCC and FOE_R are untouched,
+                                ;   so the collision circle and the star-
+                                ;   occlusion disc stay one shape (5.4/11.12).
+                                ;   Biggest relatively for the smallest rocks,
+                                ;   which is the point; tune by feel in madsim.
+
+HIT_M       = 80 + SHOT_HITR    ; the hit pass's screen window, full-res px. The
                                 ;   largest a rock's collision circle can be on
                                 ;   screen is class 192 at 1:1 - BODY_R 39,
-                                ;   half-res, doubled = 78 - so a rock further
-                                ;   than this outside the field cannot be
-                                ;   touching a bullet, which by definition is
-                                ;   inside it. See shot_hits.
+                                ;   half-res, doubled = 78, plus SHOT_HITR - so
+                                ;   a rock further than this outside the field
+                                ;   cannot be touching a bullet, which by
+                                ;   definition is inside it. See shot_hits.
 
 ; --- what a hit does to the rock ---------------------------------------------
 ; A shot twists the rock it lands on. Which way, and how hard, is one number:
@@ -731,8 +744,11 @@ shot_hits:
         sta     MQB
         jsr     qmul                    ; ...shrunk by the zoom...
         asl     a                       ; ...and doubled into the FULL-res units
-        sta     SHTR                    ;   the screen points are in. 39*2 = 78
-                                        ;   at 1:1, so 2*R stays a byte index
+        clc                             ; SHOT_HITR gives the bullet a radius for
+        adc     #SHOT_HITR              ;   the HIT test only - see its comment
+        sta     SHTR                    ;   above. The screen points are in the
+                                        ;   same units; 39*2 = 78 at 1:1, so 2*R
+                                        ;   (+SHOT_HITR) is still a byte index
         clc                             ; the reject is widened by the sweep, so
         adc     SHTSWP                  ;   a rock the bullet jumped OVER this
         sta     SHTRW                   ;   frame still reaches the test below.
