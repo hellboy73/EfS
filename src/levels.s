@@ -68,13 +68,22 @@
 ; =============================================================================
 ; ENEMIES
 ;
-; LVL_FOEN records of five bytes: a world position and a KIND byte. Nothing in
-; the game reads them YET - radar.s carries them so they can be drawn as blips,
-; and open_questions E6 has not settled how many alien types there are or how
-; they behave - but the positions are authored here now so that the code which
-; finally flies an enemy inherits a level format instead of inventing one, and
-; so the editor has somewhere to put them. The KIND byte
-; is deliberately just a number until E6 says what the numbers are.
+; LVL_FOEN records of SEVEN bytes, read once by foes.s load_foes:
+;
+;   XL, XH, YL, YH   the world position, 16-bit per axis
+;   KIND             0 = the UFO, the only kind with a behaviour so far. A kind
+;                    nothing knows how to fly is not loaded at all
+;   HEADING          the patrol course, brad, the ship's own convention - 0 flies
+;                    toward -Y, "up" in the editor, and 64 toward +X
+;   SPEED            the patrol speed, in PIXELS A SECOND at 1:1, 0..175; 0 is a
+;                    UFO that holds its post. load_foes turns it into 8.8 world
+;                    units a frame (x68, which is 16/60.317*256 to 0.2%)
+;
+; It was five bytes (position and kind) while nothing flew an enemy. The two
+; new ones are what a patrol is: the UFO keeps this course and speed until it
+; sees the ship, and it is put back on them the moment it loses it again - see
+; foes.s. 175 px/s is the pursuit speed, half the ship's top tier, and no patrol
+; is meant to be faster than a chase; the editor clamps to it.
 ; =============================================================================
 ; Hand edits are fine anywhere in this file. Everything between the GENERATED
 ; markers below is also what tools/level_editor.py reads, and what it rewrites
@@ -119,17 +128,17 @@ L0_SHHD     = 0
 ; rocks: XL, XH, YL, YH, class, type - 6 bytes each, class 0..4 = 192..16
 LVL0_ROCKS:
 LVL0_ROCKS_END:
-; enemies: XL, XH, YL, YH, kind - 5 bytes each
+; enemies: XL, XH, YL, YH, kind, heading, speed - 7 bytes each
 LVL0_FOES:
-              .byte   $B8, $8B, $D0, $87, 0
-              .byte   $C0, $60, $A0, $8F, 0
-              .byte   $F8, $AA, $90, $68, 1
-              .byte   $3C, $76, $D8, $5C, 1
-              .byte   $50, $C6, $00, $80, 0
-              .byte   $00, $80, $E0, $31, 1
+        .byte   $B8, $8B, $D0, $87, 0, 0, 0       ; UFO at 35768, 34768, holding its post
+        .byte   $C0, $60, $A0, $8F, 0, 64, 80       ; UFO at 24768, 36768, course 64 at 80 px/s
+        .byte   $F8, $AA, $90, $68, 0, 192, 120       ; UFO at 43768, 26768, course 192 at 120 px/s
+        .byte   $3C, $76, $D8, $5C, 0, 0, 0       ; UFO at 30268, 23768, holding its post
+        .byte   $50, $C6, $00, $80, 0, 128, 175       ; UFO at 50768, 32768, course 128 at 175 px/s
+        .byte   $00, $80, $E0, $31, 0, 96, 60       ; UFO at 32768, 12768, course 96 at 60 px/s
 LVL0_FOES_END:
 L0_ROCKN    = (LVL0_ROCKS_END - LVL0_ROCKS) / 6
-L0_FOEN     = (LVL0_FOES_END - LVL0_FOES) / 5
+L0_FOEN     = (LVL0_FOES_END - LVL0_FOES) / 7
 L0_TOTAL    = L0_N192 + L0_N128 + L0_N64 + L0_N32 + L0_N16 + L0_ROCKN
 
 ; -----------------------------------------------------------------------------

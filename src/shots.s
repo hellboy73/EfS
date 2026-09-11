@@ -285,6 +285,13 @@ SHTALO1     = $719D             ;   raw, i.e. 128x the pixel value
 SHTPRP      = $719E
 SHTPRP1     = $719F
 SHTSWP      = $73A3             ; the sweep length at THIS zoom, screen px
+SPL_HD      = $73A6             ; the WORLD heading of whatever shot is landing -
+                                ;   rock_split throws the halves across it. Set
+                                ;   by the caller of rock_take_hit, because a
+                                ;   UFO's bullet (foes.s) breaks rocks too and it
+                                ;   is not in SHTANG
+FOEKILL     = $73A7             ; nonzero while a UFO's bullet is the one
+                                ;   breaking a rock: rock_score pays nobody
 SPL_TYA     = $73A4             ; the two halves' authored variants, drawn once
 SPL_TYB     = $73A5             ;   and DIFFERENT - see rock_split
 SHTC        = $7020             ; per bullet: the cosine and sine of its screen
@@ -848,6 +855,9 @@ shot_hits:
                                         ;   would start paying the player for
                                         ;   ramming the moment that path is
                                         ;   re-enabled. Preserves X and Y.
+        ldx     SHTJ                    ; the heading the halves are thrown
+        lda     SHTANG,x                ;   across, if this is the killing blow
+        sta     SPL_HD
         ldx     SHTOBJ
         jsr     rock_take_hit           ; dec HP; destroy, or the crack shake
         bcs     @rnext                  ;   if this landed it on 1 - see the
@@ -1756,8 +1766,11 @@ rock_boom:
 ; the hits. score_add preserves X and Y, so this is safe inside the kill path.
 ; -----------------------------------------------------------------------------
 rock_score:
+        lda     FOEKILL                 ; a UFO broke it (foes.s fsh_rocks):
+        bne     @none                   ;   the player did nothing to earn it
         lda     #SCORE_KILL
         jmp     score_add               ; tail
+@none:  rts
 
 ; -----------------------------------------------------------------------------
 ; rock_split — SPL_P is the parent and SPL_S the slot for its second half.
@@ -1812,9 +1825,9 @@ rock_split:
         adc     #$02
         sta     RKLIVE,x
 
-        ldx     SHTJ                    ; the SHOT'S WORLD heading. rock_spin
-        lda     SHTANG,x                ;   wanted the screen one because it was
-        sta     SPL_T                   ;   measuring a screen lever arm; this is
+        lda     SPL_HD                  ; the SHOT'S WORLD heading. rock_spin
+        sta     SPL_T                   ;   wanted the screen one because it was
+                                        ;   measuring a screen lever arm; this is
         jsr     API_SIN                 ;   moving world velocities, so it is the
         sta     SPL_SIN                 ;   raw heading and no camera in it
         lda     SPL_T

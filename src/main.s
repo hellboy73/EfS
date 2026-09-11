@@ -28,6 +28,9 @@
 ;     SOLID FULL-RES outlines ($4E POLYGON16) at one of five sizes: 192, 128,
 ;     64, 32 and 16 full-res pixels across. They collide with each other; see
 ;     physics.s.
+;   * UFOs: the classic saucer, never turning, zooming with the world. They
+;     patrol, chase the ship once they see it, keep off the rocks, and fire the
+;     gun's own bullet at it once a second. See foes.s.
 ;   * the RADAR, hard into the bottom-left corner of the portrait screen: every
 ;     enemy within 25,600 world units, and every rock of the two largest size
 ;     classes that still exist, one point each, on a scale that does not move
@@ -522,6 +525,11 @@ ADRAWN      = $FE               ; rocks drawn so far this frame
 ; frame - not worth reusing for five bytes.
 
 ; --- cartridge RAM ($0400-$77FF is free game RAM) ----------------------------
+; ...and so are $A000-$BEFF (RODATA/HIDATA run there), the RAM under the window
+; at $8000-$9FFF (bracketed - window.s), and since 2026-09-11 $C000-$DFFF,
+; CART_HIRAM: 8 KB the CPU OS hands the cartridge at cart_init, always mapped,
+; code or data, holding the demo's image on entry. Nothing uses it yet. The
+; map and its rules: design_technical.md 11.19.
 ROTC_I      = $0400             ; the rotation tables, 8.8: ROT[i] = signed(i) *
 ROTC_F      = $0500             ;   coef / 128, integer byte and fraction byte.
 ROTS_I      = $0600             ;   Keeping the fraction is what stops a rebase
@@ -867,7 +875,15 @@ JOYINV      = $6FC6             ;   do_input publishes them at the top of the
                                 ;   JOY1_PRESS - the one control that has to
                                 ;   work when there is no ship is the one that
                                 ;   starts a new game
-        .assert SHIPINV > OVSUB && JOYINV < FLWDIR, error, "main.s: the death/state block no longer fits between gameover.s's bytes and thrust.s's"
+TPWIN       = $6FC7             ; do_input's FIRE2 click gesture: frames left in
+                                ;   the double-click window after a FIRST press,
+                                ;   0 = idle. Hitting zero with no second press
+                                ;   is a confirmed single click.
+TPLOCK      = $6FC8             ; ...frames left swallowing FIRE2 after a
+                                ;   teleport just fired, so a triple click's
+                                ;   third edge cannot land as a fresh single
+                                ;   click the instant after teleporting
+        .assert SHIPINV > OVSUB && TPLOCK < FLWDIR, error, "main.s: the death/state block no longer fits between gameover.s's bytes and thrust.s's"
                                 ; THESE FIVE LIVE AT $6FC2, NOT DOWN HERE WITH
                                 ; SHIPHP, and the assert above is why. $6240-$625D
                                 ; LOOKS free from this page - the names around
@@ -1219,6 +1235,15 @@ cart_frame:
                                         ;   rocks out of the sector grid, which
                                         ;   nothing may be standing on - see
                                         ;   shots.s rock_kill
+        jsr     do_foes                 ; the UFOs: think, fly, fire, get hit,
+                                        ;   draw (foes.s). AFTER do_shots for
+                                        ;   that pass's two reasons - the
+                                        ;   player's bullets are on the screen
+                                        ;   now, and nothing is standing on a
+                                        ;   cell list when a UFO's bullet
+                                        ;   breaks a rock - and inside the
+                                        ;   bracket, because their state lives
+                                        ;   under the window too
         jsr     win_on                  ; do_explosions reads EXPL_OFF straight
         jsr     do_explosions           ;   out of the COLD bank, so it needs a
         jsr     win_off                 ;   cartridge to read - and it touches
@@ -1360,6 +1385,10 @@ cart_frame:
                                         ; rather than in bank 0 for the room,
                                         ; and after radar.s because rock_kill
                                         ; decrements that file's census.
+        .include "foes.s"               ; the enemies - the UFO: patrol, chase,
+                                        ; keep off the rocks, shoot, and the
+                                        ; wreck it leaves. AFTER shots.s, whose
+                                        ; bullet test and rock kill it reuses.
         .include "sfx.s"                ; the sound effects and the explosion
                                         ; flash. A HIDATA file end to end - the
                                         ; SFX engine reads the step programs
@@ -1394,6 +1423,8 @@ cart_frame:
 
         .include "shapes.s"             ; every vertex table - rocks, ship. See
                                          ; that file's header and tools/shape_editor.py
+        .include "enemies.s"            ; ...and the enemies' outlines, as PARTS.
+                                         ; See that file and tools/enemy_editor.py
         .include "levels.s"             ; ...and every level's opening state. See
                                          ; that file's header and tools/level_editor.py
         .include "radar_bg.s"           ; the radar's ring and ship icon as a
@@ -1451,6 +1482,16 @@ THRTL_REST  = TIER_ZERO*128     ; ...and the position that means a standstill.
 ; it. Reverse mirrors: the ship rides ABOVE centre backing up, so it lands low
 ; and the jump goes backwards along the heading.
 TP_OFF      = 120               ; |SHOFF| the ship lands on, sign by direction
+
+; FIRE2 is double-click-to-teleport now: a single click is reserved for a
+; future weapon select (open_questions - there is only one weapon so far, so
+; it does nothing yet), and do_input tells the two apart by whether a second
+; press lands inside TPCLICK_FRAMES of the first. TPLOCK_FRAMES then swallows
+; FIRE2 for a stretch after the teleport fires, so an eager triple click's
+; third edge cannot register as the very next single click. Both TBM - picked
+; to feel like an ordinary double-click, not measured against anyone's thumb.
+TPCLICK_FRAMES = 18             ; ~300 ms at 60.317 Hz
+TPLOCK_FRAMES  = 15             ; ~250 ms
 TIER_SPD:
         .word   $D836, $E579, $F2BD, $0000, $0D43, $1A87
         .word   $27CA, $350E, $4251, $4F94, $5CD8

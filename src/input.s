@@ -1,9 +1,10 @@
 ; =============================================================================
 ; input.s - the joystick, and the only file that reads one
 ; =============================================================================
-; One stick. Joystick 1 steers and throttles on HELD bits, teleports on
-; FIRE2's edge, and boosts on a gesture read off its own throttle HELD bit -
-; not a button at all. Nothing else in the program looks at JOY1/JOY2:
+; One stick. Joystick 1 steers and throttles on HELD bits, teleports on a
+; DOUBLE CLICK of FIRE2 (a single click is reserved for a future weapon
+; select), and boosts on a gesture read off its own throttle HELD bit - not a
+; button at all. Nothing else in the program looks at JOY1/JOY2:
 ; everything downstream reads the state this leaves behind - the heading, the
 ; throttle position, the boost timer.
 ;
@@ -204,12 +205,11 @@ do_input:
         and     #$7F
         sta     THFRAC
 
-        lda     JOYINP              ; FIRE2: TELEPORT
-        and     #JOY_FIRE2
-        beq     :+
-        inc     TPGO
-:       jmp     do_boost                ; tail call: the reselect-forward
-                                        ;   gesture, in HIDATA below - its own
+        jsr     do_fire2                ; FIRE2: single click/double click/
+                                        ;   teleport lockout - HIDATA below,
+                                        ;   same reasoning as do_boost
+        jmp     do_boost                ; tail call: the reselect-forward
+                                        ;   gesture, also in HIDATA - its own
                                         ;   rts returns for do_input's own
                                         ;   caller
 
@@ -220,6 +220,42 @@ do_input:
 ; touched.
 ; -----------------------------------------------------------------------------
         .segment "HIDATA"
+
+; -----------------------------------------------------------------------------
+; do_fire2 — tells a single FIRE2 click from a double click, and guards the
+; double against being read as the start of a third.
+; -----------------------------------------------------------------------------
+; A tap arms TPWIN and waits; a second tap inside TPCLICK_FRAMES fires the
+; teleport and arms TPLOCK, which swallows FIRE2 for TPLOCK_FRAMES so an eager
+; triple click's third edge cannot land as the very next single click - i.e.
+; a weapon change - the instant after teleporting. TPWIN expiring with no
+; second press is a confirmed single click: nothing to do yet, since there is
+; only the one weapon so far - the hook for weapon select once there is more
+; than one.
+; -----------------------------------------------------------------------------
+do_fire2:
+        lda     JOYINP
+        and     #JOY_FIRE2
+        beq     @tick
+        lda     TPLOCK
+        bne     @tick                   ; locked out - swallow the press
+        lda     TPWIN
+        beq     @arm                    ; no window open - this is the FIRST click
+        stz     TPWIN                   ; window open - this is the SECOND: teleport
+        inc     TPGO
+        lda     #TPLOCK_FRAMES
+        sta     TPLOCK
+        bra     @tick
+@arm:   lda     #TPCLICK_FRAMES
+        sta     TPWIN
+@tick:  lda     TPWIN                   ; the window ticks down every frame,
+        beq     @locktick               ;   pressed or not
+        dec     TPWIN
+@locktick:
+        lda     TPLOCK
+        beq     @done
+        dec     TPLOCK
+@done:  rts
 
 ; -----------------------------------------------------------------------------
 ; do_boost — BOOST is not a button, it is a RESELECT of forward. The player

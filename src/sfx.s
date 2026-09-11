@@ -61,6 +61,8 @@ SE_DEATH     = 8        ; a ship is lost — the warbling fall, THE TOP LAYER of
 SE_DEATH_LOW = 9        ; ...its slower, lower second voice under that...
 SE_DEATH_N   = 10       ; ...and the blast the two of them ride on. All three
                         ;   fired together from ship.s ship_die - see se_death
+SE_UFO_SHOT  = 11       ; a UFO fired (foes.s) - the gun's crack, a fifth up
+SE_ALARM     = 12       ; a UFO has seen the ship - beep, beep, beep
 
 ; voice hint per effect: 0/1/2 = a forced tone voice, $FF = noise (auto, voice 7)
 VOICE_GUN   = 0
@@ -113,6 +115,10 @@ PRI_BOOM   = 4          ; ...and a rock coming apart outranks all of it. It
                         ; ram is always heard. Put it on top instead and a rock
                         ; rammed to death would lose its explosion outright,
                         ; because that is one voice and one shot.
+PRI_ALARM  = 3          ; the UFO alarm holds VOICE_ROCK for its three beeps:
+                        ;   a rock tap or a UFO shot must not cut a warning
+                        ;   in half. (Priorities only compare within a voice,
+                        ;   so sharing PRI_KLANG's number is no clash.)
 PRI_DEATH  = 6          ; ...and above everything, on every voice it uses, a
                         ; ship being lost. It is the rarest event in the game and
                         ; the only one that ends something, so for the ~1.5 s it
@@ -129,6 +135,7 @@ LEN_BOOM   = 30
 LEN_BOOST  = BOOST_FRAMES       ; se_boost is authored to the whole boost
 LEN_DEATH  = 91         ; ...and all THREE layers of the death are authored to
                         ;   the same length, so they end together
+LEN_ALARM  = 36
 
 ; -----------------------------------------------------------------------------
 ; sfx_fire — A = SE_* id. Play that effect on its assigned voice.
@@ -200,14 +207,17 @@ voice_reset:
 ; --- program pointer + voice tables, indexed by SE_* -------------------------
 sfx_lo: .byte   <se_shot, <se_rock_boom, <se_rock_hit, <se_klang
         .byte   <se_psst, <se_boost, <se_teleport, <se_klang_n
-        .byte   <se_death, <se_death_low, <se_death_n
+        .byte   <se_death, <se_death_low, <se_death_n, <se_ufo_shot
+        .byte   <se_alarm
 sfx_hi: .byte   >se_shot, >se_rock_boom, >se_rock_hit, >se_klang
         .byte   >se_psst, >se_boost, >se_teleport, >se_klang_n
-        .byte   >se_death, >se_death_low, >se_death_n
+        .byte   >se_death, >se_death_low, >se_death_n, >se_ufo_shot
+        .byte   >se_alarm
 sfx_voice:
         .byte   VOICE_GUN, VOICE_NOISE, VOICE_ROCK, VOICE_SHIP
         .byte   VOICE_NOISE, VOICE_NOISE, VOICE_SHIP, VOICE_NOISE
-        .byte   VOICE_SHIP, VOICE_GUN, VOICE_NOISE
+        .byte   VOICE_SHIP, VOICE_GUN, VOICE_NOISE, VOICE_ROCK
+        .byte   VOICE_ROCK
 
 ; ...the same voice again as a 0-3 CLAIM INDEX, because sfx_voice's $FF is a
 ; firmware hint ("noise, allocate it yourself") and not a table row. Derived by
@@ -215,7 +225,8 @@ sfx_voice:
 ; branch and a constant on the one path every sound in the game goes through.
 sfx_vi: .byte   VOICE_GUN, 3, VOICE_ROCK, VOICE_SHIP
         .byte   3, 3, VOICE_SHIP, 3
-        .byte   VOICE_SHIP, VOICE_GUN, 3
+        .byte   VOICE_SHIP, VOICE_GUN, 3, VOICE_ROCK
+        .byte   VOICE_ROCK
         .assert VOICE_N = 4, error, "sfx.s: sfx_vi's noise rows say 3; VOICE_N moved"
 
 ; ...and the arbiter's own two, in the same order. Every effect has a real row
@@ -224,11 +235,13 @@ sfx_vi: .byte   VOICE_GUN, 3, VOICE_ROCK, VOICE_SHIP
 sfx_pri:
         .byte   PRI_FEEDBACK, PRI_BOOM, PRI_FEEDBACK, PRI_FEEDBACK
         .byte   PRI_FEEDBACK, PRI_BOOST, PRI_FEEDBACK, PRI_KLANG
-        .byte   PRI_DEATH, PRI_FEEDBACK, PRI_DEATH
+        .byte   PRI_DEATH, PRI_FEEDBACK, PRI_DEATH, PRI_FEEDBACK
+        .byte   PRI_ALARM
 sfx_len:
         .byte   LEN_SHOT, LEN_BOOM, LEN_ROCKHIT, LEN_KLANG
         .byte   LEN_PSST, LEN_BOOST, LEN_TELE, LEN_KLANG_N
-        .byte   LEN_DEATH, LEN_DEATH, LEN_DEATH
+        .byte   LEN_DEATH, LEN_DEATH, LEN_DEATH, LEN_SHOT
+        .byte   LEN_ALARM
 
 ; --- the effect programs -----------------------------------------------------
 
@@ -249,6 +262,34 @@ se_shot:
         .byte   2, 64, 8
         .byte   2, 52, 4
         .byte   $FF
+
+; SE_UFO_SHOT - a UFO fired. The gun's own crack, every note seven semitones up
+; - the same interval shape, so it reads as the same weapon, and a fifth higher,
+; so the player hears at once that it is not theirs. Same length (LEN_SHOT) and
+; level. On VOICE_ROCK, not VOICE_GUN: the two guns firing together must not cut
+; each other off, and a UFO shot swallowing a rock's tap is the cheaper loss.
+se_ufo_shot:
+        .byte   $00                     ; tone
+        .byte   1, 91, 9
+        .byte   2, 71, 8
+        .byte   2, 59, 4
+        .byte   $FF
+
+; SE_ALARM - a UFO has seen the ship (foes.s foe_alarm). Beep, beep, beep: three
+; flat tones on one pitch with silence between (volume 0 IS silence), because an
+; alarm is the one sound that should be nothing but a signal - no sweep, no
+; decay, nothing that could be mistaken for a weapon or an impact. D6, well
+; above everything the ship and the rocks make, so it reads over a busy screen.
+; Eight frames on and six off is ~7 beeps a second: urgent without being a
+; buzz. 36 frames all told = LEN_ALARM.
+se_alarm:
+        .byte   $00                     ; tone
+        .byte   8, 86, 10               ; beep
+        .byte   6, 86, 0
+        .byte   8, 86, 10               ; beep
+        .byte   6, 86, 0
+        .byte   8, 86, 10               ; beep
+        .byte   $FF                     ; 36 frames - keep LEN_ALARM in step
 
 ; SE_ROCK_BOOM — a rock came apart. CETAS's se_boom verbatim, the mina
 ; explosion: low white noise (mode 6) over a 30-frame loudness decay. The

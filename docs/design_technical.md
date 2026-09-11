@@ -968,17 +968,72 @@ These are settled and should not be re-opened without a reason:
     never reached through a RAM pointer, and read once (radar.s's ring), so the
     wait states are paid twice a session rather than twice a cycle.
 
-19. **There are FOUR places a byte can live, and access pattern decides which.**
-    CPU1 has more RAM than one contiguous window suggests, and the four areas
+    **AMENDED AGAIN, with the UFO (23): `CODE3`.** `foes.s` took bank 1 (`CODE2`
+    + `BGDATA`) past 8 KB and upper RAM to its last few hundred bytes, while the
+    run area still had room and bank 3 had 2.3 KB of ROM behind `HIDATA`. So
+    `CODE3` is stored there and copied into the run area straight after `CODE2`
+    — one more `cart_load` in `bootstrap.s`, taking its addresses from the linker
+    like the other four. It is ordinary run-area code; where one segment ends and
+    the next begins is where a bank filled, not a difference in kind.
+
+    **And a second place code can run: `CART_HIRAM`, `$C000-$DFFF`** (19), 8 KB
+    the CPU OS gave the cartridge on 2026-09-11. Nothing is there yet. It is the
+    answer to "where does the next enemy's code go" once the run area's last
+    2.5 KB are spent, and the natural home for per-level overlays — enemy
+    behaviour copied in by `cart_load` when a level starts, since the cartridge's
+    banks are free and RAM is what is scarce.
+
+19. **There are FIVE places a byte can live, and access pattern decides which.**
+    CPU1 has more RAM than one contiguous window suggests, and the five areas
     are not interchangeable — each is ruled out for something. Measured, in both
-    simulators, before any of it was relied on.
+    simulators, before any of it was relied on. (It was four until 2026-09-11,
+    when the MAD-65 CPU OS handed `$C000-$DFFF` to the cartridge — see
+    `CART_HIRAM` below.)
 
     | area | size | free | what belongs there |
     |---|---|---|---|
-    | run area `$1000-$5FFF` | 20,480 | 7,940 | **code**, and nothing else if it can be helped |
+    | run area `$1000-$5FFF` | 20,480 | 2,566 | **code** — `CODE`, `CODE2`, `CODE3` — and nothing else if it can be helped |
     | lower RAM `$0400-$0FFF` | 3,072 | ~0 | the hot tables — ROT, the quarter-square multiply, the star layer |
-    | under the cart `$8000-$9FFF` | 8,192 | 4,096 | bulk data walked in **bracketed passes** — the object pool is there |
-    | upper RAM `$A000-$BEFF` | 7,936 | 3,552 | `RODATA`, `HIDATA`: tables and cold code, **and anything the IRQ reads** |
+    | under the cart `$8000-$9FFF` | 8,192 | ~2,700 | bulk data walked in **bracketed passes** — the object pool, and the enemies' state (`foes.s`, `$9100-$95FF`) |
+    | upper RAM `$A000-$BEFF` | 7,936 | 879 | `RODATA`, `HIDATA`: tables and cold code, **and anything the IRQ reads** |
+    | `CART_HIRAM` `$C000-$DFFF` | 8,192 | 8,192 | code or data, full speed, always mapped — **unused so far** |
+
+    (Free as of the UFO, 23. Upper RAM is the tight one; `CART_HIRAM` is the
+    whole of the new room. New per-frame code goes to `CODE3` while the run area
+    lasts, and `HIDATA` is for what the IRQ reads or runs once a level.)
+
+    **`CART_HIRAM`, `$C000-$DFFF`: 8 KB that became the game's on 2026-09-11,
+    and from now on belong to every MAD-65 cartridge.** The CPU1 ROM is two 8 KB
+    halves — the built-in demo at `$C000-$DFFF`, the OS at `$E000-$FFFF` — and
+    boot copies both into the shadow RAM and runs from there. The demo only runs
+    when no cartridge answers, so from `cart_init` on the demo's half is plain
+    RAM that the OS never reads, writes or executes again. It is MAD-65 ABI
+    (`CART_HIRAM` / `CART_HIRAM_END` in cpu_os.s; `docs/MAD65_CPU_OS.md`, Memory
+    Map), and MAD-65 proves the "never touches" part instruction by instruction
+    (`roms/test_cart_hiram.py`, `carts/hiram_test`, also run in madsim).
+
+    What makes it different from the other four:
+
+    * **Always mapped.** It is not under the cartridge window, so `CART_EN` does
+      not matter: no bracket to read it, and it is **safe for the IRQ** and for
+      anything a pointer handed to the OS is dereferenced from later — the two
+      things the RAM under the cart can never hold. Full speed; no wait states.
+    * **Code runs from it** as well as data, exactly as from the run area. A
+      segment gets there the way `RODATA` got to `$A000`: a `MEMORY` area at
+      `$C000`, size `$2000`, a segment with `run=` it, and one more `cart_load`
+      in `bootstrap.s` (see 18).
+    * **It is not empty on entry.** It holds the demo's image when `cart_init`
+      runs — the OS does not clear it the way it clears `$0200-$77FF`, the
+      window RAM and `$A000-$BEFF`. Initialise whatever is used; a table that
+      trusts zeros here reads the demo.
+    * **Two neighbours are off limits.** Never write `$E000-$FFFF` — that is the
+      running OS, and a write lands in it — and never write `SHADOW_REG`
+      (`$BF70`): run mode is what makes this RAM, and clearing it un-maps the OS
+      the game is executing from. A RESET copies the EPROM back, demo and all.
+
+    `tools/preview.py` already matches the hardware here: it loads the 16 KB CPU
+    ROM at `$C000` as plain memory, so the demo's bytes are there at
+    `cart_init` and a write simply lands, as it does on the machine.
 
     **`$8000-$9FFF` is RAM, and that is not a trick.** MAD-65's upper RAM chip
     has `/CE` = A15, so it covers `$8000-$FFFF` whole and the cartridge only
@@ -1017,7 +1072,71 @@ These are settled and should not be re-opened without a reason:
     a silent build.** See `open_questions.md` F5.
 
 
-20. **A LIFE LOST AND A GAME OVER: two states, and the ship comes apart into
+20. **An enemy is a small ordered list of parts sharing one anchor, and every
+    part is a `$4E` POLYGON16 call, closed or OPEN.** `src/enemies.s`,
+    authored with `tools/enemy_editor.py`. This is the same OPEN bit 22's ship
+    wreck already uses (`debris.s do_debris`, `ora #$80`) put to a second use:
+    a hull or a turret dome is a closed part, a gun barrel or an antenna is an
+    open one, and both ride the SAME GPU-side rotate+scale matrix at the
+    shared centre - no per-part CPU1 transform either way.
+
+    MAD-65 also ships `$4F CIRCLE16` and `$43 LINE16`, and enemies use
+    neither. `CIRCLE16` has no `SCALE` - the MAD-65 team found nothing to fold
+    a scale multiply into once a circle's rotation is gone - and `LINE16` has
+    neither `ANGLE` nor `SCALE` at all. This game's camera is always zooming
+    (4), so anything without a free GPU-side `SCALE` would need its own
+    hand-rolled rescale on CPU1 every frame - exactly the multiply 5 rules
+    out. A "circle" part is authored as a closed polygon on a regular N-gon
+    instead (`tools/enemy_editor.py`'s "Make regular polygon"); enemies are
+    ship-sized, not rock-sized, so 8-10 sides already reads as round, same as
+    a 12-vertex rock does not read as machined.
+
+    What this settles is shape REPRESENTATION. The offsets are FRAMEBUFFER
+    axes, pre-rotated for TATE exactly like `SHIP_SHAPE` (a negative dx is up
+    the player's screen), and `tools/enemy_editor.py` turns them back on the
+    way in, so the editor shows what the player sees at ANGLE 0 — it used to
+    draw the stored numbers straight, a quarter turn off. A part is also what
+    comes apart: a destroyed enemy's wreck is its parts (23), so how an outline
+    is split into parts is decided with the break-up in mind. How enemies move
+    is 23 for the UFO and `open_questions.md` E6 for the rest.
+21. **Enemies simulate on their own window, independent of the rocks' sector-
+    grid cull — and for now that window is the WHOLE FIELD.** 6's rule ("physics
+    runs only for objects near the camera") stays exactly as it is for rocks;
+    it is not being reopened. Enemies opt out of it instead of inheriting it,
+    because the two populations do not share the reason the rule exists.
+
+    The rock cull was forced by scale: up to 120 slots at ~290 cycles each to
+    integrate is 30%+ of a CPU uncalled (6.1), and it was recently TIGHTENED to
+    almost exactly the on-screen rotated-rectangle bound (see `CULRL`/`CULRH`,
+    `main.s`), so a rock freezes within about a screen-width of vanishing.
+    Reusing that same window for enemies would mean a pursuer that fell one
+    screen behind the ship simply stops - which is the opposite of the point of
+    having pursuit AI, and it would apply just as much *ahead* of the ship, not
+    only behind (the window is a heading-shaped box, symmetric on every side -
+    there is no directional bias to fix, only the fact that it is tight).
+
+    `FOE_MAX` is 16 (`radar.s`), not 120, and 16 objects always integrating and
+    AI-ticking every frame - not just the ones near the camera - was already
+    priced in `open_questions.md` F5 before this was settled: ~150 cycles/enemy
+    to decide plus ~290 to integrate is on the order of 7,000 cycles worst
+    case, about 3% of the frame. That is what "the whole field" is standing on;
+    it is a deliberate choice made because it is currently cheap, not a claim
+    that distance never matters.
+
+    **NA RAZIE — for now, not forever.** If the roster grows past what 16
+    always-on slots can carry, or a single enemy's per-frame cost grows (more
+    parts, heavier AI, its own collision pass) past what rides free on this
+    budget, the lever is an enemy-only window — sized on its own terms, not
+    inherited from `CULRL`/`CULRH` — not silently falling back to the rocks'
+    tight one. See `open_questions.md` E6.
+
+    **The first enemy already made it cost more than the estimate, and the
+    answer was to THINK less often, not to simulate less.** The UFO's AI with
+    its obstacle search came to ~12,000 cycles a frame for six of them; every
+    UFO now integrates every frame as this entry says, but decides every 2
+    frames near the camera and every 8 far outside it (23). Still the whole
+    field.
+22. **A LIFE LOST AND A GAME OVER: two states, and the ship comes apart into
     four pieces of itself.** `src/gameover.s`, `src/debris.s`, `ship.s
     ship_die`.
 
@@ -1182,3 +1301,74 @@ These are settled and should not be re-opened without a reason:
     preview whose score came out different. Before placing a byte, grep the
     whole of `src/` for its address range, and assert both ends of the block
     against its neighbours the way `main.s` now does.
+23. **The first enemy is the UFO: it patrols, sees, chases, shoots and keeps
+    out of everything — and it is steered, not a physics body.** `src/foes.s`;
+    the model and every tunable are `physics.md` 9.
+
+    **It never turns.** The Asteroids saucer, drawn at ANGLE 0 so it always
+    looks the way the editor shows it (20), scaled by the zoom like everything
+    else. Two parts: a closed hull and an open dome.
+
+    **The level says where, which way and how fast.** `levels.s` enemy records
+    are SEVEN bytes now — position, `KIND`, patrol heading (brad, the ship's
+    convention) and patrol speed in px/s (0..175; 0 holds a post). Only `KIND` 0,
+    the UFO, is loaded; a kind nothing can fly is skipped, not faked.
+    `tools/level_editor.py` edits the two new bytes, draws the course as an arrow
+    and, on request, each UFO's sight circle.
+
+    **Sight is a WORLD distance.** `FOE_SEE` is the resting screen's height,
+    400 px = 6,400 world units, and the zoom does not change it: at rest it
+    reaches past the screen's edges (the ship sits 70 px low, so 270 px ahead,
+    130 behind, 150 aside), and fully zoomed out a UFO can be on screen before
+    it sees you. Seeing starts the chase: toward the ship at `FOE_SPD`, half the
+    ship's top tier, easing in to hold `FOE_STAND` = 160 px off rather than
+    ramming. The first UFO to see the ship — the first, not every one, since a
+    chase already under way is not news — sounds the ALARM: `SE_ALARM`, three
+    flat beeps on `VOICE_ROCK` at `PRI_ALARM`, and ENEMY DETECTED on the message
+    bar. It holds its fire until it has closed to `FOE_SHOOT` = 220 px (firing
+    from the edge of sight read as being shot the instant it saw you), waits a
+    second more, then fires once a second while the ship stays that close,
+    aimed at where the ship IS — no lead — with a bullet that does NOT inherit
+    the UFO's velocity, or it would not go where it was aimed. Past `FOE_LOSE`, twice the sight, it is put straight back on its
+    patrol course and speed from wherever it is; the gap between the two radii
+    is the hysteresis that stops a ship on the edge flipping it every frame.
+
+    **Its bullet is the gun's bullet**, same command, same speed, same screen
+    margin, and dies the moment it leaves the screen once it has been on it; one
+    fired from off screen gets `FSH_MIN` = 60 frames to arrive first. It costs
+    the ship a hit point through `ship_hurt`, exactly as a rock does, and breaks
+    rocks the way the gun does — for no score (`FOEKILL`), thrown across its own
+    heading (`SPL_HD`, which the gun sets too now). It hits against the SECTOR
+    GRID, not the visible list, so it hits what is in its way off screen as well.
+    It is tested swept: against the ship, four points along the frame's step
+    relative to the ship; against a rock, two. Bullets do not collide with
+    bullets.
+
+    **The player's bullets** hit a UFO on the screen with shots.s's own swept
+    test. Three hits; 50 a hit and 100 on top for the last, so the killing blow
+    pays both, like a rock's. It dies with a rock's boom, flash and break shake,
+    and its PARTS fly apart and tumble for 1.5 s — debris.s's recipe, with parts
+    where the ship has runs. A ship that RAMS a UFO pays a hit point, as for a
+    rock, and the UFO is shoved aside undamaged — the rocks' rule (physics.md
+    4.6).
+
+    **It avoids; it never collides.** Every rock, other UFO and the ship has a
+    zone round it, 32 px wider than contact; inside the deepest one the
+    UFO is snapped out if touching, loses any velocity into it for an outward
+    push, and slides round it — or, holding a post, steps off the path of what
+    is coming at it. `tools/preview.py` checks the result over EVERY rock on
+    every frame: no live UFO ends a frame more than a collision unit inside one.
+
+    **It thinks every 2 frames near the camera and every 8 far from it** (21),
+    integrates every frame, and skips its screen transform for a few frames when
+    it is well off the screen. Measured on the 220-frame preview flight with the
+    level's six: `do_foes` went from 19,300 cycles median / 26,900 worst as first
+    built to 10,800 / 18,300; the median frame is +10,500 cycles over the build
+    before the UFOs (92,300 -> 102,800), the worst in-flight frame 56% -> 64% of
+    budget, and the startup frame, the worst of all, 70.1% -> 76.8%. The GPU side
+    is NOT measured (`open_questions.md` E6): madsim's F3 meter is owed a look.
+
+    **Where it lives.** Its state is under the cartridge window, `$9100-$95FF`,
+    read only inside `cart_frame`'s bracket (19); its code is `CODE2`, the new
+    `CODE3` (18) and `HIDATA`. Its shot is `SE_UFO_SHOT`: the gun's crack a fifth
+    higher, on `VOICE_ROCK` so the two guns never cut each other off.

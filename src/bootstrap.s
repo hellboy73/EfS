@@ -41,6 +41,7 @@
         .import __CODE2_LOAD__, __CODE2_RUN__, __CODE2_SIZE__
         .import __RODATA_LOAD__, __RODATA_RUN__, __RODATA_SIZE__
         .import __HIDATA_LOAD__, __HIDATA_RUN__, __HIDATA_SIZE__
+        .import __CODE3_LOAD__, __CODE3_RUN__, __CODE3_SIZE__
         .import cart_init, cart_frame
 
         .export boot_init
@@ -57,6 +58,8 @@ RODATA_BANK   = 2
 HIDATA_BANK   = 3               ; HIDATA runs at $A000 (MAD-65's separate
                                  ;   upper RAM), not chained after RODATA - see
                                  ;   cart.cfg's note on why bank 3 exists
+CODE3_BANK    = 3               ; ...and CODE3 is the rest of that bank, which
+                                 ;   runs in the $1000 area after CODE2
 
         .segment "BOOT"
 
@@ -137,6 +140,26 @@ boot_init:
         lda     #<__HIDATA_SIZE__
         sta     OS_ARG+5
         lda     #>__HIDATA_SIZE__
+        sta     OS_ARG+6
+        jsr     API_CART_LOAD
+
+        ; --- bank 3 again: CODE3, -> the run area after CODE2 ---------------
+        ; The same bank as HIDATA, a different destination: the linker stores it
+        ; behind HIDATA in the window and runs it behind CODE2 in RAM, and the
+        ; two symbols say both - nothing here adds anything up.
+        lda     #CODE3_BANK
+        sta     OS_ARG+0
+        lda     #<__CODE3_LOAD__
+        sta     OS_ARG+1
+        lda     #>__CODE3_LOAD__
+        sta     OS_ARG+2
+        lda     #<__CODE3_RUN__
+        sta     OS_ARG+3
+        lda     #>__CODE3_RUN__
+        sta     OS_ARG+4
+        lda     #<__CODE3_SIZE__
+        sta     OS_ARG+5
+        lda     #>__CODE3_SIZE__
         sta     OS_ARG+6
         jsr     API_CART_LOAD
 

@@ -285,28 +285,61 @@ def pg_vertex(dx, dy, cx, cy, C, sgc, S, sgs):
     return qx, qy
 
 
+def _enemy_offsets():
+    """Every enemy PART's offsets exactly as enemies.s authors them - which is
+    how foes.s draws a live one - and each part moved onto its own bounding-box
+    pivot, which is how it draws a wreck piece (fw_draw). Read out of the file
+    through the editor's own parser, so this cannot disagree with the game about
+    what an enemy looks like. The pivot is fw_pivot's integer arithmetic:
+    floor((min + max) / 2) per axis."""
+    import sys as _sys
+    _sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+    import enemy_editor
+    model = enemy_editor.Model.load((SRC / "enemies.s").read_text(encoding="utf-8"))
+    body, wreck = set(), set()
+    for e in model.enemies:
+        for part in e.parts:
+            pts = [tuple(pt) for pt in part.pts]
+            body.add(tuple(pts))
+            px = (min(x for x, _ in pts) + max(x for x, _ in pts)) // 2
+            py = (min(y for _, y in pts) + max(y for _, y in pts)) // 2
+            wreck.add(tuple((x - px, y - py) for x, y in pts))
+    return body, wreck
+
+
+ENEMY_BODY, ENEMY_WRECK = _enemy_offsets()
+
+
 def polys(stream):
-    """Every polygon command, as {cx, cy, ang, scale, n, open, offs}.
+    """Every polygon command, as {cx, cy, ang, scale, n, open, offs, enemy}.
 
     `open` is N's top bit: the figure is a POLYLINE, K vertices giving K-1
     segments, and the last vertex does NOT join the first. The shots use it
-    (shots.s); every authored outline in the game is closed.
+    (shots.s), and so does the UFO's dome (enemies.s).
+
+    `enemy` is "these are an enemy part's offsets, whole or on its wreck pivot"
+    - foes.s draws through the same opcode, and nothing else in the game carries
+    those exact offsets, so it is how every rock and shot statistic below keeps
+    the UFOs out of its numbers.
     """
     out = []
     for op, pl in decode(stream):
         if op == OP_POLY:
             n = pl[6] & 0x7F
+            offs = [(sb8(pl[7 + 2 * k]), sb8(pl[8 + 2 * k])) for k in range(n)]
             out.append({"cx": s16(pl[0], pl[1]), "cy": s16(pl[2], pl[3]),
                         "ang": pl[4], "scale": pl[5], "n": n,
                         "open": bool(pl[6] & 0x80),
-                        "offs": [(sb8(pl[7 + 2 * k]), sb8(pl[8 + 2 * k]))
-                                 for k in range(n)]})
+                        "offs": offs,
+                        "enemy": tuple(offs) in ENEMY_BODY or tuple(offs) in ENEMY_WRECK})
     return out
 
 
 def shots(stream):
-    """The bullets: every OPEN polygon in the list."""
-    return [p for p in polys(stream) if p["open"]]
+    """The bullets: every OPEN polygon in the list that is not an enemy part.
+    A UFO's bullet IS the gun's bullet (foes.s), so it is in here too; the
+    checks that care tell the two apart by the heading each slot was fired on."""
+    return [p for p in polys(stream) if p["open"] and not p["enemy"]]
 
 
 def chains(stream):
@@ -327,6 +360,8 @@ def chains(stream):
     for p in polys(stream):
         if p["n"] == SHIP_LINES or p["open"]:   # ...and the shots are excluded
             continue                            #   the same way, by being OPEN
+        if p["enemy"]:                          # ...and the UFOs by their parts
+            continue
         C, sgc, S, sgs = pg_matrix(p["ang"], p["scale"])
         pts = [pg_vertex(dx, dy, p["cx"], p["cy"], C, sgc, S, sgs)
                for dx, dy in p["offs"]]
@@ -374,6 +409,33 @@ def ram(addr):
         finally:
             cart_bank[0] = saved
     return cpu_mem[addr]
+
+
+def ram_block(addr, n):
+    """ram() for n consecutive bytes, with ONE window toggle rather than n."""
+    saved = cart_bank[0]
+    cart_bank[0] = saved & 0x7F
+    try:
+        return [cpu_mem[addr + i] for i in range(n)]
+    finally:
+        cart_bank[0] = saved
+
+
+def foes_addr(name):
+    """A $hhhh RAM address out of foes.s, read for cart_addr's reason."""
+    m = re.search(rf"^{re.escape(name)}\s*=\s*[$]([0-9A-Fa-f]{{4}})",
+                  (SRC / "foes.s").read_text(), re.M)
+    if not m:
+        raise RuntimeError(f"{name} not found in foes.s")
+    return int(m.group(1), 16)
+
+
+def foes_const(name):
+    """A decimal constant out of foes.s."""
+    m = re.search(rf"^{re.escape(name)}\s*=\s*(\d+)", (SRC / "foes.s").read_text(), re.M)
+    if not m:
+        raise RuntimeError(f"{name} not found in foes.s")
+    return int(m.group(1))
 
 
 def cart_const(name):
@@ -716,15 +778,20 @@ THRTL_ACCEL = cart_const("THRTL_ACCEL")
 THRTL_MAX = (TIER_N - 1) * 128
 CLIMB_FRAMES = -(-(THRTL_MAX - TIER_ZERO * 128) // THRTL_ACCEL)  # 0 -> top, ceil
 TIER_STEP_FRAMES = -(-128 // THRTL_ACCEL)          # one tier's worth of hold
-BOOST_AT, TELEPORT_AT = 175, 185    # a forward reselect, then FIRE2, on the
-TP_OFF = 120                        #   straight leg where the field is
-                                    #   settled and any sweep the jump causes
-                                    #   has nowhere to hide. BOOST_AT relies on
-                                    #   forward already being RELEASED by then
-                                    #   - it has been, since TIER_UP_AT's climb
-                                    #   window (below) - so do_boost's arm/fire
-                                    #   gesture (input.s) only needs the single
+BOOST_AT, TELEPORT_AT = 175, 185    # a forward reselect, then FIRE2 double-
+TP_OFF = 120                        #   clicked, on the straight leg where the
+                                    #   field is settled and any sweep the
+                                    #   jump causes has nowhere to hide.
+                                    #   BOOST_AT relies on forward already
+                                    #   being RELEASED by then - it has been,
+                                    #   since TIER_UP_AT's climb window (below)
+                                    #   - so do_boost's arm/fire gesture
+                                    #   (input.s) only needs the single
                                     #   re-press scripted at BOOST_AT itself.
+TPCLICK_FRAMES = cart_const("TPCLICK_FRAMES")   # do_fire2's double-click
+TELEPORT_ARM_AT = TELEPORT_AT - 2   #   window - the first click has to land
+                                    #   inside it for the second, at
+                                    #   TELEPORT_AT itself, to fire the jump
 # The teleport is a DISCONTINUITY on purpose, and so is its recovery: the ship
 # moves 246 px in one frame, SHOFF snaps, the star bases are rebased from
 # scratch, and then the camera closes 1/16 of a 246 px gap per frame - 15 px on
@@ -802,6 +869,19 @@ SHP_DEAD = 0xFF
 shotstate = []                          # (live, ang) per slot, per frame
 hp = []                                 # OBJHP for the whole field, per frame
 
+# The enemies (foes.s). Their state lives under the window too, so ram().
+FOEST_A = foes_addr("FOEST")
+FSLIVE_A, FSANG_A = foes_addr("FSLIVE"), foes_addr("FSANG")
+FSH_N = foes_const("FSH_N")
+FOE_R = foes_const("FOE_R")
+OBJXL_A, OBJYL_A = cart_addr("OBJXL"), cart_addr("OBJYL")
+BODY_R = [int(v) for v in re.search(r"^BODY_R:\s*\.byte\s+([^;\n]+)",
+                                    (SRC / "physics.s").read_text(), re.M
+                                    ).group(1).split(",")]
+foestate = []                           # (FOEST, x, y) per loaded UFO, per frame
+fshotstate = []                         # (live, ang) per enemy bullet, per frame
+foe_inside = []                         # (frame, ufo, rock, depth) - must stay empty
+
 TIER_DOWN_AT, TIER_UP_AT = 130, 160     # the straight leg's two speed changes
 prev_joy1 = 0                           # JOY1_PREV: the OS's own joy_read
                                         #   maintains this from one frame's
@@ -844,8 +924,10 @@ for f in range(FRAMES):
     joy1_press = (joy1 & ~prev_joy1 & 0x0F)
     if f >= FIRE_FROM and (f - FIRE_FROM) % FIRE_EVERY == 0:
         joy1_press |= JOY_FIRE
-    if f == TELEPORT_AT:                        # FIRE2: TELEPORT
-        joy1_press |= JOY_FIRE2
+    if f == TELEPORT_ARM_AT or f == TELEPORT_AT:  # FIRE2, DOUBLE-CLICKED:
+        joy1_press |= JOY_FIRE2                   #   the first click arms the
+                                                   #   window, the second fires
+                                                   #   the teleport (do_fire2)
     cpu_mem[JOY1_PRESS] = joy1_press
     prev_joy1 = joy1
     call(cpu, API_GPU_BEGIN)
@@ -867,6 +949,32 @@ for f in range(FRAMES):
     trace.append(t)
     shotstate.append([(cpu_mem[SHTLIVE + i], cpu_mem[SHTANG + i])
                       for i in range(SHOT_N)])
+    fshotstate.append(list(zip(ram_block(FSLIVE_A, FSH_N), ram_block(FSANG_A, FSH_N))))
+    nfoe = cpu_mem[0x6E1C]                                  # NFOE
+    fst = [(s, cpu_mem[0x6F00 + i] | (cpu_mem[0x6F10 + i] << 8),
+            cpu_mem[0x6F20 + i] | (cpu_mem[0x6F30 + i] << 8))
+           for i, s in enumerate(ram_block(FOEST_A, nfoe))]
+    foestate.append(fst)
+    # THE GUARANTEE foes.s exists to keep: no live UFO ends a frame inside a
+    # live rock. Every rock, not just the ones near the camera - a UFO is
+    # simulated over the whole field and so is the promise. One collision unit
+    # of slack, because the cartridge measures in collision units and floors.
+    if any(s for s, _, _ in fst):
+        nr = cpu_mem[0x0CB8]
+        rc = ram_block(OBJSHP_A, nr)
+        rxl, rxh = ram_block(OBJXL_A, nr), ram_block(OBJXH, nr)
+        ryl, ryh = ram_block(OBJYL_A, nr), ram_block(OBJYH, nr)
+        for k, (s, ux, uy) in enumerate(fst):
+            if not s:
+                continue
+            for i in range(nr):
+                if rc[i] == SHP_DEAD:
+                    continue
+                dx = ((ux - (rxl[i] | (rxh[i] << 8)) + 32768) & 0xFFFF) - 32768
+                dy = ((uy - (ryl[i] | (ryh[i] << 8)) + 32768) & 0xFFFF) - 32768
+                rr = (BODY_R[rc[i]] + FOE_R - 1) * 32
+                if dx * dx + dy * dy < rr * rr:
+                    foe_inside.append((f, k, i, rr - int((dx * dx + dy * dy) ** 0.5)))
     npuff.append(1 if cpu_mem[EXN_A] else 0)
     explstate.append([(cpu_mem[EXLIVE + i], cpu_mem[EXAGE + i], cpu_mem[EXSET + i])
                       for i in range(EXPL_N)])
@@ -938,6 +1046,8 @@ for f in range(FRAMES):
             budget -= 1
     foes_in = 0
     for i in range(cpu_mem[0x6E1C]):                    # NFOE
+        if not ram(FOEST_A + i):                        # shot down: no contact
+            continue
         dx = sb8((cpu_mem[0x6F10 + i] - shxh) & 0xFF)   # FOEXH
         dy = sb8((cpu_mem[0x6F30 + i] - shyh) & 0xFF)   # FOEYH
         if dx * dx + dy * dy <= RAD_R2:
@@ -1403,7 +1513,8 @@ rev = []
 REV_FRAMES = -(-(TIER_ZERO * 128) // THRTL_ACCEL)   # tier 3 -> 0, full astern
 for f in range(60):
     cpu_mem[JOY1] = JOY_DOWN if f < REV_FRAMES else 0
-    cpu_mem[JOY1_PRESS] = JOY_FIRE2 if f == 45 else 0   # ...then teleport
+    cpu_mem[JOY1_PRESS] = JOY_FIRE2 if f in (43, 45) else 0  # ...then teleport,
+                                                              #   double-clicked
     call(cpu, API_GPU_BEGIN)
     call(cpu, CART_FRAME)
     call(cpu, API_GPU_END)
@@ -2177,7 +2288,7 @@ check("every shot rides the same zoom the ship does",
 # fired into a turn carries straight on instead of sweeping round with the view.
 bad_ang = []
 for f, p in allshots:
-    want = {(a - trace[f]["HEAD"]) & 0xFF for live, a in shotstate[f] if live}
+    want = {(a - trace[f]["HEAD"]) & 0xFF for live, a in shotstate[f] + fshotstate[f] if live}
     if p["ang"] not in want:
         bad_ang.append((f, p["ang"]))
 check("a shot holds its own heading while the camera turns", not bad_ang,
@@ -2259,6 +2370,30 @@ check("no split was ever refused for want of a slot", cpu_mem[NBLOCK_A] == 0,
       f"{cpu_mem[NBLOCK_A]} killing blows did not land because the field was "
       "full and rock_recycle found nothing safe to take. Not a bug - it is the "
       "designed backstop - but it means the ceiling is binding")
+
+# --- the enemies -------------------------------------------------------------
+# foes.s: UFOs that patrol, chase once they see the ship, keep off the rocks and
+# shoot. The flight starts with one inside its sight, so a chase and a shot are
+# things this run must SEE happen, not merely allow.
+alive_f = [sum(1 for s, _, _ in st if s) for st in foestate]
+chase_f = [sum(1 for s, _, _ in st if s == 2) for st in foestate]
+fired = sum(1 for f in range(1, FRAMES) for i in range(FSH_N)
+            if fshotstate[f][i][0] and not fshotstate[f - 1][i][0])
+bodies = [(f, p) for f in range(FRAMES) for p in polys(frames[f])
+          if p["enemy"] and tuple(p["offs"]) in ENEMY_BODY]
+print(f"        enemies: {alive_f[0]} UFO(s) loaded, {alive_f[-1]} alive at the end; "
+      f"chasing on {sum(1 for c in chase_f if c)} of {FRAMES} frames (at most "
+      f"{max(chase_f)} at once); {fired} shot(s) fired; {len(bodies)} body parts drawn")
+check("the level's UFOs are loaded", alive_f[0] > 0,
+      "no live UFO on the first frame - load_foes read nothing, or skipped every kind")
+check("a UFO that can see the ship chases it", any(chase_f),
+      "the flight opens with a UFO inside FOE_SEE and none ever pursued")
+check("the UFOs fire", fired > 0, "no enemy bullet was ever spawned")
+check("a UFO never turns: every body part at ANGLE 0, on the eased zoom",
+      all(p["ang"] == 0 and p["scale"] == trace[f]["ZEASH"] for f, p in bodies),
+      "a UFO part went out turned, or scaled by something other than ZEASH")
+check("no UFO ends a frame inside a rock", not foe_inside,
+      f"{len(foe_inside)} (frame, ufo, rock, world units deep), e.g. {foe_inside[:4]}")
 
 # --- the mini explosion ------------------------------------------------------
 # The puff is a cloud of DOT_PIXELS thrown off the hit point, and the animation

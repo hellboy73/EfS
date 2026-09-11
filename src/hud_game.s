@@ -159,6 +159,7 @@ IM_HULL      = 0                ; the ship took a hit
 IM_CRITICAL  = 1                ; ...and it is down to its last hit point
 IM_LEVEL     = 2                ; a level just started
 IM_LIFE      = 3                ; ...and a ship was lost, but not the last one
+IM_ENEMY     = 4                ; a UFO has seen the ship (foes.s foe_alarm)
 
 ; --- RAM ---------------------------------------------------------------------
 ; $7030-$70FF was the last clear stretch of the page thrust.s and shots.s share
@@ -869,8 +870,9 @@ IM_HULL_S:  .byte   "HULL BREACH", 0
 IM_CRIT_S:  .byte   "HULL CRITICAL", 0
 IM_LEVEL_S: .byte   "STAY ALIVE", 0
 IM_LIFE_S:  .byte   "SHIP LOST", 0
+IM_ENEMY_S: .byte   "ENEMY DETECTED", 0
 
-IND_LO:     .byte   <IM_HULL_S, <IM_CRIT_S, <IM_LEVEL_S, <IM_LIFE_S
-IND_HI:     .byte   >IM_HULL_S, >IM_CRIT_S, >IM_LEVEL_S, >IM_LIFE_S
+IND_LO:     .byte   <IM_HULL_S, <IM_CRIT_S, <IM_LEVEL_S, <IM_LIFE_S, <IM_ENEMY_S
+IND_HI:     .byte   >IM_HULL_S, >IM_CRIT_S, >IM_LEVEL_S, >IM_LIFE_S, >IM_ENEMY_S
 
         .segment "CODE2"

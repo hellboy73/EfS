@@ -256,12 +256,11 @@ RADLEFT     = $6E25             ; contacts still to be plotted before the whole
                                 ;   budget is spent. The scan stops at zero.
         .assert RADLEFT = RADWANT + 6, error, "radar.s: RADWANT's six bytes ran into RADLEFT"
 
-FOEXL       = $6F00             ; the enemies, FOE_MAX of each. Only the high
-FOEXH       = $6F10             ;   bytes are read by anything here; the low
-FOEYL       = $6F20             ;   bytes are carried because whatever finally
-FOEYH       = $6F30             ;   MOVES an enemy will need them, and a radar
-FOEKIND     = $6F40             ;   only stored what it draws would have to be
-                                ;   unpicked to get them back
+FOEXL       = $6F00             ; the enemies' positions and kinds, FOE_MAX of
+FOEXH       = $6F10             ;   each. The radar reads the high bytes and
+FOEYL       = $6F20             ;   FOEST (a dead one is no contact); foes.s
+FOEYH       = $6F30             ;   moves them, and keeps the rest of an
+FOEKIND     = $6F40             ;   enemy's state under the window, $9100 on
 
 RGWAIT      = $6E1D             ; frames to sit out before the next background
                                 ;   write is allowed - see 5.5
@@ -624,6 +623,8 @@ radar_foes:
         ldx     NFOE
         beq     @done
 @lp:    dex
+        lda     FOEST,x                 ; shot down, or a slot never filled
+        beq     @next                   ;   (foes.s): not a contact
         inc     RVISIT
         lda     FOEXH,x
         sec
@@ -849,53 +850,10 @@ emit_radar:
 @done:  rts
 
 ; -----------------------------------------------------------------------------
-; load_foes — the enemies out of levels.s, once.
+; load_foes, which fills FOEXL..FOEKIND and NFOE out of levels.s, lives in
+; foes.s now: loading an enemy stopped being "copy a position for the radar"
+; the day enemies started to move.
 ; -----------------------------------------------------------------------------
-; Called by cart_init after load_level, which has already left LVLIX pointing
-; at the level. Nothing else in the cartridge reads an enemy yet: the radar
-; needs positions to put blips on and nothing more, and E6 has not settled what
-; a KIND is - so the byte is carried and not interpreted.
-; -----------------------------------------------------------------------------
-load_foes:
-        stz     NFOE
-        ldx     LVLIX
-        lda     LVL_FOEN,x
-        beq     @done
-        cmp     #FOE_MAX                ; a level that authors more than there
-        bcc     :+                      ;   are slots loses the tail, quietly -
-        lda     #FOE_MAX                ;   the assembler cannot check this one
-:       sta     RTMP                    ;   the way it checks the rock count
-        lda     LVL_FOELO,x
-        sta     T0
-        lda     LVL_FOEHI,x
-        sta     T1
-
-@lp:    ldy     #$04                    ; stage the record: Y has to be the
-:       lda     (T0),y                  ;   record cursor here and the slot
-        sta     LVREC,y                 ;   below, and it cannot be both
-        dey
-        bpl     :-
-        ldx     NFOE
-        lda     LVREC+0
-        sta     FOEXL,x
-        lda     LVREC+1
-        sta     FOEXH,x
-        lda     LVREC+2
-        sta     FOEYL,x
-        lda     LVREC+3
-        sta     FOEYH,x
-        lda     LVREC+4
-        sta     FOEKIND,x
-        inc     NFOE
-        clc                             ; ...and on to the next five bytes
-        lda     T0
-        adc     #$05
-        sta     T0
-        bcc     :+
-        inc     T1
-:       dec     RTMP
-        bne     @lp
-@done:  rts
 
 ; The priority order the emit spends its slots in: enemies first, then the rock
 ; classes from 0 (192 px across) down to 4 (16 px). A table rather than a loop

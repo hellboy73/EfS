@@ -263,6 +263,8 @@ game_start:
         sta     ETIER
         stz     BOOSTN
         stz     BOOSTARM
+        stz     TPWIN                   ; ...and no FIRE2 click carries over
+        stz     TPLOCK                  ;   from the life that just ended
         lda     #1                      ; unlimited for now - see BOOST_AVAIL
         sta     BOOST_AVAIL
         stz     SHOFFL

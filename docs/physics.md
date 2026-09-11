@@ -7,6 +7,10 @@
 > placeholders: built is not the same as tuned. This file remains the single
 > place parameters live, so tuning is a rebuild rather than a rewrite.
 >
+> **The UFO is built, and it is NOT a physics body** — section 9. It is
+> kinematic: it steers, and it keeps out of everything instead of bouncing off
+> it. The rocks never see it.
+>
 > **What is not built yet, and why:** spin transfer (4.3) needs a per-object
 > spin, and spin is a property of the size class today — two RAM pages and two
 > lines in the integrator, and it is its own bench. Break-up (5) needs the
@@ -349,3 +353,74 @@ The cost figure has one obvious lever left if it is ever needed: gate collisions
 on a window narrower than the cull's, one compare per body. At full zoom-out the
 coarse window already admits about 28% of the world's rocks, so halving it is
 worth roughly four times fewer pairs.
+
+---
+
+## 9. The UFO — a steered body, not a colliding one
+
+[`src/foes.s`](../src/foes.s). The rocks bounce; the UFO **avoids**. It has no
+mass and no impulse, the rocks do not know it exists, and it is the UFO's job
+never to be where a rock is — on patrol as much as in a chase, because a UFO
+caught sitting inside a rock reads as a bug.
+
+**Behaviour.** A level record (`levels.s`, seven bytes) gives it a patrol course
+and speed, or speed 0 to hold a post. It sees the ship within `FOE_SEE`, turns
+toward it at `FOE_SPD` and holds `FOE_STAND` off; the first UFO to see it sounds
+the alarm (three beeps, ENEMY DETECTED). It holds its fire until it has closed to
+`FOE_SHOOT`, waits `FOE_FIRST` more, then fires once a second at where the ship
+is (no lead) while it stays that close. Past `FOE_LOSE` it gives up and is put
+straight back on its patrol course and speed. Velocity changes by at most
+`FOE_ACC` per axis per frame, so it turns in arcs.
+
+**Avoidance.** Every obstacle — rock, other UFO, the ship — has a ZONE: its own
+collision radius, the UFO's, and `FOE_MARGIN`. Of the zones the UFO is inside,
+the deepest decides, and three things happen, in this order:
+
+1. **Touching?** It is put on the circle just outside, obstacle + n·(rsum + 1).
+   The hard guarantee — the same snap `ship_separate` gives the ship (4.6).
+2. **Moving in?** The velocity component into the obstacle is replaced by an
+   outward push of 3 world units a frame per collision unit of depth, capped at
+   `FOE_SPD`. Only that component changes; nothing is rescaled, so sliding along
+   a rock cannot pump the speed up.
+3. **Going round.** A UFO with somewhere to be slides round at `FOE_VTMIN` at
+   least, the way it was already going — so one flying dead at a rock goes round
+   it and resumes its course instead of stopping at the edge. One holding a post
+   slides only off the path of something actually coming at it, against that
+   obstacle's own drift; a rock it merely sits beside it leaves alone, or the
+   spring back to its post would make it orbit.
+
+The normal is `d/|d|`, `|d|` from `max(M, 0.875M + 0.5m)` carried at 2×
+(ship_respond's estimate at 4×, which a 74-unit zone would overflow).
+
+**Ramming.** A ship that flies into a UFO pays a hit point exactly as for a rock,
+and the UFO is shoved out of the way; `FOE_RAMCD` frames pass before that UFO can
+charge it again. The UFO itself takes no damage — the rocks' rule (4.6, the
+rock's own hit point is off by request).
+
+**Thinking less than every frame.** Seeing and avoiding is the expensive half, so
+a UFO near the camera thinks every 2^`FOE_SNEAR` frames and one far outside the
+coarse window every 2^`FOE_SFAR`, both staggered by slot, with the acceleration
+scaled by the frames skipped. Two frames need no wider zone: `FOE_MARGIN` is
+already more than a split chip and a UFO can close in two. Eight frames get
+`FOE_LOOK` added — sound only because every rock that far out is frozen (6.1).
+Integration is every frame for every UFO.
+
+| name | meaning | value |
+|---|---|---|
+| `FOE_R` | the UFO's collision radius, collision units | **9** (18 full-res px) **(TBM)**; the shape is 1.25x the first one — at 1x (radius 7) it was too small next to the ship to hit, at 1.5x (11) too big |
+| `FOE_HP` | hits it takes | **3** |
+| `FOE_SEE` | sight | **6400** world units — the resting screen's height |
+| `FOE_LOSE` | it gives up the chase past this | **12800** — twice the sight |
+| `FOE_SHOOT` | it only fires within this | **3520** — 220 px **(TBM)**; it was `FOE_SEE`, and read as being shot the instant it saw you |
+| `FOE_STAND` | the chase holds this far off | **2560** — 160 px **(TBM)** |
+| `FOE_SPD` | the chase speed, 8.8 units a frame | **$2E6C** = 175 px/s, half the ship's top tier |
+| `FOE_BACK` | the most it backs off at, inside the stand-off | **FOE_SPD/2** |
+| `FOE_ACC` | velocity change per axis per frame, 8.8 | **$00C0** — rest to `FOE_SPD` in ~1 s **(TBM)** |
+| `FOE_MARGIN` | clear space round every obstacle, collision units | **16** — 32 px **(TBM)**; `FOE_R` + this ≤ 25 keeps a near UFO's cell walk 2x2 (`FOE_HIWN` ≤ 8, asserted) |
+| `FOE_VTMIN` | the least it slides round an obstacle at, 8.8 | **$1000** = 60 px/s **(TBM)** |
+| `FOE_FIRE` / `FOE_FIRST` | frames between shots / before the first, counted from reaching `FOE_SHOOT` | **60 / 60** + a stagger by slot |
+| `FOE_RAMCD` | frames before the same UFO can hurt a ramming ship again | **30** |
+| `FSH_MIN` | frames a bullet fired from off screen lives before the screen may take it | **60** |
+| `FOE_SNEAR` / `FOE_SFAR` | think every 2^this frames, near / far | **1 / 3** |
+| `FOE_FARPG` | pages past the coarse window before a UFO is far | **16** |
+| `SCORE_FOE_HIT` / `SCORE_FOE_KILL` | the player's pay for a hit / the last one | **50 / 100** |

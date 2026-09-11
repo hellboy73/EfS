@@ -12,7 +12,14 @@ rotating/zooming camera. It lives at `D:\GitHub\EfS` and is **self-contained** �
 
 The **firmware** (CPU1 OS + GPU OS) lives in the *separate* MAD-65 repo
 (`D:\GitHub\MAD-65`). After any firmware change: rebuild there (`make` in `roms/`)
-and **recopy** `cpu_os.bin` + `gpu_os.bin` into `EfS/roms/`.
+and **recopy** `cpu_os.bin` + `gpu_os.bin` into `EfS/roms/` — and refresh
+`roms/gpu_symbols.txt` (its header says how), which `tools/preview.py` reads.
+
+**CPU1 RAM has five areas, not four** — since 2026-09-11 `$C000-$DFFF`
+(`CART_HIRAM`, MAD-65 ABI) is the game's from `cart_init` on: 8 KB, full speed,
+always mapped, code or data, but holding the demo's image on entry. The map and
+the rules for every area are `design_technical.md` 11.19; read it before
+placing a byte.
 
 `D:\GitHub\CETAS` is the sister project — the first MAD-65 game, and the
 structural template for this one (cart.cfg / Model B bootstrap / asset tooling /

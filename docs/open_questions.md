@@ -70,13 +70,18 @@ Two mechanics ride on top, and neither has been judged yet:
   see below). 482.5 px/s is the ceiling of a signed 8.8 velocity, so it is
   authored as the top tier *doubled* (`TIER_SHL`) rather than typed; typing 500
   into the speed table fires the ship backwards.
-- **TELEPORT** (joystick 1 FIRE2): a jump along the heading whose length is not
-  authored at all. The ship lands on a fixed screen point (`TP_OFF = 120`), so the
-  distance falls out of the geometry as `SHOFF - landing`: 246 px at +350, 160 px
-  at a standstill, and backwards in reverse.
+- **TELEPORT** (joystick 1 FIRE2, double-clicked): a jump along the heading whose
+  length is not authored at all. The ship lands on a fixed screen point
+  (`TP_OFF = 120`), so the distance falls out of the geometry as `SHOFF -
+  landing`: 246 px at +350, 160 px at a standstill, and backwards in reverse.
+  FIRE2 is shared with a **future weapon select** — a single click is reserved
+  for that (`do_fire2`, input.s) and does nothing yet, since there is only the
+  one gun. `TPCLICK_FRAMES`/`TPLOCK_FRAMES` (main.s, ~300 ms/~250 ms) are a
+  first cut at the double-click window and the post-teleport lockout that stops
+  a triple click's third edge from landing as the next single click - both TBM.
 
-Open: the eleven values, the throttle's ramp rate, and whether boost and teleport
-belong in the game at all.
+Open: the eleven values, the throttle's ramp rate, whether boost and teleport
+belong in the game at all, and the double-click/lockout timings above.
 
 **B3. Camera lag constant (TBM — narrowed to one number).** Half of this question
 is answered: the ship's screen slide and the zoom **do** share a constant. Both
@@ -388,6 +393,40 @@ levers are still:
 - the collision window, which `E1` already names as the lever left if the object
   count grows past what the cull can absorb.
 
+**E10. Overload fallback: play a THRUSTER MALFUNCTION off the AST_MAX/PPRAM
+trip (TBD, safety net — proposed 2026-09-11, not built).** The engine already
+detects "too many rocks": when `AST_MAX` binds before `AST_BUDGET` is spent, or
+a per-frame list overflows (`VIS_MAX`, PPRAM's own drop-the-tail behaviour), the
+rest of that frame's rocks are silently abandoned rather than drawn (see the
+`AST_BUDGET`/`AST_MAX` note in `main.s` around line 294, and G7's radar
+equivalent). Idea: treat that trip as an alarm and spend it on something the
+player feels instead of a frame that just quietly loses rocks — a
+"THRUSTER MALFUNCTION" state that clamps the throttle's reachable range to the
+*middle* of B1's ladder (not the top tier, not a standstill). Because C1 ties
+zoom to throttle tier, a forced-mid speed forces a forced-mid zoom — tighter
+than top speed's 2x-out, though not the tightest possible — which shrinks the
+visible-object count (C1: cost scales as the *square* of the zoom) and buys the
+overload a few seconds to recover before it can retrigger.
+
+**It has to read as a game event, not a glitch.** The whole point is that a
+player who hits this should experience "my ship is damaged/failing," not "the
+game stuttered" — so it needs the same billing as any other scripted systems
+failure: HUD text naming it, its own sound cue, maybe a screen-shake or a
+flicker on the throttle readout, not just a silent speed cap appearing out of
+nowhere. That framing is also what makes it forgiving to design around: since
+it is diegetic, it can be foreshadowed (story.md's Saturnium-anomaly flavour,
+A4, is sitting right there) rather than sprung on the player as an invisible
+performance clamp. This also argues for *not* triggering it purely off a raw
+engine counter (E1/E9's overload signal is a GPU-budget trip, not a narrative
+beat) — better to gate it so it can only fire where the fiction can carry it,
+e.g. armed on levels that already justify strain on the ship.
+
+Not attempted, and nothing here is measured: not the 3 s duration (pure
+guess), not "half the ladder," not which counter arms it. Filed here so it is
+not forgotten if a split cascade (E9) or a content-heavy level ever sustains
+real overload in play — at which point this needs an actual flying pass, the
+same way B1-B8 did, not just picked numbers.
+
 **E4. Restitution, spin gain, split impulse, break-up threshold (TBM).** The whole
 tuning surface, and still largely open — the physics *runs* now, which means the
 iteration loop this question was waiting for can start.
@@ -411,18 +450,29 @@ deferring it, and one pathological frame cannot eat the budget. That is deferral
 not the amortisation this question feared: there is no pass-through, because the
 detection is never the thing that gets skipped.
 
-**E6. Enemy roster (TBD).** Types and behaviours. The story fixes the *shape* of
-what is needed (see `story.md`): a **cloak state** (visible/invisible while still
-simulated), and **patrol / detect / pursue / lose-track** behaviour with a
-detection radius. Still open: how many distinct alien types, whether they obey the
-same collision physics as rocks or fly under their own control, and how they are
-armed.
+**E6. Enemy roster (the first kind is SETTLED — the UFO; the rest is TBD).** The
+story fixes the *shape* of what is needed (see `story.md`): a **cloak state**
+(E7), and **patrol / detect / pursue / lose-track** behaviour with a detection
+radius. The UFO (`src/foes.s`, `design_technical.md` 11.23) is the first kind and
+settles the second half of that sentence for it: the level record, patrol, sight
+and its hysteresis, the chase, the gun, avoidance in place of collision physics,
+and what a kill does. Shape representation is 11.20 and simulation lifetime
+11.21. Still open:
 
-The *format* already exists even though the roster does not: `levels.s` carries
-enemy placements as `XL, XH, YL, YH, kind` — five bytes each, placed by hand in
-the level editor beside the rocks — and nothing reads them yet. So the bench that
-takes E6 on inherits a level format instead of inventing one, and the radar (G3)
-needs the smallest possible reader for it — positions and nothing else.
+- **How many more kinds, and what they do.** `KIND` 0 is the UFO, and
+  `load_foes` skips any kind nothing knows how to fly. The WORM's outline is
+  authored in `enemies.s` and has no behaviour.
+- **Animating parts** — a turret tracking, a barrel recoiling. The UFO's parts
+  never move relative to each other; only its wreck moves them.
+- **The GPU side of an enemy (TBM).** Two POLYGON16 commands a UFO, one a bullet,
+  one a wreck piece — and `AST_NONROCK` (main.s), which the rock outline budget
+  is derived from, has not been raised to cover any of it: the same debt
+  shots.s's header already owes for the gun. madsim's F3 meter is where it is
+  measured, not `tools/preview.py`, which does not model the GPU's clock.
+- **The far field.** 11.21's whole-field simulation stands, with the thinking
+  decimated (11.23). If the roster outgrows that, the next lever is to freeze a
+  far PATROL outright, the rocks' rule, and keep only chases alive — a chase is
+  near the ship by definition.
 
 **E7. Cloak semantics (TBD).** When an enemy is cloaked, is it only invisible, or
 also non-collidable and non-targetable? Different answers make level 2 either eerie
@@ -741,7 +791,7 @@ separate rendering path.
 ## H. Death, screens and the flow between them
 
 **H1. The screens the two-state machine is a placeholder for (TBD).**
-`design_technical.md` 11.20 settles what happens when a life is lost and when
+`design_technical.md` 11.22 settles what happens when a life is lost and when
 the last one is: the blink, the wreck, the banner, `game_start`. It settles
 nothing about the **screens**. There is no title, no attract mode, no level
 summary, no continue window, no hall of fame — and CETAS has all five, each
@@ -758,7 +808,7 @@ them once rather than the game-over one alone.
 **H2. The wreck's numbers (TBM, and being flown).** `DEBRIS_FRAMES` 120,
 `DEBRIS_K` 11, `DEBRIS_JIT` 32, `DEBRIS_SPIN` 2 (`src/debris.s`). It has already
 moved twice — 45/28/64/4, then 60/21/64/4, now this — and the lesson each time
-was that the four are **one setting**: `design_technical.md` 11.20 gives the two
+was that the four are **one setting**: `design_technical.md` 11.22 gives the two
 formulas that tie them, and halving `K`/`SPIN` while doubling `FRAMES` is what
 "slower and longer" actually means. **How to settle:** keep flying it in madsim;
 the shape of the break-up comes from `SHIP_SHAPE` itself, so these four numbers
@@ -775,10 +825,10 @@ Two known simplifications, both deliberate and both documented in the file:
   centre was asked for and is not built; the wreck currently opens with the same
   `expl_at` cloud a rock hit throws off. That is a sprite-authoring job, not an
   engine one. The SOUND of it is no longer a placeholder — three layers, see
-  `design_technical.md` 11.20 — so the picture is now the half that is behind.
+  `design_technical.md` 11.22 — so the picture is now the half that is behind.
 
 **H4. What else wants the voice arbiter (TBD).** Making the claim per voice
-(`sfx.s` `VPRI`/`VLEN`, `design_technical.md` 11.20) settled the loss tune being
+(`sfx.s` `VPRI`/`VLEN`, `design_technical.md` 11.22) settled the loss tune being
 cut, and it is the mechanism anything long will need: an enemy's warning sound,
 a level's opening sting, a boss. **Open:** whether `PRI_DEATH` should stay the
 only thing above `PRI_BOOM`, or whether the scale needs a band for "narrative"

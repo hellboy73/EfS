@@ -40,10 +40,13 @@ A level's rocks come from two places and the editor shows both at once:
     order - so a reroll is judged here rather than in the simulator.
   * THE PLACED ROCKS - drawn bright, dragged with the mouse, the set-pieces.
 
-Enemies are placed the same way as rocks. Nothing reads them yet (the enemy
-bench is the next one, and open_questions E6 has not settled the roster), so
-the KIND byte is just a number for now; the positions are authored here so
-that bench inherits a level format instead of inventing one.
+Enemies are placed the same way as rocks, and each one also carries its
+PATROL: a heading (brad, 0 = up the map, the ship's convention) and a speed in
+pixels a second, 0..175, where 0 holds its post. The arrow on an enemy is that
+course, as long as the speed; the dashed circle ("show enemy sight") is how far
+it SEES - the resting screen's height, foes.s FOE_SEE - so which patrols will
+spot the ship where is judged here. KIND 0 is the UFO, the only kind with a
+behaviour; the game does not load any other.
 
 Mouse: left-click selects, left-drag moves, double-click on empty space adds
 one of whatever the Place panel is set to, Delete removes it. The wheel zooms
@@ -79,6 +82,17 @@ HALF = WORLD // 2                       #   bits: the wrap IS the overflow
 UNITS_PER_PX = 16                       # world units to one full-res pixel
 FOE_KINDS = 8                           # what fits in the editor's spinbox; the
                                         #   roster itself is open_questions E6
+KIND_NAMES = {0: "UFO"}                 # ...and the ones foes.s can fly
+FOE_REC = 7                             # bytes an enemy record takes: XL XH YL YH
+                                        #   kind heading speed (levels.s header)
+FOE_SPD_MAX = 175                       # px/s - the pursuit speed, foes.s FOE_SPD;
+                                        #   no patrol is meant to outrun a chase
+FOE_SEE = 400 * UNITS_PER_PX            # how far one sees: the resting screen's
+                                        #   height, foes.s FOE_SEE
+
+
+def kind_name(k):
+    return KIND_NAMES.get(k, f"kind {k}")
 
 # The screen's footprint in world units, filled in from main.s at start-up by
 # _read_screen so it cannot drift from the framebuffer the game actually has.
@@ -268,10 +282,18 @@ class Model:
             rocks = [{"x": raw[j] | (raw[j + 1] << 8), "y": raw[j + 2] | (raw[j + 3] << 8),
                       "cls": raw[j + 4], "type": raw[j + 5]}
                      for j in range(0, len(raw) - len(raw) % 6, 6)]
+            # The record size is read off the file's own count expression, so a
+            # file from before the patrol bytes (5 per record) still loads - and
+            # is written back at FOE_REC, holding its post, on the next Save.
+            m = re.search(rf'^L{i}_FOEN\s*=\s*\(LVL{i}_FOES_END\s*-\s*LVL{i}_FOES\)'
+                          rf'\s*/\s*(\d+)', body, re.M)
+            rec = int(m.group(1)) if m else FOE_REC
             raw = blocks.get(f"LVL{i}_FOES", [])
             foes = [{"x": raw[j] | (raw[j + 1] << 8), "y": raw[j + 2] | (raw[j + 3] << 8),
-                     "kind": raw[j + 4]}
-                    for j in range(0, len(raw) - len(raw) % 5, 5)]
+                     "kind": raw[j + 4],
+                     "hd": raw[j + 5] if rec > 5 else 0,
+                     "spd": raw[j + 6] if rec > 6 else 0}
+                    for j in range(0, len(raw) - len(raw) % rec, rec)]
             levels.append(Level(
                 names.get(i, f"LEVEL {i}"),
                 [k(i, f"N{c}") for c in CLASSES],
@@ -303,7 +325,7 @@ def render_generated(model):
     out.append(f"NLEVELS     = {n}")
     out.append("")
     out.append("; Level names. A comment, not a table - no level has anything to print them")
-    out.append("; on yet, and a string per level is ROM the bench cannot spend. The editor")
+    out.append("; on yet, and a string per level is ROM with nothing to spend it on. The editor")
     out.append("; reads and rewrites these lines, so keep the format.")
     for i, l in enumerate(lv):
         out.append(f';   NAME {i} "{l.name}"')
@@ -345,16 +367,19 @@ def render_generated(model):
                 f"       ; {CLASSES[r['cls']]}{string.ascii_uppercase[r['type']]}"
                 f" at {r['x']}, {r['y']}")
         out.append(f"LVL{i}_ROCKS_END:")
-        out.append("; enemies: XL, XH, YL, YH, kind - 5 bytes each")
+        out.append(f"; enemies: XL, XH, YL, YH, kind, heading, speed - {FOE_REC} bytes each")
         out.append(f"LVL{i}_FOES:")
         for f in l.foes:
+            what = (f"course {f['hd']} at {f['spd']} px/s" if f["spd"]
+                    else "holding its post")
             out.append("        .byte   " + ", ".join(
                 f"${v:02X}" for v in (f["x"] & 0xFF, (f["x"] >> 8) & 0xFF,
                                        f["y"] & 0xFF, (f["y"] >> 8) & 0xFF)) +
-                f", {f['kind']}       ; kind {f['kind']} at {f['x']}, {f['y']}")
+                f", {f['kind']}, {f['hd']}, {f['spd']}"
+                f"       ; {kind_name(f['kind'])} at {f['x']}, {f['y']}, {what}")
         out.append(f"LVL{i}_FOES_END:")
         out.append(f"L{i}_ROCKN    = (LVL{i}_ROCKS_END - LVL{i}_ROCKS) / 6")
-        out.append(f"L{i}_FOEN     = (LVL{i}_FOES_END - LVL{i}_FOES) / 5")
+        out.append(f"L{i}_FOEN     = (LVL{i}_FOES_END - LVL{i}_FOES) / {FOE_REC}")
         out.append(f"L{i}_TOTAL    = L{i}_N192 + L{i}_N128 + L{i}_N64 + L{i}_N32 + "
                    f"L{i}_N16 + L{i}_ROCKN")
         out.append("")
@@ -543,6 +568,11 @@ class LevelEditor(tk.Tk):
                         variable=self.show_frames, command=self._draw, bg=BG,
                         fg=TEXT, selectcolor="#333", activebackground=BG
                         ).grid(row=7, column=0, columnspan=3, sticky="w")
+        self.show_sight = tk.IntVar(value=0)
+        tk.Checkbutton(f, text="show enemy sight", variable=self.show_sight,
+                        command=self._draw, bg=BG, fg=TEXT, selectcolor="#333",
+                        activebackground=BG).grid(row=8, column=0, columnspan=3,
+                                                  sticky="w")
 
         self.total_label = tk.Label(side, text="", bg=BG, fg=DIM, anchor="w")
         self.total_label.pack(fill="x", pady=(4, 0))
@@ -586,6 +616,12 @@ class LevelEditor(tk.Tk):
         tk.Label(f, text="Enemy kind", bg=BG, fg=TEXT).grid(row=3, column=0, sticky="w", pady=1)
         self.new_kind = tk.Spinbox(f, from_=0, to=FOE_KINDS - 1, width=5)
         self.new_kind.grid(row=3, column=1, sticky="w", padx=4)
+        tk.Label(f, text="Heading", bg=BG, fg=TEXT).grid(row=4, column=0, sticky="w", pady=1)
+        self.new_hd = tk.Spinbox(f, from_=0, to=255, increment=8, width=5)
+        self.new_hd.grid(row=4, column=1, sticky="w", padx=4)
+        tk.Label(f, text="Speed px/s", bg=BG, fg=TEXT).grid(row=5, column=0, sticky="w", pady=1)
+        self.new_spd = tk.Spinbox(f, from_=0, to=FOE_SPD_MAX, increment=5, width=5)
+        self.new_spd.grid(row=5, column=1, sticky="w", padx=4)
 
     def _build_sel_panel(self, side):
         f = self._section(side, "Selection")
@@ -605,6 +641,18 @@ class LevelEditor(tk.Tk):
         e.bind("<FocusOut>", lambda ev: self._commit_sel())
         tk.Button(f, text="Delete", command=self._delete_selected).grid(row=1, column=2,
                                                                         rowspan=2, padx=6)
+        tk.Label(f, text="Heading", bg=BG, fg=TEXT).grid(row=3, column=0, sticky="w")
+        self.selhd = tk.StringVar()
+        e = tk.Entry(f, textvariable=self.selhd, width=8)
+        e.grid(row=3, column=1, padx=4)
+        e.bind("<Return>", lambda ev: self._commit_sel())
+        e.bind("<FocusOut>", lambda ev: self._commit_sel())
+        tk.Label(f, text="Speed px/s", bg=BG, fg=TEXT).grid(row=4, column=0, sticky="w")
+        self.selspd = tk.StringVar()
+        e = tk.Entry(f, textvariable=self.selspd, width=8)
+        e.grid(row=4, column=1, padx=4)
+        e.bind("<Return>", lambda ev: self._commit_sel())
+        e.bind("<FocusOut>", lambda ev: self._commit_sel())
 
     # ---- model helpers ------------------------------------------------------
     def _lvl(self):
@@ -808,16 +856,29 @@ class LevelEditor(tk.Tk):
             self.map.create_line(x, y, x + vx / n * k, y + vy / n * k, fill=color)
 
     def _draw_foe(self, f, color):
+        import math
         x, y = self._to_canvas(f["x"], f["y"])
         w = self.map.winfo_width() or 700
         h = self.map.winfo_height() or 700
-        if x < -20 or y < -20 or x > w + 20 or y > h + 20:
+        sight = FOE_SEE * self.ppu if self.show_sight.get() else 0
+        reach = max(40, sight)
+        if x < -reach or y < -reach or x > w + reach or y > h + reach:
             return
+        if sight:
+            self.map.create_oval(x - sight, y - sight, x + sight, y + sight,
+                                  outline=color, dash=(2, 4))
         s = 7
         self.map.create_polygon(x, y - s, x + s, y, x, y + s, x - s, y,
                                  outline=color, fill="", width=2)
-        self.map.create_text(x + 11, y - 9, text=str(f["kind"]), fill=color,
-                              font=("Consolas", 8))
+        if f.get("spd"):
+            # the patrol course: forward is (sin H, -cos H), +Y down the map,
+            # exactly as the ship's heading is drawn in _draw_ship
+            a = f.get("hd", 0) * 2 * math.pi / 256
+            k = 10 + 30 * min(f["spd"], FOE_SPD_MAX) / FOE_SPD_MAX
+            self.map.create_line(x, y, x + math.sin(a) * k, y - math.cos(a) * k,
+                                  fill=color, width=2, arrow=tk.LAST)
+        self.map.create_text(x + 11, y - 9, text=kind_name(f["kind"]), fill=color,
+                              anchor="w", font=("Consolas", 8))
 
     def _draw_ship(self, lv, color):
         import math
@@ -892,7 +953,9 @@ class LevelEditor(tk.Tk):
             lv.rocks.append({"x": wx, "y": wy, "cls": cls, "type": t})
             self.sel = ("rock", len(lv.rocks) - 1)
         else:
-            lv.foes.append({"x": wx, "y": wy, "kind": int(self.new_kind.get())})
+            lv.foes.append({"x": wx, "y": wy, "kind": int(self.new_kind.get()),
+                            "hd": int(self.new_hd.get()) & 0xFF,
+                            "spd": max(0, min(FOE_SPD_MAX, int(self.new_spd.get())))})
             self.sel = ("foe", len(lv.foes) - 1)
         self._touch()
         self._refresh_sel()
@@ -999,6 +1062,8 @@ class LevelEditor(tk.Tk):
         self._draw()
 
     def _refresh_sel(self):
+        self.selhd.set("")
+        self.selspd.set("")
         if self.sel is None:
             self.sel_label.configure(text="Nothing selected")
             self.selx.set("")
@@ -1017,8 +1082,10 @@ class LevelEditor(tk.Tk):
             x, y = r["x"], r["y"]
         else:
             f = lv.foes[i]
-            self.sel_label.configure(text=f"Enemy {i} - kind {f['kind']}")
+            self.sel_label.configure(text=f"Enemy {i} - {kind_name(f['kind'])}")
             x, y = f["x"], f["y"]
+            self.selhd.set(str(f.get("hd", 0)))
+            self.selspd.set(str(f.get("spd", 0)))
         self.selx.set(str(x))
         self.sely.set(str(y))
 
@@ -1040,6 +1107,13 @@ class LevelEditor(tk.Tk):
         else:
             item = lv.rocks[i] if kind == "rock" else lv.foes[i]
             item["x"], item["y"] = x, y
+            if kind == "foe":
+                try:
+                    item["hd"] = int(self.selhd.get(), 0) & 0xFF
+                    item["spd"] = max(0, min(FOE_SPD_MAX, int(self.selspd.get(), 0)))
+                except ValueError:
+                    pass
+                self._refresh_sel()
         self._touch()
         self._draw()
 
