@@ -1727,6 +1727,9 @@ rock_take_hit:
 
 rock_destroy:
         stx     SPL_P
+        txa                             ; anything RIDING it comes off first -
+        jsr     foe_unmount             ;   see foes.s, and read its note before
+        ldx     SPL_P                   ;   moving this call
         lda     OBJSHP,x
         cmp     #SPLIT_LAST
         bcs     @gone

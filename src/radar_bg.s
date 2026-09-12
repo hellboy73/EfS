@@ -21,7 +21,7 @@ RING_XB      = 37                ; destination byte column
 RING_Y0      = 1               ; destination row of source row 0
 RING_GAP     = 0                 ; solid - nothing under the ring to
                                 ;   show through
-RING_BANK    = 1                 ; cart.cfg: BGDATA lives in bank 1
+RING_BANK    = 4                 ; cart.cfg: BGDATA lives in bank 4
 
         .segment "BGDATA"       ; stays in the cartridge window - never
                                 ;   copied to RAM. See cart.cfg.

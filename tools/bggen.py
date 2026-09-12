@@ -180,7 +180,7 @@ def rle_blob(data):
 
 # --- the conversion ----------------------------------------------------------
 FB_W, FB_H, ROW_BYTES = 400, 300, 50
-BGDATA_BANK = 1                             # must match cart.cfg's BGDATA segment
+BGDATA_BANK = 4                             # must match cart.cfg's BGDATA segment
 
 
 def main(src, dst, label, at):

@@ -71,11 +71,24 @@
 
 ; --- tunables - physics.md 9 is where these are argued; all of them are TBM --
 FOE_REC     = 7                 ; bytes a level spends on one enemy (levels.s)
-FK_UFO      = 0                 ; KIND 0 is the UFO, the only kind with a
-                                ;   behaviour; load_foes skips any other
+FK_UFO      = 0                 ; KIND 0 is the UFO...
+FK_SPIDER   = 1                 ; ...and KIND 1 the excavator. A kind nothing
+                                ;   knows how to fly is still skipped by
+                                ;   load_foes
+FK_N        = 2                 ; how many kinds have a behaviour
 FS_DEAD     = 0                 ; FOEST: an empty or destroyed slot
 FS_PATROL   = 1
 FS_PURSUE   = 2
+FS_MOUNTED  = 3                 ; riding a rock, WORKING: no physics, no
+                                ;   steering, no damage - and no eyes and no
+                                ;   gun. It does not react to the ship at all
+                                ;   until its rock breaks
+FS_SEEN     = FS_PURSUE         ; an ADRIFT spider that has seen the ship. The
+                                ;   UFO's pursuit byte ON PURPOSE - foe_alarm's
+                                ;   "has anybody got this" walks for exactly it -
+                                ;   and nothing else: a spider never reaches
+                                ;   foe_seek or foe_steer, so for a spider this
+                                ;   byte steers nothing. It is a digger
 
 FOE_R       = 9                 ; the UFO's circle, collision units (32 world
                                 ;   units = one half-res px): 18 full-res px,
@@ -135,6 +148,31 @@ FOE_OCC     = 8                 ; the stars go out inside this, half-res px
 FOE_SMARG   = 40                ; draw it this far past the screen edge
 SCORE_FOE_HIT  = 50
 SCORE_FOE_KILL = 100
+
+; --- the SPIDER, an excavator: a tank that can barely fight back ----------
+SPD_HP      = 15*HIT_HP         ; 150 - fifteen bullets. Three times the
+                                ;   biggest rock, five times a UFO, and about
+                                ;   38 lit laser frames. A mini-boss on
+                                ;   purpose: the tough half
+SPD_DMG     = HIT_HP/2          ; ...and the feeble half. Half an ordinary hit,
+                                ;   where a UFO's bullet is a whole one
+SPD_SPD     = SHOT_SPD/2        ; its pixel crawls at half the blaster's speed,
+                                ;   slow enough to fly around
+SPD_MOUNTCL = 1                 ; the SMALLEST class it mines: 0 or 1, the 192
+                                ;   and the 128 px rocks. It mounts the NEAREST
+                                ;   of them at load
+SPD_SPINM   = $7F               ; a drifting spider's SPIN, as a mask on a
+                                ;   random byte: +/-0.5 brad a frame at most,
+                                ;   a 64 px rock's rate, and never under 1/32.
+                                ;   Random per spider - a machine thrown off a
+                                ;   breaking rock does not come off at a
+                                ;   class's rate - and after that it is the
+                                ;   PHYSICS' to change, collisions and all
+SPD_MOUNTR  = 48                ; ...and only one within this, in PAGES of
+                                ;   world units (48 pages = 12288 units, 768
+                                ;   px at rest): a spider whose rock the level
+                                ;   did not place near it starts adrift rather
+                                ;   than teleporting across the field
 
 FSH_N       = 8                 ; enemy bullets in flight at once
 FSH_MIN     = 60                ; frames one fired from OFF screen lives before
@@ -211,6 +249,31 @@ FOEON       = $9260             ; ...valid while this is 1
 FOEPSPD     = $9270             ; the patrol speed, px/s - 0 holds a post
 FOESLP      = $9280             ; frames left before its screen transform
                                 ;   runs again, 0 = every frame
+FOEACD      = $92A0             ; ANIMATION: frames left in this playlist
+                                ;   step, counted down every frame...
+FOEAST      = $92B0             ; ...and which step it is.
+                                ;
+                                ; PER FOE, and not derived from FRAME, for two
+                                ; reasons. A hold and a playlist length are
+                                ; both ANY number now (enemies.s) - a 6-frame
+                                ; hold has no shift and a 3-step playlist has
+                                ; no mask - so the clock has to count rather
+                                ; than divide. And a STATE-DRIVEN enemy has to
+                                ; be able to restart its own loop, which a
+                                ; global clock cannot do: the spider mounted on
+                                ; a rock and the spider adrift are two loops of
+                                ; one machine.
+FOEAPP      = $92C0             ; which APPEARANCE it wears - EA_*, the index
+                                ;   every EN_* table in enemies.s takes. NOT
+                                ;   the kind: one KIND can wear two, which is
+                                ;   the spider mounted and the spider adrift
+FOEROCK     = $92D0             ; the OBJECT SLOT a mounted foe rides
+FOEANG      = $92E0             ; the ANGLE it is drawn at. 0 for everything
+                                ;   that does not turn (the UFO never does);
+                                ;   a mounted foe copies its rock's OBJANG
+                                ;   here every frame and the GPU spins the
+                                ;   whole shape about the rock's centre for
+                                ;   nothing - which is the entire trick
 FOENEW      = $9290             ; 1 until its first think, which then runs on
                                 ;   the very next frame whatever its phase: a
                                 ;   level can put a UFO on top of a scattered
@@ -236,9 +299,17 @@ FSSEEN      = $9378             ; 1 once it has been on the screen
 FSPDX       = $9380             ; last frame's offset from the ship, collision
 FSPDY       = $9388             ;   units, for the swept test against the ship
 FSPOK       = $9390             ; ...valid while this is 1
+FSDMG       = $9398             ; what this bullet takes off what it hits. Per
+                                ;   BULLET, not per kind, because it outlives
+                                ;   the shot: a spider's pixel is half a hit
+                                ;   and it has to still be half a hit when it
+                                ;   lands, whoever fired it is by then
 
 FWN         = $9400             ; the wreck pieces, eight apart. Frames left
-FWPART      = $9408             ; which part of the shape it is
+FWPART      = $9408             ; which ROW of EN_*_PLO it is - the part index
+                                ;   plus the animation row the UFO died in
+                                ;   (FEANM), so a wreck keeps the frame it
+                                ;   came apart in for as long as it is drawn
 FWAXL       = $9410             ; the world point it is anchored to
 FWAXH       = $9418
 FWAYL       = $9420
@@ -364,6 +435,22 @@ FEOVYL      = $9570
 FEOVYH      = $9571
 FEVOL       = $9572             ; ...along or across the normal
 FEVOH       = $9573
+FEUNM       = $9577             ; foe_unmount: the rock slot coming apart
+FECAR       = $957A             ; spider_carrier: the slot being built
+FEBEST      = $9578             ; foe_mount: the nearest candidate rock, in
+FEBESTI     = $9579             ;   pages, and which one
+FEPW        = $9576             ; ...and how many of them fly off as wreck
+                                ;   pieces, EN_PW[app]
+FEPN        = $9575             ; the part count of the appearance being
+                                ;   drawn or broken up - EN_PN[app], loaded
+                                ;   once rather than per part
+FEANM       = $9574             ; this frame's ANIMATION ROW for FEI's shape -
+                                ;   the playlist step times the part count, so
+                                ;   adding a part index indexes EN_*_PLO. Set
+                                ;   by foe_anim, and every reader of the shape
+                                ;   (foe_body, fw_spawn, fw_centre) goes
+                                ;   through it, so a UFO that dies is drawn as
+                                ;   a wreck in the frame it died in
         .assert FEREC + FOE_REC <= FEWI, error, "foes.s: FEREC ran into the wreck scratch"
 
 ; =============================================================================
@@ -414,7 +501,27 @@ foe_think_all:
 :       lda     FOERAM,x
         beq     :+
         dec     FOERAM,x
+:       dec     FOEACD,x                ; ...and so does the animation step
+        bne     @anim
+        ldy     FOEAPP,x
+        lda     EN_AHOLD,y
+        sta     FOEACD,x
+        lda     FOEAST,x
+        inc     a
+        cmp     EN_AN,y
+        bcc     @stp
+        lda     #$00
+@stp:   sta     FOEAST,x
+@anim:  lda     FOEKIND,x               ; A SPIDER is never integrated: it rides
+        cmp     #FK_SPIDER              ;   its rock, or adrift its own CARRIER,
+        bne     @free                   ;   a body the physics moves and bounces
+        jsr     foe_ride
+        bcc     :+                      ; CARRY SET: no body to be had - the pool
+        ldx     FEI                     ;   is full - so this frame it drifts on
+        jsr     foe_integrate           ;   its own velocity, and hits nothing
 :       jsr     foe_think
+        bra     @next
+@free:  jsr     foe_think
         ldx     FEI
         jsr     foe_integrate
 @next:  dec     FEI
@@ -464,9 +571,263 @@ foe_think:
         and     FE_PMASK,y
         beq     @go
         rts
-@go:    jsr     foe_seek
+@go:    lda     FOEKIND,x
+        cmp     #FK_SPIDER
+        beq     spider_think
+        jsr     foe_seek
         jsr     foe_steer
         jmp     foe_avoid
+
+; -----------------------------------------------------------------------------
+; spider_think - the excavator. X = FEI.
+; -----------------------------------------------------------------------------
+; It does not seek and it does not steer. MOUNTED it cannot move at all - its
+; position is its rock's, copied in foe_ride. ADRIFT it rides its CARRIER, a
+; body in the rock pool that the physics drifts, spins and bounces off rocks
+; (spider_carrier), so nothing here moves it either. What is left is the eyes
+; and the gun, and a MOUNTED spider has neither: it is working, and it does not
+; react to the ship until it falls off. (It had a gun once, and the gun's first
+; bullet left from inside its own rock and broke it.) ADRIFT it watches and
+; shoots - spider_watch.
+; -----------------------------------------------------------------------------
+spider_think:
+        lda     FOEST,x
+        cmp     #FS_MOUNTED
+        bne     spider_watch
+        rts                             ; on its rock it WORKS: no eyes, no gun
+
+; -----------------------------------------------------------------------------
+; spider_watch - adrift: eyes and a gun on a body it cannot steer. X = FEI.
+; -----------------------------------------------------------------------------
+; It never moves itself - the physics drifts, spins and bounces its carrier, and
+; nothing here writes a velocity. What it has is a UFO's EYES: FS_PATROL until
+; the ship is inside FOE_SEE, then FS_SEEN with the UFO's own wind-up and
+; stagger, back to FS_PATROL past FOE_LOSE. FS_SEEN is the UFO's pursuit byte
+; so that foe_alarm counts it - ENEMY DETECTED sounds the frame the ship comes
+; in range, which for a spider just shot off its rock is usually the next one -
+; and while it is set, the gun fires once a second inside FOE_SHOOT.
+; -----------------------------------------------------------------------------
+spider_watch:
+        lda     SHIPGONE                ; no ship: nothing to see
+        bne     @lose
+        jsr     foe_dist
+        ldx     FEI
+        lda     FOEST,x
+        cmp     #FS_SEEN
+        beq     @seen
+        lda     FEDL                    ; unseen: in sight now?
+        cmp     #<FOE_SEE
+        lda     FEDH
+        sbc     #>FOE_SEE
+        bcs     @done
+        lda     #FS_SEEN                ; SEEN - a state, not a course
+        sta     FOEST,x
+        txa
+        asl     a
+        asl     a
+        asl     a
+        and     #$1F
+        clc
+        adc     #FOE_FIRST
+        sta     FOECD,x
+        jmp     foe_alarm               ; ...and says so, if nobody has yet
+@seen:  lda     FEDL                    ; seen: still close enough to care?
+        cmp     #<(FOE_LOSE+1)
+        lda     FEDH
+        sbc     #>(FOE_LOSE+1)
+        bcs     @lose
+        jsr     foe_atan                ; FEANG: the bearing to the ship
+        lda     FEANG
+        jsr     API_SIN
+        sta     FESIN
+        lda     FEANG
+        jsr     API_COS
+        sta     FECOS
+        jmp     foe_gun
+@lose:  ldx     FEI
+        lda     #FS_PATROL
+        sta     FOEST,x
+@done:  rts
+
+; -----------------------------------------------------------------------------
+; foe_mount - X = a freshly spawned spider: find the rock it mines.
+; -----------------------------------------------------------------------------
+; The NEAREST rock of class SPD_MOUNTCL, and only if one is within
+; SPD_MOUNTR pages - a spider whose rock the level did not place near it starts
+; ADRIFT rather than teleporting across the field to find one. Distance is
+; |dx| + |dy| on the HIGH bytes alone: this runs once per spider per level and
+; it only has to pick between candidates, not measure them.
+;
+; The level does not name the rock, and cannot: the field is scattered by
+; init_objects out of SHAPE_PICK and TYPE_PICK, so there is no slot number to
+; author. Placing the spider where the rock is IS the authoring.
+; -----------------------------------------------------------------------------
+foe_mount:
+        lda     #$FF
+        sta     FEBEST
+        stz     FEBESTI
+        ldy     #$00
+@lp:    lda     OBJSHP,y
+        cmp     #SPD_MOUNTCL+1          ; 192 or 128. SHP_DEAD and a carrier
+        bcs     @nx                     ;   fail the same unsigned compare
+        lda     OBJXH,y
+        sec
+        sbc     FOEXH,x
+        jsr     absa
+        sta     FET0
+        lda     OBJYH,y
+        sec
+        sbc     FOEYH,x
+        jsr     absa
+        clc
+        adc     FET0
+        bcs     @nx                     ; more than 255 pages off
+        cmp     FEBEST
+        bcs     @nx
+        sta     FEBEST
+        sty     FEBESTI
+@nx:    iny
+        cpy     #NOBJ
+        bne     @lp
+        lda     FEBEST
+        cmp     #SPD_MOUNTR
+        bcs     @none
+        lda     FEBESTI                 ; MOUNTED: from here its position and
+        sta     FOEROCK,x               ;   its angle are the rock's
+        lda     #FS_MOUNTED
+        sta     FOEST,x
+        rts
+@none:  lda     #EA_SPIDER_FLOAT        ; no rock near enough: it starts adrift,
+        sta     FOEAPP,x                ;   which is a level-design mistake and
+        lda     #$FF                    ;   not a crash - with no body yet, which
+        sta     FOEROCK,x               ;   its first frame builds
+        rts
+
+; -----------------------------------------------------------------------------
+; foe_adrift - Y = a mounted foe's slot: it comes off.
+; -----------------------------------------------------------------------------
+; It LEAVES WITH THE ROCK'S DRIFT - it falls off, it is not launched - and it
+; changes APPEARANCE, which is the whole reason the shape tables are indexed by
+; appearance and not by kind: same machine, same hit points, same slot, a
+; different body. The animation starts again at its own step 0, because the
+; loop it is joining is not the one it was playing.
+; -----------------------------------------------------------------------------
+foe_adrift:
+        lda     #FS_PATROL
+        sta     FOEST,y
+        lda     #EA_SPIDER_FLOAT
+        sta     FOEAPP,y
+        lda     #$00                    ; the new loop from its own first step
+        sta     FOEAST,y                ;   (STZ has no abs,y)
+        lda     #EN_SPIDER_FLOAT_AHOLD
+        sta     FOEACD,y
+        ldx     FOEROCK,y               ; where the rock IS, not where the last
+        lda     OBJXF,x                 ;   ride left it: rock_destroy runs in
+        sta     FOEXF,y                 ;   do_shots, a frame's travel on
+        lda     OBJXL,x
+        sta     FOEXL,y
+        lda     OBJXH,x
+        sta     FOEXH,y
+        lda     OBJYF,x
+        sta     FOEYF,y
+        lda     OBJYL,x
+        sta     FOEYL,y
+        lda     OBJYH,x
+        sta     FOEYH,y
+        lda     OBJVXL,x                ; ...its drift...
+        sta     FOEVXL,y
+        lda     OBJVXH,x
+        sta     FOEVXH,y
+        lda     OBJVYL,x
+        sta     FOEVYL,y
+        lda     OBJVYH,x
+        sta     FOEVYH,y
+        lda     OBJANG,x                ; ...and its angle, so the body built
+        sta     FOEANG,y                ;   next frame starts where it was
+        lda     #$FF                    ; NO BODY YET: foe_ride builds one next
+        sta     FOEROCK,y               ;   frame, outside anybody's grid walk
+        rts
+
+; -----------------------------------------------------------------------------
+; foe_unmount - A = an object slot that is about to come apart. Anything riding
+; it comes off. X and Y are preserved: shots.s is mid-destroy.
+; -----------------------------------------------------------------------------
+; THIS IS THE ONE THAT CANNOT BE SKIPPED. rock_split REUSES THE PARENT'S OWN
+; SLOT for one of its two children (shots.s), so a spider holding a slot index
+; does not dangle when its rock breaks - it silently ends up glued to a smaller
+; child and mines on, which is worse than dangling because nothing looks wrong.
+; rock_destroy is the single gate both the split and the smallest class go
+; through, so one call there covers every way a rock can end.
+; -----------------------------------------------------------------------------
+foe_unmount:
+        sta     FEUNM
+        phx
+        phy
+        ldy     #FOE_MAX-1
+@lp:    lda     FOEST,y
+        cmp     #FS_MOUNTED
+        bne     @nx
+        lda     FOEROCK,y
+        cmp     FEUNM
+        bne     @nx
+        jsr     foe_adrift
+@nx:    dey
+        bpl     @lp
+        ply
+        plx
+        rts
+
+; -----------------------------------------------------------------------------
+; foe_ride - a spider takes what it rides: its ROCK's position and ANGLE while
+; mounted, its CARRIER's once adrift. X = FEI. Carry SET = it rode nothing.
+; -----------------------------------------------------------------------------
+; This is the whole of "glued to a rock, inheriting its drift and its spin". The
+; position is a copy, so every reader downstream - the screen transform, the
+; radar, the collision circle - works on a spider exactly as on a UFO and none
+; of them knows the difference. The ANGLE goes to the GPU in foe_body, and
+; POLYGON16 rotates the authored offsets about the rock's centre for free, so a
+; shape authored off the anchor rides the rim as the rock turns without CPU1
+; doing a single multiply.
+;
+; If the rock is GONE, this knocks the spider loose itself. rock_destroy calls
+; foe_unmount and should have done it already; this is the backstop, because a
+; spider riding a dead slot would ride whatever the slot was recycled into.
+; -----------------------------------------------------------------------------
+foe_ride:
+        ldy     FOEROCK,x
+        cpy     #$FF
+        beq     @build                  ; adrift, and no body yet
+        lda     OBJSHP,y
+        cmp     #SHP_DEAD
+        beq     @gone
+        lda     OBJXF,y
+        sta     FOEXF,x
+        lda     OBJXL,y
+        sta     FOEXL,x
+        lda     OBJXH,y
+        sta     FOEXH,x
+        lda     OBJYF,y
+        sta     FOEYF,x
+        lda     OBJYL,y
+        sta     FOEYL,x
+        lda     OBJYH,y
+        sta     FOEYH,x
+        lda     OBJANG,y
+        sta     FOEANG,x
+        clc                             ; CLEAR: it rode something
+        rts
+@gone:  lda     FOEST,x                 ; what it rode is gone. Its ROCK, with
+        cmp     #FS_MOUNTED             ;   nobody having told it - the backstop
+        bne     @lost                   ;   behind rock_destroy's foe_unmount...
+        txa
+        tay
+        jsr     foe_adrift
+        ldx     FEI
+@lost:  lda     #$FF                    ; ...or its own carrier, which nothing
+        sta     FOEROCK,x               ;   frees but foe_kill: build another
+@build: jsr     spider_carrier          ; CLEAR = built, and it rides from next
+        ldx     FEI                     ;   frame; SET = no slot to be had
+        rts
 
 ; -----------------------------------------------------------------------------
 ; foe_dist - FEDX/FEDY = ship - UFO, FEAX/FEAY their magnitudes, FED the
@@ -752,8 +1113,20 @@ foe_chase:
         lda     #$00
         sbc     MAH
         sta     FEVYH
+        jmp     foe_gun
 
-        ldx     FEI                     ; ...and the gun, once it is CLOSE
+; -----------------------------------------------------------------------------
+; foe_gun - the gun, once it is CLOSE. FED* is the distance, FESIN/FECOS the
+; aim. X = FEI.
+; -----------------------------------------------------------------------------
+; Factored out of the chase because the SPIDER fires by exactly this rule and
+; does not chase at all: same sight, same stand-off to fire inside of, same one
+; a second. An excavator adrift cannot close in, so the only thing it
+; shares with a UFO is the trigger - and sharing it is the point, since "shoots
+; like the UFO" is the whole specification.
+; -----------------------------------------------------------------------------
+foe_gun:
+        ldx     FEI
         lda     FEDL
         cmp     #<FOE_SHOOT
         lda     FEDH
@@ -1624,15 +1997,68 @@ foe_disc:
         sta     AOCR
         jmp     add_disc
 
-; foe_body - one POLYGON16 per part of the shape, at ANGLE 0: the UFO never
-; turns, so the parts go out exactly as enemies.s authors them and the GPU only
-; scales them. SHPL/SHPH is one_asteroid's pointer, free by now.
+; -----------------------------------------------------------------------------
+; foe_anim - FEANM = which of the shape's FRAMES FEI wears this frame.
+; -----------------------------------------------------------------------------
+; Two table lookups and two adds:
+;
+;   row = EN_RBASE[app] + EN_ANIM[EN_ABASE[app] + step] + part
+;
+; FOEAST is the playlist step this foe is on - counted down and advanced in
+; foe_think_all, once a frame, whatever the thinking cadence. EN_ANIM turns it
+; into the row the frame occupies WITHIN ITS APPEARANCE, already multiplied by
+; the part count, and EN_RBASE moves that into the one flat table every
+; appearance shares (enemies.s). So no multiply happens here and no divide
+; anywhere, which is what lets a hold be 6 frames rather than a power of two,
+; and what lets one KIND wear two shapes for the price of a byte.
+;
+; This is a READ and nothing else, deliberately: foe_body calls it on the draw
+; and fw_spawn calls it again when the same UFO dies, and both have to get the
+; same frame. Advancing here would make the wreck depend on how many times it
+; was asked.
+;
+; STAGGERED BY SLOT at load, not here (load_foes): without it a patrol of four
+; UFOs flashes their hulls in lockstep, which reads as one object seen four
+; times rather than four machines.
+; -----------------------------------------------------------------------------
+        .assert EN_UFO_AN >= 1 && EN_UFO_AHOLD >= 1, error, "foes.s: a playlist needs a step, and a step needs a frame"
+        .assert EN_UFO_R = FOE_R, error, "foes.s: FOE_R and the UFO shape's own EN_UFO_R are the same circle"
+        .assert EN_SPIDER_R = EN_SPIDER_FLOAT_R, error, "foes.s: the spider's two appearances are one body, so they are one circle - FOE_R is looked up per KIND, not per appearance"
+
+foe_anim:
+        ldx     FEI
+        ldy     FOEAPP,x
+        lda     EN_ABASE,y
+        clc
+        adc     FOEAST,x
+        tay
+        lda     EN_ANIM,y               ; the frame's row within its appearance
+        ldy     FOEAPP,x
+        clc
+        adc     EN_RBASE,y              ; ...and into the flat table
+        sta     FEANM
+        rts
+
+; foe_body - one POLYGON16 per part of the shape, at FOEANG. The UFO never
+; turns, so its angle is 0 and the parts go out exactly as enemies.s authors
+; them, the GPU only scaling them; a MOUNTED foe carries its rock's angle
+; instead and the GPU spins the whole shape about the rock's centre, which is
+; what makes a spider glued to a rock cost nothing. SHPL/SHPH is
+; one_asteroid's pointer, free by now.
 foe_body:
+        jsr     foe_anim
+        ldx     FEI
+        ldy     FOEAPP,x
+        lda     EN_PN,y
+        sta     FEPN
         stz     FEJ
-@part:  ldy     FEJ
-        lda     EN_UFO_PLO,y
+@part:  lda     FEANM
+        clc
+        adc     FEJ
+        tay
+        lda     EN_PLO,y
         sta     SHPL
-        lda     EN_UFO_PHI,y
+        lda     EN_PHI,y
         sta     SHPH
         ldx     FEI
         lda     FOEFXL,x
@@ -1643,7 +2069,8 @@ foe_body:
         sta     PBUF+2
         lda     FOEFYH,x
         sta     PBUF+3
-        stz     PBUF+4                  ; ANGLE 0
+        lda     FOEANG,x                ; ANGLE: 0, or its rock's
+        sta     PBUF+4
         lda     ZEASH                   ; SCALE: the eased zoom, as a rock
         sta     PBUF+5
         ldy     #$00
@@ -1665,7 +2092,7 @@ foe_body:
         jsr     API_GPU_POLYGON16
         inc     FEJ
         lda     FEJ
-        cmp     #EN_UFO_PN
+        cmp     FEPN
         bcc     @part
         rts
 
@@ -1675,6 +2102,123 @@ foe_body:
 ; is where the bank filled, not a difference in kind.
 ; =============================================================================
         .segment "CODE3"
+
+; -----------------------------------------------------------------------------
+; spider_carrier - X = FEI, a spider adrift with no body: build its CARRIER.
+; Carry CLEAR = built, SET = the pool had no slot even after a recycle.
+; -----------------------------------------------------------------------------
+; A carrier is an OBJECT in the rock pool, body class BODY_SPIDER, and it is how
+; a drifting spider gets everything a rock has without this file knowing any of
+; it: do_objects integrates it and turns it, do_collide bounces it off rocks -
+; both ways, mass-weighted, momentum to the bit - and a glancing hit changes
+; its spin (physics.s). The spider rides it exactly as it rode its rock.
+;
+; It is built HERE, the frame after the rock broke, and not in rock_destroy:
+; that runs in the middle of a split which is itself allocating, and relinking
+; the grid from inside it is what cell_flush's note warns about. do_foes runs
+; after the walk and after the shots, when nothing is standing on a cell list.
+;
+; Where it stops being a rock: objects.s keeps it off the visible list (so no
+; outline, no bullet, no beam), the enemy bullets pass it by, and rock hit
+; points never reach it - the ship's ram does not take them today, and nothing
+; else writes OBJHP for an object that is not on the visible list.
+; -----------------------------------------------------------------------------
+spider_carrier:
+        jsr     rock_alloc              ; A = a slot, carry SET = none free
+        bcc     @got
+        jsr     rock_recycle            ; ...make room the way a split does
+        bcs     @none
+        jsr     rock_alloc
+        bcc     @got
+@none:  ldx     FEI                     ; (up here, not at the end: the body
+        sec                             ;   below is too long to branch past)
+        rts
+@got:   sta     FECAR
+        tay
+        ldx     FEI
+        lda     FOEXF,x                 ; where the spider is, moving as it is
+        sta     OBJXF,y
+        lda     FOEXL,x
+        sta     OBJXL,y
+        lda     FOEXH,x
+        sta     OBJXH,y
+        lda     FOEYF,x
+        sta     OBJYF,y
+        lda     FOEYL,x
+        sta     OBJYL,y
+        lda     FOEYH,x
+        sta     OBJYH,y
+        lda     FOEVXL,x
+        sta     OBJVXL,y
+        lda     FOEVXH,x
+        sta     OBJVXH,y
+        lda     FOEVYL,x
+        sta     OBJVYL,y
+        lda     FOEVYH,x
+        sta     OBJVYH,y
+        lda     FOEANG,x
+        sta     OBJANG,y
+        lda     #BODY_SPIDER
+        sta     OBJSHP,y
+        lda     #$00
+        sta     OBJANGF,y
+        sta     OBJTYPE,y
+        sta     OBJSLP,y
+        lda     #$FF
+        sta     OBJHP,y
+        jsr     prng                    ; ...and a SPIN of its own (prng keeps Y)
+        sta     FET0
+        and     #SPD_SPINM
+        ora     #$08                    ; never dead still
+        bit     FET0                    ; the draw's top bit picks the sense
+        bpl     @pos
+        eor     #$FF                    ; negative: $FF:(~a + 1). a >= 8, so the
+        inc     a                       ;   low byte never carries
+        sta     OBJSPNL,y
+        lda     #$FF
+        bra     @spun
+@pos:   sta     OBJSPNL,y
+        lda     #$00
+@spun:  sta     OBJSPNH,y
+        ldx     FECAR                   ; into the grid, where the frame can
+        jsr     cell_link               ;   reach it (clobbers A, Y)
+        ldx     FEI
+        lda     FECAR
+        sta     FOEROCK,x
+        clc
+        rts
+
+; -----------------------------------------------------------------------------
+; carrier_free - X = FEI, a foe being killed. A spider's carrier goes back on
+; the free stack; anything else is left alone. X = FEI on the way out.
+; -----------------------------------------------------------------------------
+; Not rock_kill: that counts the class down in RKLIVE, and a carrier was never
+; counted - RKLIVE is five bytes and BODY_SPIDER is the sixth. So this is
+; rock_kill without the census: out of the grid, stamped dead, freed.
+; -----------------------------------------------------------------------------
+carrier_free:
+        lda     FOEKIND,x
+        cmp     #FK_SPIDER
+        bne     @done
+        ldy     FOEROCK,x
+        cpy     #$FF
+        beq     @done
+        lda     OBJSHP,y                ; never a real rock: a mounted spider
+        cmp     #BODY_SPIDER            ;   cannot be killed, but a slot number
+        bne     @done                   ;   is not worth trusting blind
+        lda     #$FF
+        sta     FOEROCK,x
+        sty     GOBJ
+        tya
+        tax
+        jsr     cell_unlink             ; X and GOBJ the object
+        ldx     GOBJ
+        lda     #SHP_DEAD
+        sta     OBJSHP,x
+        txa
+        jsr     rock_free
+@done:  ldx     FEI
+        rts
 
 ; -----------------------------------------------------------------------------
 ; foe_hits - the player's bullets against every UFO on the screen.
@@ -1698,6 +2242,10 @@ foe_hits:
 @flp:   ldx     FEI
         lda     FOEST,x
         beq     @fnx
+        cmp     #FS_MOUNTED             ; bolted to a rock: the bullets are
+        beq     @fnx                    ;   hitting the ROCK, which is the only
+                                        ;   thing there to break. A spider takes
+                                        ;   nothing until it falls off
         lda     FOEON,x
         bne     :+
 @fnx:   jmp     @fnext
@@ -1942,8 +2490,9 @@ fsh_ship:
         clc
         rts
 @hit:   jsr     fsh_bang
-        lda     #FSH_DMG
-        jsr     ship_hurt               ; one ordinary hit, the same as a ram
+        ldx     FSI
+        lda     FSDMG,x                 ; a UFO's is one ordinary hit, the same
+        jsr     ship_hurt               ;   as a ram; a spider's is half of one
         sec
         rts
 @go:    ldx     FSI
@@ -2131,6 +2680,8 @@ fsh_rock1:
         bcs     @no
         stx     FEJ
         ldy     OBJSHP,x
+        cpy     #BODY_SPIDER            ; a spider's carrier is not a rock to
+        beq     @no                     ;   break, and bullets pass enemies by
         lda     BODY_R,y
         sta     FERS
         ldy     FSI
@@ -2175,8 +2726,9 @@ fsh_rock1:
         sta     SPL_HD
         lda     #$01                    ; ...and nobody is paid for it
         sta     FOEKILL
+        ldy     FSI
+        lda     FSDMG,y
         ldx     FEJ
-        lda     #FSH_DMG
         jsr     rock_take_hit
         stz     FOEKILL
         sec                             ; stop: the lists may have moved
@@ -2310,9 +2862,9 @@ fw_all:
 fw_draw:
         ldx     FEWI
         ldy     FWPART,x
-        lda     EN_UFO_PLO,y
+        lda     EN_PLO,y
         sta     SHPL
-        lda     EN_UFO_PHI,y
+        lda     EN_PHI,y
         sta     SHPH
         lda     FXL
         sta     PBUF+0
@@ -2843,6 +3395,15 @@ fsh_fire:
         sec
         rts
 @got:   sty     FSI
+        ldx     FEI                     ; whose bullet this is, settled ONCE and
+        ldy     FOEKIND,x               ;   then carried by the bullet: a
+        lda     FOE_KSPDL,y             ;   spider's pixel is half a hit at half
+        sta     FET0                    ;   the speed, and it is still half a
+        lda     FOE_KSPDH,y             ;   hit when it lands, whoever fired it
+        sta     FET1                    ;   is by then (dead, usually)
+        lda     FOE_KDMG,y
+        ldy     FSI
+        sta     FSDMG,y
         lda     #<FOE_MUZZ              ; the muzzle: FOE_MUZZ along the aim
         sta     MAL
         lda     #>FOE_MUZZ
@@ -2879,9 +3440,9 @@ fsh_fire:
         lda     FOEYH,x
         sbc     MAH
         sta     FSYH,y
-        lda     #<SHOT_SPD              ; SHOT_SPD along the aim, 16.8 with no
-        sta     MAL                     ;   fraction
-        lda     #>SHOT_SPD
+        lda     FET0                    ; the kind's speed along the aim, 16.8
+        sta     MAL                     ;   with no fraction
+        lda     FET1
         sta     MAH
         lda     FESIN
         sta     MB
@@ -2893,9 +3454,9 @@ fsh_fire:
         sta     FSVXH,y
         lda     MAH
         sta     FSVXT,y
-        lda     #<SHOT_SPD
+        lda     FET0
         sta     MAL
-        lda     #>SHOT_SPD
+        lda     FET1
         sta     MAH
         lda     FECOS
         sta     MB
@@ -2979,7 +3540,8 @@ foe_take_hit:
 ; -----------------------------------------------------------------------------
 foe_kill:
         ldx     FEI
-        stz     FOEST,x
+        jsr     carrier_free            ; a spider's body goes back to the pool
+        stz     FOEST,x                 ;   (X = FEI again on the way out)
         stz     FOEON,x
         lda     #SCORE_FOE_KILL
         jsr     score_add
@@ -3007,6 +3569,13 @@ foe_kill:
 ; UFO that sends the dome up and off and the hull down, tumbling apart.
 ; -----------------------------------------------------------------------------
 fw_spawn:
+        jsr     foe_anim                ; the frame it died in - fw_centre and
+        ldx     FEI                     ;   the loop below both read FEANM
+        ldy     FOEAPP,x
+        lda     EN_PW,y                 ; ...and only the LEADING parts fly off
+        sta     FEPW
+        lda     EN_PN,y
+        sta     FEPN
         jsr     fw_centre
         stz     FEWP
 @part:  ldy     #FW_N-1
@@ -3016,10 +3585,13 @@ fw_spawn:
         bpl     @find
         rts                             ; no piece free: the rest is not drawn
 @got:   sty     FEWI
-        ldy     FEWP
-        lda     EN_UFO_PLO,y
+        lda     FEANM
+        clc
+        adc     FEWP
+        tay
+        lda     EN_PLO,y
         sta     SHPL
-        lda     EN_UFO_PHI,y
+        lda     EN_PHI,y
         sta     SHPH
         ldy     #$00
         lda     (SHPL),y
@@ -3064,7 +3636,9 @@ fw_spawn:
         sta     FWAYL,x
         lda     FOEYH,y
         sta     FWAYH,x
-        lda     FEWP
+        lda     FEANM                   ; the ROW, so the piece stays in the
+        clc                             ;   frame it broke off in
+        adc     FEWP
         sta     FWPART,x
         stz     FWANG,x
         jsr     prng                    ; a tumble that is never zero - see
@@ -3079,7 +3653,7 @@ fw_spawn:
         sta     FWN,x
         inc     FEWP
         lda     FEWP
-        cmp     #EN_UFO_PN
+        cmp     FEPW
         bcs     :+
         jmp     @part
 :       rts
@@ -3132,10 +3706,13 @@ fw_centre:
         sta     FEWMN
         stz     FEWMX
         stz     FEWP
-@part:  ldy     FEWP
-        lda     EN_UFO_PLO,y
+@part:  lda     FEANM
+        clc
+        adc     FEWP
+        tay
+        lda     EN_PLO,y
         sta     SHPL
-        lda     EN_UFO_PHI,y
+        lda     EN_PHI,y
         sta     SHPH
         ldy     #$00
         lda     (SHPL),y
@@ -3160,7 +3737,7 @@ fw_centre:
         bne     @lp
         inc     FEWP
         lda     FEWP
-        cmp     #EN_UFO_PN
+        cmp     FEPN
         bcc     @part
         clc
         lda     FEWMN
@@ -3260,8 +3837,8 @@ load_foes:
         cmp     #FOE_MAX                ;   are slots loses the tail, quietly
         bcs     @skip
         lda     FEREC+4
-        cmp     #FK_UFO
-        bne     @skip
+        cmp     #FK_N                   ; a kind nothing knows how to fly is
+        bcs     @skip                   ;   still not loaded at all
         jsr     foe_spawn
 @skip:  clc
         lda     T0
@@ -3297,10 +3874,36 @@ foe_spawn:
         stz     FOEON,x
         lda     #$01
         sta     FOENEW,x
+        stz     FOEANG,x                ; nothing is drawn turned until it is
+        stz     FOEROCK,x               ;   mounted on something that turns
+        ldy     FOEKIND,x               ; what the KIND settles: the appearance
+        lda     FOE_KAPP,y              ;   it starts in and what it can take
+        sta     FOEAPP,x
+        lda     FOE_KHP,y
+        sta     FOEHP,x
+        ldy     FOEAPP,x                ; the animation phase: slot mod AN...
+        txa
+@wst:   cmp     EN_AN,y
+        bcc     @wsd
+        sec
+        sbc     EN_AN,y
+        bra     @wst
+@wsd:   sta     FOEAST,x
+        txa                             ; ...and slot mod AHOLD into the count,
+@wcd:   cmp     EN_AHOLD,y              ;   so they do not all turn over on the
+        bcc     @wce                    ;   same frame either
+        sec
+        sbc     EN_AHOLD,y
+        bra     @wcd
+@wce:   inc     a
+        sta     FOEACD,x
         lda     #FS_PATROL
         sta     FOEST,x
-        lda     #FOE_HP
-        sta     FOEHP,x
+        lda     FOEKIND,x               ; ...and a spider looks for its rock
+        cmp     #FK_SPIDER
+        bne     :+
+        jsr     foe_mount
+:
         lda     FEREC+6
         sta     FOEPSPD,x
 
@@ -3367,6 +3970,16 @@ foe_spawn:
 ; Tables
 ; =============================================================================
         .segment "RODATA"
+
+; WHAT A KIND IS, in five bytes. Everything a kind differs by, indexed by
+; FOEKIND. The appearance is only a STARTING one: the spider changes its own
+; when it comes off its rock, which is the whole reason the shape lookup is by
+; appearance and not by kind.
+FOE_KAPP:   .byte   EA_UFO, EA_SPIDER
+FOE_KHP:    .byte   FOE_HP, SPD_HP
+FOE_KDMG:   .byte   FSH_DMG, SPD_DMG        ; what its bullet takes off
+FOE_KSPDL:  .byte   <SHOT_SPD, <SPD_SPD     ; ...and how fast the bullet flies
+FOE_KSPDH:  .byte   >SHOT_SPD, >SPD_SPD
 
 ; A think period, as a shift, -> the phase mask and the acceleration it carries.
 FE_PMASK:   .byte   0, 1, 3, 7

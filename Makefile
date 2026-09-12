@@ -33,8 +33,12 @@ DEPS    = $(UNITS) $(MODULES) $(DATA) $(MUSIC) src/mad65.inc cart.cfg
 
 all: $(CART)
 
+# cart.lbl is the linker's LABEL file: every symbol at its RUN address. It is
+# there for tools/preview.py, whose benches call real routines by name
+# (rock_destroy, foe_kill) instead of poking the state those routines would
+# have left behind - which is how a bench ends up agreeing with itself.
 $(CART): $(DEPS)
-	cl65 -t none -C cart.cfg -o $@ $(UNITS)
+	cl65 -g -t none -C cart.cfg -o $@ -Ln cart.lbl $(UNITS)
 
 run: $(CART)
 	./madsim.exe --tate --gpu roms/gpu_os.bin --cpu1 roms/cpu_os.bin --cart $(CART)
@@ -51,6 +55,6 @@ assets/vgm/%_stream.bin: assets/vgm/%.vgm tools/vgmstrip.py
 assets/vgm/%_stream.inc: assets/vgm/%_stream.bin ;
 
 clean:
-	rm -f $(CART) *.o src/*.o assets/vgm/*_stream.bin assets/vgm/*_stream.inc    # cl65 names its intermediates <src>.<pid>.<n>.o
+	rm -f $(CART) cart.lbl *.o src/*.o assets/vgm/*_stream.bin assets/vgm/*_stream.inc    # cl65 names its intermediates <src>.<pid>.<n>.o
 
 .PHONY: all run preview clean

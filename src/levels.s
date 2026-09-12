@@ -136,6 +136,9 @@ LVL0_FOES:
         .byte   $3C, $76, $D8, $5C, 0, 0, 0       ; UFO at 30268, 23768, holding its post
         .byte   $50, $C6, $00, $80, 0, 128, 175       ; UFO at 50768, 32768, course 128 at 175 px/s
         .byte   $00, $80, $E0, $31, 0, 96, 60       ; UFO at 32768, 12768, course 96 at 60 px/s
+        .byte   $0E, $0B, $F4, $28, 1, 0, 0       ; SPIDER at 2830, 10484, holding its post
+        .byte   $E7, $B5, $8D, $03, 1, 0, 0       ; SPIDER at 46567, 909, holding its post
+        .byte   $F2, $1D, $DF, $C1, 1, 0, 0       ; SPIDER at 7666, 49631, holding its post
 LVL0_FOES_END:
 L0_ROCKN    = (LVL0_ROCKS_END - LVL0_ROCKS) / 6
 L0_FOEN     = (LVL0_FOES_END - LVL0_FOES) / 7

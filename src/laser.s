@@ -281,6 +281,8 @@ lsr_foes:
 @lp:    ldx     FEI
         lda     FOEST,x
         beq     @next
+        cmp     #FS_MOUNTED             ; a spider on its rock: the beam is on
+        beq     @next                   ;   the ROCK, as a bullet is (foe_hits)
         lda     FOEON,x
         beq     @next
         lda     FOEFXL,x

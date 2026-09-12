@@ -301,8 +301,8 @@ do_collide:
         lda     OBJI
         sta     COL_I
         tax
-        lda     OBJSHP,x                ; the body class IS the size class,
-        sta     COL_CI                  ;   until there are enemies
+        lda     OBJSHP,x                ; the body class IS the size class -
+        sta     COL_CI                  ;   or BODY_SPIDER, a spider's carrier
 
         jsr     ship_test
 
@@ -2007,13 +2007,24 @@ posy_add:
 ; The collision circle, per body class, in collision units. This is SHAPE_OCC -
 ; the same circle the star mask uses - so what looks solid and what actually
 ; hits you are one shape. See design_technical 5.4.
-BODY_R:     .byte   39, 26, 13, 7, 3
+;
+; The SIXTH entry is the drifting spider's carrier (foes.s spider_carrier), and
+; it is the spider's own circle, EN_SPIDER_FLOAT_R. It is a literal and not the
+; symbol because tools/preview.py reads this line as numbers; the assert keeps
+; the two from parting company.
+;                  192 128  64  32  16  spider
+BODY_R:     .byte   39, 26, 13, 7, 3, 8
+        .assert BODY_SPIDER = 5 && EN_SPIDER_FLOAT_R = 8, error, "physics.s: BODY_R's sixth entry is the drifting spider's circle, EN_SPIDER_FLOAT_R, at body class BODY_SPIDER"
+
 
 ; Mass, as an EXPONENT: m = 2^e. Each class is half the one above it, which is
 ; what makes MASSF nine bytes instead of a matrix. Anything added here must be
 ; a power of two as well - that is the whole contract.
-;                       192 128  64  32  16
-BODY_ME:    .byte         4,  3,  2,  1,  0
+; The spider is a 64 px rock's mass on a 32 px rock's radius: a machine, dense
+; for its size, which shoves a rock of its own size about and is shoved by the
+; big ones. Still a power of two - that is the contract.
+;                       192 128  64  32  16  spider
+BODY_ME:    .byte         4,  3,  2,  1,  0,  2
 
 ; F = 1/(2^k + 1) in Q0.7, indexed by k+4, k = e_i - e_j.
 ; Read forwards for the subject's share and BACKWARDS for the partner's, since

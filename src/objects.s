@@ -657,8 +657,16 @@ do_objects:
         jsr     view_xform              ; -> VXL/VXH, VYL/VYH, still world units
         jsr     zoom_fb                 ; ...and then the zoom and the centring
 
+        ; A SPIDER'S CARRIER stops here, before the visible list. The list is
+        ; what the rock outline, the gun and the laser all walk, and a carrier
+        ; is a body to the physics and nothing more: the spider riding it is
+        ; drawn, shot and lasered as an ENEMY (foes.s). One compare, paid only
+        ; by what already survived the cull, and it never sleeps - one object
+        ; per drifting spider, so there is nothing to save by it.
         ldx     OBJI                    ; ...and only now is it known whether the
         ldy     OBJSHP,x                ;   rock is on screen at all. Well outside
+        cpy     #BODY_SPIDER
+        beq     @next
         jsr     slp_out                 ;   ITS OWN margin - a 32 px rock does not
         bcs     @sleep                  ;   need a 192 px one - and it can be left
                                         ;   alone for SLEEP_N frames

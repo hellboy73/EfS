@@ -14,6 +14,7 @@ src/*.lst
 # bundled on purpose so this repo is self-contained. Generated .inc files stay
 # tracked (text, diffable).
 cart.bin
+cart.lbl
 proto/*/*.bin
 assets/*.bin
 assets/vgm/*_stream.bin
@@ -23,6 +24,11 @@ assets/vgm/*_stream.inc
 # proto/ IS tracked: a frozen bench's picture is part of its record, while this
 # one is redrawn on every check.
 /preview.png
+
+# ...and the enemy-animation strip the same run draws on demand
+# (`python tools/preview.py --ufo-strip ufo_ingame.png`): the UFO exactly as the
+# GPU received it, frame by frame. A diagnostic, regenerated, never a source.
+/ufo_ingame.png
 
 # Python tool caches
 __pycache__/

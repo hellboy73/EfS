@@ -845,6 +845,16 @@ OBJHP       = $7200             ; NOBJ bytes: hit points left, from ROCK_HP by
                                 ;   size class (objects.s). Kept for EVERY rock,
                                 ;   on camera or not - see the note on ROCK_HP.
                                 ;   $7000-$71FF is thrust.s's block and shots.s's
+BODY_SPIDER = 5                 ; the BODY CLASS of a drifting spider's
+                                ;   CARRIER (foes.s spider_carrier): an object
+                                ;   in this pool that the physics moves, spins
+                                ;   and bounces like a rock, and that nothing
+                                ;   else treats as one. 0..4 are the rock size
+                                ;   classes; physics.s's header kept 5 up for
+                                ;   exactly this. It is past the end of every
+                                ;   per-SIZE table - ROCK_HP, RKLIVE, the shape
+                                ;   tables - which is why the few paths that
+                                ;   would read one stop on it by name
 SHP_DEAD    = $FF               ; the OBJSHP a destroyed rock is stamped with.
                                 ;   It is not a class, and it does not have to
                                 ;   be tested for anywhere: the rock is unlinked
@@ -1338,6 +1348,16 @@ cart_frame:
 ; cross-module reference. Reading order, which is also roughly the order a
 ; frame uses them:
 
+        ; enemies.s comes FIRST, and before the code, because foes.s needs its
+        ; animation SCALARS as assembler constants - EN_*_ASH is a .repeat
+        ; count, EN_*_AMSK an immediate. The file pushes its own RODATA
+        ; segment, so only the constants arrive early; the tables land where
+        ; they always did. Its outlines are data like shapes.s's, and it is
+        ; listed with them under "Data" below.
+        .include "enemies.s"            ; the enemies' outlines, as PARTS, and
+                                        ; their frames. See that file and
+                                        ; tools/enemy_editor.py
+
         .include "math.s"               ; the quarter-square multiply, the LFSR,
                                         ; and the shifts every transform is
                                         ; built out of. Nothing here knows what
@@ -1445,8 +1465,8 @@ cart_frame:
 
         .include "shapes.s"             ; every vertex table - rocks, ship. See
                                          ; that file's header and tools/shape_editor.py
-        .include "enemies.s"            ; ...and the enemies' outlines, as PARTS.
-                                         ; See that file and tools/enemy_editor.py
+                                        ; (enemies.s is NOT here - it moved
+                                        ; above the code, see the note there)
         .include "levels.s"             ; ...and every level's opening state. See
                                          ; that file's header and tools/level_editor.py
         .include "radar_bg.s"           ; the radar's ring and ship icon as a

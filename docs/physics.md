@@ -428,6 +428,89 @@ Integration is every frame for every UFO.
 | `FOE_FARPG` | pages past the coarse window before a UFO is far | **16** |
 | `SCORE_FOE_HIT` / `SCORE_FOE_KILL` | the player's pay for a hit / the last one | **50 / 100** |
 
+### 9.1 The spider — an excavator, not a fighter
+
+Built (foes.s). Every number below is still **(TBM)**. Level 0 carries three,
+on 192 px rocks far from the ship's start.
+
+The spider is a **digger**: it rides the biggest rock in the field, mining
+saturnium, and it is a **tank that can barely fight back**. It has two states
+and they are the whole design.
+
+**MOUNTED.** Glued to a rock's centre, inheriting its drift *and its spin* — and
+that is nearly free, because `POLYGON16` already takes an `ANGLE` per part.
+`foe_body` writes `ANGLE 0` today (`stz PBUF+4`); for a mounted spider it
+becomes one `lda OBJANG,x`, and the GPU does the rotation. A mounted spider
+needs no physics and no thinking at all, which makes it the cheapest enemy in
+the game.
+
+Its shape is authored **off the anchor** (`tools/enemy_editor.py`, "Offset all
+frames..."), because at a big rock's centre it would be buried — a 192 px rock
+has a 96 px radius against the spider's ~22. Authored 60 px out, the GPU's
+rotation carries it round the rim as the rock turns, still for nothing. The
+offsets are signed bytes, so the reach is ±127: enough for the biggest class,
+and the spider is scripted onto that class anyway.
+
+**It takes no damage while mounted.** The bullets hit the rock, which they
+already do — the spider sits inside the rock's own circle. One state test in
+`foe_hits`, in the enemy-bullet and ram tests, and in `lsr_foes`.
+
+**ADRIFT.** When the rock it holds breaks, the spider comes loose: it drifts
+like a small rock, waves its limbs, and shoots. **This is where its 150 hit
+points start mattering** — and `rock_split` **reuses the parent's own slot** for
+one of its two children (`physics.md` 6, `src/physics.s`), so a spider holding a
+slot index does not dangle after a split: it silently re-mounts a smaller child
+and mines on. The split has to knock it loose *explicitly*, and so does
+`rock_destroy` for the smallest class. A linear scan over `FOE_MAX` on a split
+costs nothing.
+
+**ADRIFT IS A BODY.** The spider that comes off does not simulate itself. The
+frame after its rock breaks it gets a **carrier**: an object in the rock pool,
+body class 5 (`BODY_SPIDER`), with the spider's own circle and a 64 px rock's
+mass (`BODY_R` / `BODY_ME`, physics.s). From then on the physics owns it — it
+drifts with the rock's velocity, turns at a **random** spin (±0.5 brad a
+frame at most, `SPD_SPINM`), and collides with rocks exactly as a rock does,
+both bodies answering and a glancing hit changing its spin. The spider rides
+the carrier the way it rode its rock. This is what physics.s's header reserved
+body classes 5 upwards for.
+
+The carrier stops being a rock in three places and only three: it never joins
+the visible list (objects.s — so no outline, no bullet, no beam; the spider is
+drawn, shot and lasered as an enemy), the enemy bullets pass it by, and
+`foe_kill` puts it back on the free stack without touching `RKLIVE`, which never
+counted it. Off the screen it freezes like any rock outside the window.
+
+**MOUNTED IT WORKS.** On its rock a spider has no eyes and no gun and does not
+react to the ship at all. (It had a gun at first, and the first bullet left
+from inside its own rock and broke it.)
+
+**ADRIFT IT WATCHES — IT DOES NOT CHASE.** It cannot steer: the physics drifts
+its carrier and nothing in foes.s writes its velocity. What it has is a UFO's
+eyes — `FS_PATROL` until the ship is inside `FOE_SEE`, then `FS_SEEN` (the
+UFO's pursuit byte, reused so the alarm counts it, steering nothing) and ENEMY
+DETECTED — and while it has seen the ship it fires once a second inside
+`FOE_SHOOT`. A spider the player has just shot off its rock usually sounds the
+alarm on the very next frame.
+
+| what | why | value |
+|---|---|---|
+| hit points | **15 bullets.** Three times the biggest rock (`5*HIT_HP`), five times a UFO (`3*HIT_HP`); ~38 lit laser frames, two full presses at `LSR_DMG` 4/frame. A mini-boss on purpose — the tank half of "tough but defenceless" | **150** = `15*HIT_HP` **(TBM)** |
+| bullet damage | **half an ordinary hit** — the weak half. A UFO's bullet is `FSH_DMG = HIT_HP`; the spider's is half that, so it chips rather than hurts | **`HIT_HP/2`** = 5 **(TBM)** |
+| bullet speed | **half the blaster's.** `SHOT_SPD` is 192 world units a frame, so a spider's pixel crawls at 96 — slow enough to fly around, which is the point of arming a digger badly | **`SHOT_SPD/2`** = 96 **(TBM)** |
+| appearance | two shapes, ONE kind | `SPIDER` mounted, `SPIDER_FLOAT` adrift |
+| mount | the nearest rock of these classes at load, within `SPD_MOUNTR` pages | **192 or 128 px** (`SPD_MOUNTCL` = 1) |
+| carrier mass | `BODY_ME[5]` — dense for its size | **2**, a 64 px rock's |
+| adrift spin | a random byte masked, signed, never under 1/32 | **±`SPD_SPINM`** = ±0.5 brad/frame |
+
+**Two shapes, one KIND.** The editor's record is shape + frames + one playlist +
+one circle, so two states want two records: the mounted one rocks on its rock
+(`[0,0,0,0,0,1,2,1]` — sit still, then rock) and the adrift one waves. But the
+*behaviour* is one `FK_SPIDER` with one state machine, one level record, one HP
+pool and one score, because the spider that comes loose is the same machine that
+was mining. The hinge is a per-foe **appearance** byte: shape lookup stops being
+"kind → shape" and becomes "appearance → shape", and the state change writes it.
+16 bytes of RAM.
+
 ## 10. The laser — a screen segment, not a body
 
 `src/laser.s`; the decision is `design_technical.md` 11.24. The laser moves no

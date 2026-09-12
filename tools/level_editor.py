@@ -82,7 +82,7 @@ HALF = WORLD // 2                       #   bits: the wrap IS the overflow
 UNITS_PER_PX = 16                       # world units to one full-res pixel
 FOE_KINDS = 8                           # what fits in the editor's spinbox; the
                                         #   roster itself is open_questions E6
-KIND_NAMES = {0: "UFO"}                 # ...and the ones foes.s can fly
+KIND_NAMES = {0: "UFO", 1: "SPIDER"}                 # ...and the ones foes.s can fly
 FOE_REC = 7                             # bytes an enemy record takes: XL XH YL YH
                                         #   kind heading speed (levels.s header)
 FOE_SPD_MAX = 175                       # px/s - the pursuit speed, foes.s FOE_SPD;

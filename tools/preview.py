@@ -33,7 +33,7 @@ import re
 import subprocess
 import sys
 
-from PIL import Image
+from PIL import Image, ImageDraw
 from py65.devices.mpu65c02 import MPU
 from py65.memory import ObservableMemory
 
@@ -72,7 +72,8 @@ FB_W, FB_H = 400, 300           # the framebuffer: 300 rows of 50 bytes
 ROW = FB_W // 8
 
 # The cartridge's zero page, mirrored from main.s, for the trace below.
-ZP = {"HEAD": 0x83, "TIER": 0x84, "TURNIX": 0x85,
+ZP = {"FRAME": 0x80,                # main.s's frame counter, low byte -
+      "HEAD": 0x83, "TIER": 0x84, "TURNIX": 0x85,   #   foe_anim's whole clock
       "SHXL": 0x8B, "SHXH": 0x8C, "SHYL": 0x8E, "SHYH": 0x8F,
       "VELXL": 0x91, "VELXH": 0x92, "VELYL": 0x93, "VELYH": 0x94,
       "STARN": 0xA0, "OCCN": 0xA1,
@@ -288,20 +289,29 @@ def pg_vertex(dx, dy, cx, cy, C, sgc, S, sgs):
     return qx, qy
 
 
+def _enemy_model():
+    """enemies.s through the editor's own parser - so the harness and the game
+    cannot disagree about what an enemy looks like, or how it animates."""
+    import sys as _sys
+    _sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+    import enemy_editor
+    return enemy_editor.Model.load((SRC / "enemies.s").read_text(encoding="utf-8"))
+
+
 def _enemy_offsets():
     """Every enemy PART's offsets exactly as enemies.s authors them - which is
     how foes.s draws a live one - and each part moved onto its own bounding-box
     pivot, which is how it draws a wreck piece (fw_draw). Read out of the file
     through the editor's own parser, so this cannot disagree with the game about
-    what an enemy looks like. The pivot is fw_pivot's integer arithmetic:
-    floor((min + max) / 2) per axis."""
-    import sys as _sys
-    _sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-    import enemy_editor
-    model = enemy_editor.Model.load((SRC / "enemies.s").read_text(encoding="utf-8"))
+    what an enemy looks like. EVERY FRAME's parts go in, not just the one a
+    given moment draws - this is a "does that outline belong to an enemy" set,
+    and the animation makes which frame it came from nobody's business here.
+    The pivot is fw_pivot's integer arithmetic: floor((min + max) / 2) per
+    axis."""
+    model = _enemy_model()
     body, wreck = set(), set()
     for e in model.enemies:
-        for part in e.parts:
+        for part in (p for frame in e.frames for p in frame):
             pts = [tuple(pt) for pt in part.pts]
             body.add(tuple(pts))
             px = (min(x for x, _ in pts) + max(x for x, _ in pts)) // 2
@@ -874,6 +884,9 @@ hp = []                                 # OBJHP for the whole field, per frame
 
 # The enemies (foes.s). Their state lives under the window too, so ram().
 FOEST_A = foes_addr("FOEST")
+FOEKIND_AD = int(re.search(r"^FOEKIND\s*=\s*[$]([0-9A-Fa-f]{4})",
+                           (SRC / "radar.s").read_text(), re.M).group(1), 16)
+FK_SPIDER_K = foes_const("FK_SPIDER")
 FSLIVE_A, FSANG_A = foes_addr("FSLIVE"), foes_addr("FSANG")
 FSH_N = foes_const("FSH_N")
 FOE_R = foes_const("FOE_R")
@@ -968,10 +981,11 @@ for f in range(FRAMES):
         rxl, rxh = ram_block(OBJXL_A, nr), ram_block(OBJXH, nr)
         ryl, ryh = ram_block(OBJYL_A, nr), ram_block(OBJYH, nr)
         for k, (s, ux, uy) in enumerate(fst):
-            if not s:
-                continue
+            if not s or cpu_mem[FOEKIND_AD + k] == FK_SPIDER_K:
+                continue                    # a SPIDER sits in its rock by design,
+                                            #   and adrift the PHYSICS keeps it out
             for i in range(nr):
-                if rc[i] == SHP_DEAD:
+                if rc[i] == SHP_DEAD or rc[i] >= len(BODY_R):
                     continue
                 dx = ((ux - (rxl[i] | (rxh[i] << 8)) + 32768) & 0xFFFF) - 32768
                 dy = ((uy - (ryl[i] | (ryh[i] << 8)) + 32768) & 0xFFFF) - 32768
@@ -2392,11 +2406,137 @@ check("the level's UFOs are loaded", alive_f[0] > 0,
 check("a UFO that can see the ship chases it", any(chase_f),
       "the flight opens with a UFO inside FOE_SEE and none ever pursued")
 check("the UFOs fire", fired > 0, "no enemy bullet was ever spawned")
+_ufo_outl = {tuple(tuple(q) for q in part.pts) for e in _enemy_model().enemies
+             if e.name == "UFO" for fr in e.frames for part in fr}
 check("a UFO never turns: every body part at ANGLE 0, on the eased zoom",
-      all(p["ang"] == 0 and p["scale"] == trace[f]["ZEASH"] for f, p in bodies),
+      all(p["ang"] == 0 and p["scale"] == trace[f]["ZEASH"] for f, p in bodies
+          if tuple(p["offs"]) in _ufo_outl),
       "a UFO part went out turned, or scaled by something other than ZEASH")
 check("no UFO ends a frame inside a rock", not foe_inside,
       f"{len(foe_inside)} (frame, ufo, rock, world units deep), e.g. {foe_inside[:4]}")
+
+# --- the UFO's shape ANIMATION -----------------------------------------------
+# enemies.s authors the UFO as FN frames sharing one part list, and foe_anim
+# picks the row: ANIM[(FRAME >> ASH + slot) & AMSK]. Nothing about that is
+# visible in RAM, so it is checked where it actually lands - in the command
+# stream. A band's offsets belong to exactly one authored frame (the hull and
+# the dome are shared, and deduped, so they say nothing), and every part of one
+# UFO carries the SAME anchor, which is what groups them.
+_en_model = _enemy_model()
+_ufo = next((e for e in _en_model.enemies if e.name == "UFO"), None)
+_witness, _seen_in = {}, {}
+if _ufo:
+    for fi, fr in enumerate(_ufo.frames):
+        for part in fr:
+            if len(part.pts) >= 2:
+                _seen_in.setdefault(tuple(tuple(q) for q in part.pts), set()).add(fi)
+    _witness = {k: next(iter(v)) for k, v in _seen_in.items() if len(v) == 1}
+
+anim_seen = []                          # (preview frame, anchor, authored frame)
+anim_mixed = []
+for f in range(FRAMES):
+    per = {}
+    for q in polys(frames[f]):
+        if not q["enemy"]:
+            continue
+        w = _witness.get(tuple(q["offs"]))
+        if w is not None:
+            per.setdefault((q["cx"], q["cy"]), set()).add(w)
+    for anchor, got in per.items():
+        if len(got) > 1:
+            anim_mixed.append((f, anchor, sorted(got)))
+        else:
+            anim_seen.append((f, anchor, next(iter(got))))
+
+HOLD = _ufo.hold if _ufo else 1        # EN_UFO_AHOLD, as the editor read it
+# The frames where exactly ONE UFO was identified - the only ones where a
+# change can be attributed to a single machine, since an anchor moves and
+# carries no identity. A UFO off the screen skips its transform for a few
+# frames (FOESLP), so these frames are not contiguous, and a run broken by
+# that gap is not evidence of anything. What IS evidence is the length of a
+# run whose BOTH ENDS were seen: the step is a per-foe countdown now
+# (foes.s FOEACD), so a complete hold has to be exactly AHOLD frames.
+solo = {f: fr for f, a, fr in anim_seen
+        if sum(1 for g, b, _ in anim_seen if g == f) == 1}
+runs = []
+for f, fr in sorted(solo.items()):
+    if runs and runs[-1][0] == fr and f == runs[-1][2] + 1:
+        runs[-1][2] = f
+    else:
+        runs.append([fr, f, f])
+whole = [r[2] - r[1] + 1 for r in runs
+         if r[1] - 1 in solo and r[2] + 1 in solo]   # runs with both ends seen
+want = _ufo.order if _ufo else []
+# ...and the ORDER is only evidence across runs that actually touch: a gap in
+# the drawing is a gap in the playlist too, and the steps it skipped are not
+# this check's business.
+steps = [(a[0], b[0]) for a, b in zip(runs, runs[1:]) if b[1] == a[2] + 1]
+walk_ok = bool(want) and bool(steps) and all(
+    want[(i + 1) % len(want)] == b
+    for a, b in steps for i in [want.index(a)])
+print(f"        UFO animation: {len(_ufo.frames) if _ufo else 0} authored frames, "
+      f"playlist {want}, hold {HOLD}; {len(_witness)} band outlines identify "
+      f"one frame; {len(anim_seen)} UFO-frames identified, frames seen "
+      f"{sorted(set(solo.values()))}; complete runs lasted {sorted(set(whole)) or '-'}; "
+      f"{len(steps)} run-to-run steps")
+check("every authored UFO frame reaches the GPU",
+      _ufo is not None and {fr for _, _, fr in anim_seen} ==
+      set(range(len(_ufo.frames))),
+      "the playlist is not walked - some authored frame was never drawn")
+check("a UFO is never drawn as a MIX of two frames",
+      not anim_mixed,
+      f"{len(anim_mixed)} UFO-frames took parts from two authored frames, "
+      f"e.g. {anim_mixed[:3]}")
+check("a hold lasts exactly AHOLD frames - any number, no shift",
+      whole and set(whole) == {HOLD},
+      f"complete holds lasted {sorted(set(whole))}, expected {HOLD} - foe_anim's "
+      f"countdown (FOEACD) or the reload is wrong")
+check("the playlist is walked IN ORDER",
+      walk_ok,
+      f"the run-to-run steps were {steps[:8]}, which do not follow {want}")
+
+# --ufo-strip <path>: the UFO as the GPU actually received it, frame by frame -
+# the offsets out of the command stream, put through the GPU's own rotate+scale
+# (pg_vertex) and drawn about their anchor. Not a redraw of enemies.s: if
+# foe_anim picked the wrong row, this is what would show it.
+if "--ufo-strip" in sys.argv:
+    dest = sys.argv[sys.argv.index("--ufo-strip") + 1]
+    picks = [f for f in sorted(solo) if all(g in solo for g in range(f, f + 1))][:32]
+    _zs, _half, _pad, _lbl = 5, 30, 4, 14      # local names only: this runs at
+    CW = CH = (2 * _half) * _zs                #   module level, beside the
+    cols = 8                                   #   harness's own globals
+    rows = (len(picks) + cols - 1) // cols
+    strip = Image.new("RGB", (cols * (CW + _pad) + _pad,
+                              rows * (CH + _lbl + _pad) + _pad), (16, 20, 24))
+    sd = ImageDraw.Draw(strip)
+    for n, f in enumerate(picks):
+        ox = _pad + (n % cols) * (CW + _pad)
+        oy = _pad + (n // cols) * (CH + _lbl + _pad) + _lbl
+        sd.rectangle([ox, oy, ox + CW, oy + CH], outline=(38, 48, 58))
+        cx0, cy0 = ox + CW / 2, oy + CH / 2
+        groups = {}
+        for q in polys(frames[f]):
+            if q["enemy"]:
+                groups.setdefault((q["cx"], q["cy"]), []).append(q)
+        if not groups:
+            continue
+        anchor, parts = next(iter(groups.items()))
+        for q in parts:
+            _c, _sgc, _s, _sgs = pg_matrix(q["ang"], q["scale"])
+            pts = []
+            for dx, dy in q["offs"]:
+                qx, qy = pg_vertex(dx, dy, 0, 0, _c, _sgc, _s, _sgs)
+                pts.append((cx0 - qy * _zs, cy0 + qx * _zs))   # TATE, as the monitor
+            if len(pts) < 2:
+                continue
+            if not q["open"]:
+                pts.append(pts[0])
+            sd.line(pts, fill=(190, 225, 255), width=2)
+        sd.text((ox + 3, oy - _lbl + 2),
+                f"f{f}  shape frame {solo[f]}  scale {parts[0]['scale']}",
+                fill=(150, 160, 170))
+    strip.save(dest)
+    print(f"        wrote {dest} - {len(picks)} frames as the GPU got them")
 
 # --- the mini explosion ------------------------------------------------------
 # The puff is a cloud of DOT_PIXELS thrown off the hit point, and the animation
@@ -3428,6 +3568,289 @@ check("...a UFO drawn with its disc wholly off the screen is exercised", side > 
 check("a disc wholly off the screen is never put in a band that does not exist",
       not any(any(s) for s in spare), f"bytes past OCCBN by the end: {spare[-1]}")
 check("...and the sector grid survives it", side_grid is None, str(side_grid))
+
+
+# =============================================================================
+# The SPIDER - mounted, knocked off, adrift, colliding, killed
+# =============================================================================
+# Level 0 carries three, on 192 px rocks far from the ship's start, so the
+# reference flight above never comes within their sight and none of its
+# calibrated numbers move. These benches bring one to the ship instead:
+# CART_INIT, a slot poked into a spider, and then the cart's OWN routines, by
+# name out of cart.lbl, wherever a state change matters. The knock-off is the
+# real rock_destroy and the death the real foe_kill - not a byte stamped where
+# they would have stamped it, which is how a bench ends up agreeing with itself.
+FK_SPIDER = foes_const("FK_SPIDER")
+FS_MOUNTED = foes_const("FS_MOUNTED")
+FS_SEEN = foes_const("FS_PURSUE")               # foes.s: FS_SEEN = FS_PURSUE
+_app = {e.name: i for i, e in enumerate(_en_model.enemies)}
+EA_SPIDER, EA_FLOAT = _app["SPIDER"], _app["SPIDER_FLOAT"]
+HIT_HP = cart_const("HIT_HP")
+SHOT_SPD = shots_const("SHOT_SPD")
+SPD_HP, SPD_DMG, SPD_SPD = 15 * HIT_HP, HIT_HP // 2, SHOT_SPD // 2
+BODY_SPIDER = cart_const("BODY_SPIDER")
+OBJSHP_A, OBJANG_A = cart_addr("OBJSHP"), cart_addr("OBJANG")
+OBJXL_A, OBJXH_A = cart_addr("OBJXL"), cart_addr("OBJXH")
+OBJYL_A, OBJYH_A = cart_addr("OBJYL"), cart_addr("OBJYH")
+OBJVXL_A, OBJVXH_A = cart_addr("OBJVXL"), cart_addr("OBJVXH")
+OBJVYL_A, OBJVYH_A = cart_addr("OBJVYL"), cart_addr("OBJVYH")
+OBJSPNL_A, OBJSPNH_A = cart_addr("OBJSPNL"), cart_addr("OBJSPNH")
+OBJSLP_A = cart_addr("OBJSLP")
+VISIDX_A, VISN_A = cart_addr("VISIDX"), cart_addr("VISN")
+LBL = {m.group(2): int(m.group(1), 16) for m in
+       re.finditer(r"^al ([0-9A-Fa-f]+) \.(\w+)\s*$",
+                   (ROOT / "cart.lbl").read_text(), re.M)}
+
+
+def s24(lo, hi, top):
+    v = lo | (hi << 8) | (top << 16)
+    return v - 0x1000000 if v & 0x800000 else v
+
+
+def _wd(a, b):
+    return ((a - b + 32768) & 0xFFFF) - 32768
+
+
+def spider_put(k, st, app, rock=0xFF):
+    """foe_put's clean slot, made into a spider. Call foe_put first."""
+    cpu_mem[FOEKIND_AD + k] = FK_SPIDER         # KIND lives in radar.s's block
+    for n, v in (("FOEAPP", app), ("FOEST", st), ("FOEROCK", rock),
+                 ("FOEHP", SPD_HP), ("FOEANG", 0),
+                 ("FOEAST", 0), ("FOEACD", 1), ("FOECD", 0)):
+        cpu_mem[foes_addr(n) + k] = v
+
+
+def run_frame():
+    cpu_mem[JOY1_PREV] = cpu_mem[JOY1] = cpu_mem[JOY1_PRESS] = 0
+    call(cpu, API_GPU_BEGIN)
+    call(cpu, CART_FRAME)
+    call(cpu, API_GPU_END)
+    end = cpu_mem[0x04] | (cpu_mem[0x05] << 8)          # PPWP points AT the WAI
+    return bytes(cpu_mem[PPRAM + i] for i in range(end - PPRAM + 1))
+
+
+def cart_call(name, x=None):
+    """Call a cart routine by name, INSIDE the window bracket (window.s).
+
+    The object pool and the enemy arrays live under $8000-$9FFF and read back
+    only while CART_EN is clear, which cart_frame arranges for every pass that
+    touches them. A routine called from out here gets no such bracket unless it
+    is given one - and without it cell_unlink walks cell lists read out of the
+    cartridge ROM and never finds its object. win_off first, X after it (the
+    OS's bank call is free to use it), and win_on on every way out."""
+    call(cpu, LBL["win_off"])
+    if x is not None:
+        cpu.x = x
+    try:
+        call(cpu, LBL[name])
+    finally:
+        call(cpu, LBL["win_on"])
+
+
+def foe_pos(k):
+    return (ram(0x6F00 + k), ram(0x6F10 + k), ram(0x6F20 + k), ram(0x6F30 + k))
+
+
+def obj_pos(i):
+    return (ram(OBJXL_A + i), ram(OBJXH_A + i), ram(OBJYL_A + i), ram(OBJYH_A + i))
+
+
+def obj_xy(i):
+    xl, xh, yl, yh = obj_pos(i)
+    return xl | (xh << 8), yl | (yh << 8)
+
+
+# --- level 0's own three -----------------------------------------------------
+call(cpu, CART_INIT)
+lvl = [(ram(FOEST_A + k), ram(foes_addr("FOEROCK") + k))
+       for k in range(cpu_mem[0x6E1C]) if ram(FOEKIND_AD + k) == FK_SPIDER]
+print(f"        level 0 spiders: {len(lvl)}, states {[s for s, _ in lvl]}, riding rock "
+      f"slots {[r for _, r in lvl]} of classes {[ram(OBJSHP_A + r) for _, r in lvl]}")
+check("level 0 has three spiders, each MOUNTED on its own 192 or 128 px rock",
+      len(lvl) == 3 and all(s == FS_MOUNTED for s, _ in lvl)
+      and all(ram(OBJSHP_A + r) <= 1 for _, r in lvl) and len({r for _, r in lvl}) == 3,
+      f"(state, rock) per spider: {lvl}")
+
+# --- MOUNTED: it IS its rock, position and spin -------------------------------
+for k in range(cpu_mem[0x6E1C]):
+    cpu_mem[FOEST_A + k] = 0
+_shx = cpu_mem[0x8B] | (cpu_mem[0x8C] << 8)
+_shy = cpu_mem[0x8E] | (cpu_mem[0x8F] << 8)
+# The RIDE is class-blind - only foe_mount's search cares, and that is checked
+# above - so this rides the nearest live rock of any size: the one on screen,
+# whose angle can therefore be read back out of the command stream.
+live = sorted((i for i in range(cpu_mem[0x0CB8]) if ram(OBJSHP_A + i) < BODY_SPIDER),
+              key=lambda i: abs(_wd(obj_xy(i)[0], _shx)) + abs(_wd(obj_xy(i)[1], _shy)))
+rock = live[0]
+foe_put(0, 0, 0)
+spider_put(0, FS_MOUNTED, EA_SPIDER, rock)
+rode, angs, spun, drawn = [], set(), set(), set()
+OBJHP_A = cart_addr("OBJHP")
+hp0, mshots = ram(OBJHP_A + rock), 0
+rx0, ry0 = obj_xy(rock)
+sight = math.hypot(_wd(rx0, _shx), _wd(ry0, _shy))
+for f in range(120):                           # past FOE_FIRST and its stagger
+    st = run_frame()
+    mshots += sum(ram(foes_addr("FSLIVE") + b) for b in range(8))
+    rode.append(foe_pos(0) == obj_pos(rock))
+    a = ram(OBJANG_A + rock)
+    angs.add(ram(foes_addr("FOEANG")) == a)
+    spun.add(a)
+    drawn |= {q["ang"] for q in polys(st) if q["enemy"]}
+print(f"        spider mounted: rode its rock on {sum(rode)} of {len(rode)} frames; the rock "
+      f"turned through {len(spun)} angle(s); body drawn at {len(drawn)} angle(s)")
+check("a MOUNTED spider is exactly where its rock is, every frame", all(rode),
+      f"{len(rode) - sum(rode)} frame(s) where it drifted off its rock")
+check("...and carries its rock's ANGLE", angs == {True},
+      "FOEANG and the rock's OBJANG parted company")
+check("...so it is DRAWN turned", bool(drawn - {0}),
+      f"drawn at {sorted(drawn)} - the spin is not reaching the GPU")
+print(f"        ...{round(sight)} world units from the ship (FOE_SEE is {foes_const('FOE_SEE') if False else 6400}), "
+      f"{len(rode)} frames: {mshots} bullet-frame(s); its rock's hit points "
+      f"{hp0} -> {ram(OBJHP_A + rock)}, class {ram(OBJSHP_A + rock)}")
+check("a MOUNTED spider does not react to the ship: no bullet in 120 frames within sight",
+      sight < 6400 and mshots == 0,
+      f"{mshots} frame(s) with a bullet in flight, {round(sight)} units off")
+check("...so it never damages its own rock",
+      ram(OBJSHP_A + rock) != SHP_DEAD and ram(OBJHP_A + rock) == hp0,
+      f"hit points {hp0} -> {ram(OBJHP_A + rock)}")
+
+# --- KNOCKED OFF by the real rock_destroy, and given a body -------------------
+cart_call("rock_destroy", x=rock)
+st_k, app_k = ram(FOEST_A), ram(foes_addr("FOEAPP"))
+print(f"        rock_destroy on its rock: state {FS_MOUNTED} -> {st_k}, "
+      f"appearance {EA_SPIDER} -> {app_k}")
+check("rock_destroy knocks a mounted spider off (foe_unmount)",
+      st_k not in (0, FS_MOUNTED) and app_k == EA_FLOAT,
+      f"state {st_k}, appearance {app_k}")
+run_frame()
+car = ram(foes_addr("FOEROCK"))
+cls = ram(OBJSHP_A + car) if car != 0xFF else None
+spn = s16(ram(OBJSPNL_A + car), ram(OBJSPNH_A + car)) if car != 0xFF else 0
+print(f"        the next frame: carrier slot {car}, body class {cls}, spin {spn} (8.8 brad)")
+check("...and the next frame builds its CARRIER, a body in the rock pool",
+      car != 0xFF and cls == BODY_SPIDER, f"FOEROCK {car}, class {cls}")
+g = grid_ok()
+check("...linked into the sector grid like any rock", g is None, str(g))
+check("...turning at a random spin of its own", 8 <= abs(spn) <= 0x7F, f"spin {spn}")
+
+rode2, listed, drawn2, states = [], 0, set(), set()
+for f in range(40):
+    st = run_frame()
+    rode2.append(foe_pos(0) == obj_pos(car))
+    listed += sum(1 for j in range(cpu_mem[VISN_A]) if ram(VISIDX_A + j) == car)
+    a = ram(OBJANG_A + car)
+    drawn2 |= {q["ang"] == a for q in polys(st) if q["enemy"]}
+    states.add(ram(FOEST_A))
+print(f"        adrift: rode its carrier on {sum(rode2)} of 40 frames, on the visible "
+      f"list {listed} time(s), states seen {sorted(states)}")
+check("an adrift spider rides its carrier, every frame", all(rode2),
+      f"{40 - sum(rode2)} frame(s) off it")
+check("...drawn at the CARRIER's angle", drawn2 == {True},
+      f"{drawn2} - empty means it was never drawn")
+check("...and the carrier is never on the visible list: no outline, no bullet, no beam",
+      listed == 0, f"listed {listed} time(s)")
+check("an adrift spider in sight of the ship SEES it (FS_SEEN) - the alarm's trigger, not a course",
+      FS_SEEN in states, f"states {sorted(states)}")
+
+# --- ...and it collides with rocks as a rock does, both ways ------------------
+# The partner is the second-nearest rock to the ship when the bench began - not
+# a fragment of the rock just destroyed, which is still flying apart. The
+# carrier is put just clear of it, closing, and both velocities are watched.
+partner = next(i for i in live[1:] if ram(OBJSHP_A + i) < BODY_SPIDER)
+pc = ram(OBJSHP_A + partner)
+px, py = obj_xy(partner)
+gap = (BODY_R[pc] + BODY_R[BODY_SPIDER]) * 32 + 96
+nx = (px + gap) & 0xFFFF
+cpu_mem[OBJXL_A + car], cpu_mem[OBJXH_A + car] = nx & 0xFF, nx >> 8
+cpu_mem[OBJYL_A + car], cpu_mem[OBJYH_A + car] = py & 0xFF, py >> 8
+# CLOSING, whatever the partner is doing: the carrier gets the partner's own
+# velocity plus 8 units a frame straight at it. A fixed velocity is not a
+# closing one - the first cut of this bench put the carrier behind a 16 px rock
+# that was running away from it faster than it chased.
+pvx = s16(ram(OBJVXL_A + partner), ram(OBJVXH_A + partner))
+pvy = s16(ram(OBJVYL_A + partner), ram(OBJVYH_A + partner))
+cvx = (pvx - 0x0800) & 0xFFFF
+cpu_mem[OBJVXL_A + car], cpu_mem[OBJVXH_A + car] = cvx & 0xFF, cvx >> 8
+cpu_mem[OBJVYL_A + car], cpu_mem[OBJVYH_A + car] = pvy & 0xFF, (pvy >> 8) & 0xFF
+cpu_mem[OBJSLP_A + partner] = cpu_mem[OBJSLP_A + car] = 0
+cv0, pv0 = s16(cvx & 0xFF, cvx >> 8), pvx
+hit_at, cv, pv, seps = None, cv0, pv0, []
+for f in range(60):
+    run_frame()
+    cv = s16(ram(OBJVXL_A + car), ram(OBJVXH_A + car))
+    pv = s16(ram(OBJVXL_A + partner), ram(OBJVXH_A + partner))
+    seps.append(_wd(obj_xy(car)[0], obj_xy(partner)[0]))
+    if cv != cv0 and pv != pv0:
+        hit_at = f
+        break
+print(f"        carrier vs a class-{pc} rock: carrier vx {cv0} -> {cv}, rock vx {pv0} -> {pv}, "
+      f"x separation {seps[:3]}...{seps[-2:]}, contact on frame {hit_at}")
+check("a drifting spider collides with rocks the way a rock does - BOTH bodies answer",
+      hit_at is not None, "neither velocity changed in 60 frames of closing")
+g = grid_ok()
+check("...and the grid is still whole after it", g is None, str(g))
+
+# --- KILLED by the real foe_kill: the carrier goes back to the pool -----------
+free0 = cpu_mem[NFREE_A]
+cpu_mem[foes_addr("FEI")] = 0
+cart_call("foe_kill")
+print(f"        foe_kill: carrier class {ram(OBJSHP_A + car)}, free slots {free0} -> "
+      f"{cpu_mem[NFREE_A]}, FOEROCK {ram(foes_addr('FOEROCK'))}")
+check("foe_kill frees a spider's carrier back onto the free stack",
+      ram(OBJSHP_A + car) == SHP_DEAD and cpu_mem[NFREE_A] == free0 + 1
+      and ram(foes_addr("FOEROCK")) == 0xFF,
+      "the carrier outlived its spider")
+g = grid_ok()
+check("...and out of the grid", g is None, str(g))
+
+# --- ADRIFT: it shoots, weakly and slowly - measured against a UFO ----------
+# Both bullets are measured the same way, not read off constants, so "half"
+# means half of what a UFO actually fires.
+def bullets(n):
+    fired, dmgs, speeds, was = 0, set(), [], [0] * 8
+    for f in range(n):
+        run_frame()
+        now = [ram(foes_addr("FSLIVE") + b) for b in range(8)]
+        for b in range(8):
+            if now[b] and not was[b]:           # a NEW bullet: fsh_all ages it
+                fired += 1                      #   inside the frame it is fired
+                dmgs.add(ram(foes_addr("FSDMG") + b))
+                vx = s24(ram(foes_addr("FSVXL") + b), ram(foes_addr("FSVXH") + b),
+                         ram(foes_addr("FSVXT") + b))
+                vy = s24(ram(foes_addr("FSVYL") + b), ram(foes_addr("FSVYH") + b),
+                         ram(foes_addr("FSVYT") + b))
+                speeds.append(math.hypot(vx, vy) / 256.0)
+        was = now
+    return fired, dmgs, speeds
+
+
+def shooter_at_ship(spider):
+    call(cpu, CART_INIT)
+    for k in range(cpu_mem[0x6E1C]):
+        cpu_mem[FOEST_A + k] = 0
+    sx = cpu_mem[0x8B] | (cpu_mem[0x8C] << 8)
+    sy = cpu_mem[0x8E] | (cpu_mem[0x8F] << 8)
+    foe_put(0, (sx + 1200) & 0xFFFF, sy)        # inside FOE_SHOOT, off the nose
+    if spider:
+        spider_put(0, 1, EA_FLOAT)              # slot 0 is level 0's first UFO
+
+
+shooter_at_ship(True)
+s_fired, s_dmg, s_spd = bullets(200)
+shooter_at_ship(False)
+u_fired, u_dmg, u_spd = bullets(200)
+_r3 = lambda v: [round(s, 1) for s in v[:3]]
+print(f"        bullets - spider adrift: {s_fired} fired, damage {sorted(s_dmg)}, speed "
+      f"{_r3(s_spd)} | UFO: {u_fired} fired, damage {sorted(u_dmg)}, speed {_r3(u_spd)}")
+check("an adrift spider fires once it has seen the ship", s_fired > 0,
+      "it never pulled the trigger")
+check("its bullet does HALF the damage of a UFO's",
+      len(u_dmg) == 1 and s_dmg == {min(u_dmg) // 2},
+      f"spider {sorted(s_dmg)}, UFO {sorted(u_dmg)}")
+check("...and flies at HALF a UFO bullet's speed",
+      bool(s_spd) and bool(u_spd) and all(abs(2 * s - u) <= 6 for s in s_spd for u in u_spd),
+      f"spider {_r3(s_spd)}, UFO {_r3(u_spd)}")
 
 # =============================================================================
 # preview.png — the framebuffer as the rotated monitor shows it
