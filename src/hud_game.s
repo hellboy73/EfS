@@ -75,7 +75,7 @@
 ; count of characters.
 ; =============================================================================
 
-LIVES_START  = 9                ; ships in hand at the start of a game. NINE
+LIVES_START  = 3                ; ships in hand at the start of a game. NINE
                                 ;   while the field is being flown for tuning;
                                 ;   the shipping number is 3. It is a constant so
                                 ;   that tools/preview.py reads it rather than
@@ -123,7 +123,7 @@ HUD_L2_LEN   = C_SCORE_NUM + SCORE_DIGITS
         .assert HUD_L2_LEN <= HUD_RADAR_C0, error, "hud_game.s: row 2 reaches the radar"
         .assert HUD_L1_LEN = HUD_L2_LEN, error, "hud_game.s: the two rows no longer line up"
         .assert C_LABEL_NUM < C_RIGHT, error, "hud_game.s: the label runs into the right-hand field"
-        .assert HP_MAX * HP_CELLS + HP_MAX / 2 <= 255, error, "hud_game.s: hud_bar_fill's product no longer fits a byte - raise HP_MAX and it must go 16-bit"
+        .assert HP_MAX + HP_CELLS <= 255, error, "hud_game.s: hud_bar_fill's running remainder no longer fits a byte"
         .assert HP_MAX >= 1, error, "hud_game.s: hud_bar_fill would divide by zero"
         .assert HUD_ROW2 - HUD_ROW1 >= 2, error, "hud_game.s: the two rows have no clear line between them"
         .assert HUD_ROW2 <= 49 && IND_ROW <= 49, error, "hud_game.s: a row is off the VTEXT grid"
@@ -156,10 +156,12 @@ IND_QMAX     = 4                ; queued messages; a fifth is dropped
 IQ_NONE      = $FF              ; nothing on the bar (IND_CUR only)
 
 IM_HULL      = 0                ; the ship took a hit
-IM_CRITICAL  = 1                ; ...and it is down to its last hit point
+IM_CRITICAL  = 1                ; ...and one more ordinary hit would end it
 IM_LEVEL     = 2                ; a level just started
 IM_LIFE      = 3                ; ...and a ship was lost, but not the last one
 IM_ENEMY     = 4                ; a UFO has seen the ship (foes.s foe_alarm)
+IM_GUN       = 5                ; FIRE2 chose the gun... (laser.s wpn_toggle)
+IM_LASER     = 6                ; ...or the laser
 
 ; --- RAM ---------------------------------------------------------------------
 ; $7030-$70FF was the last clear stretch of the page thrust.s and shots.s share
@@ -490,10 +492,12 @@ hud_build_row1:
 ; to fit in. Tying them together with "two characters per hit point" made the two
 ; one number, and the first hull upgrade would have written past the closing pipe.
 ;
-; No multiply: HP_MAX is small, so the product is a short add loop and the divide
-; a short subtract loop - a few hundred cycles, once every HUD_PERIOD frames at
-; most, on a row that only rebuilds when the hull actually changed. The assert on
-; HP_MAX * HP_CELLS above is what keeps all of it inside one byte.
+; No multiply, and no product either. It used to form hp * HP_CELLS in a byte,
+; which a 50-point hull (HIT_HP, main.s) overflows. Now HP_CELLS is added once a
+; hit point and a cell is taken out of every HP_MAX of the running sum as it
+; goes - Bresenham's trick - so the remainder never reaches HP_MAX + HP_CELLS
+; and the whole division stays in one byte. A few hundred cycles, once every
+; HUD_PERIOD frames at most, on a row that only rebuilds when the hull changed.
 ;
 ; ROUNDED, not truncated (the + HP_MAX/2), so a hull just under half reads as
 ; half rather than as less. And NEVER ZERO WHILE ALIVE: a ship on its last point
@@ -506,19 +510,22 @@ hud_bar_fill:
         cmp     #HP_MAX+1               ; clamp: a medkit past full must not
         bcc     :+                      ;   overrun the box
         lda     #HP_MAX
-:       tax                             ; X = hp, the add loop's counter
+:       phy                             ; (Y is the caller's)
+        tax                             ; X = hp, the add loop's counter
+        ldy     #0                      ; Y = cells so far
         lda     #HP_MAX/2               ; the rounding term, added up front
-@mul:   clc
-        adc     #HP_CELLS
-        dex
-        bne     @mul                    ; A = hp * HP_CELLS + HP_MAX/2
-        ldx     #0
-@div:   cmp     #HP_MAX                 ; ...divided by HP_MAX
-        bcc     @got
-        sec
-        sbc     #HP_MAX
-        inx
-        bra     @div
+@add:   clc
+        adc     #HP_CELLS               ; + HP_CELLS for every hit point...
+@sub:   cmp     #HP_MAX                 ; ...and a cell for every HP_MAX of it
+        bcc     @nx
+        sbc     #HP_MAX                 ;   (carry is set by the compare)
+        iny
+        bra     @sub
+@nx:    dex
+        bne     @add
+        tya
+        tax                             ; X = (hp*HP_CELLS + HP_MAX/2) / HP_MAX
+        ply
 @got:   cpx     #HP_CELLS+1             ; clamp again: rounding at the top can
         bcc     :+                      ;   land one past a full box
         ldx     #HP_CELLS
@@ -664,6 +671,8 @@ ind_emit:
 ;
 ;   * a repeat of what is already showing, or already waiting, is DROPPED - so a
 ;     ship grinding along a rock cannot back the queue up;
+;   * ONE message jumps the queue - the weapon change, see indicate_urgent - and
+;     it is the only one that is a state rather than a report;
 ;   * a message that expires with another waiting is drawn STRAIGHT OVER it, one
 ;     emit and no blank frame between, because every emit rewrites the whole row;
 ;   * the hold shortens to IND_TICKS_Q while anything is waiting, so a burst
@@ -702,6 +711,78 @@ indicate_msg:
         sta     IND_QD,x
         inc     IND_QN
 @drop:  rts
+
+        .pushseg
+        .segment "CODE4"                ; (bank 1 has ~50 bytes left and this is
+                                        ;  cold - one call per weapon change)
+
+; -----------------------------------------------------------------------------
+; indicate_urgent - A = IM_* id. The bar's ONE queue-jumper: the id goes to the
+; FRONT of the queue and whatever is showing has its hold cut short, so the next
+; paint phase draws this one. Clobbers A/X/Y.
+; -----------------------------------------------------------------------------
+; The weapon change uses it (laser.s wpn_toggle) and nothing else does, because
+; it is the one line on this bar that is not a REPORT of something that
+; happened: it is the STATE the player is now flying in. Queued behind a HULL
+; BREACH and its two-second hold, ARMED would land after they had already fired
+; the other weapon - a bar that lies about what is in their hands.
+;
+; It does not draw. IND_TIMER is set to 1, which is exactly the "expired, still
+; on screen" state ind_timer_tick counts down to, so indicate_tick's own path
+; takes it on its next phase and this file still emits one command per phase.
+;
+; A copy already waiting is taken out rather than left to show twice: flipping
+; the weapon back and forth must not queue four lines.
+; -----------------------------------------------------------------------------
+indicate_urgent:
+        tay                             ; Y = the id, across the walk
+        ldx     #$00                    ; ---- drop any copy already waiting
+@scan:  cpx     IND_QN
+        bcs     @room
+        tya
+        cmp     IND_QD,x
+        bne     @nx
+        jsr     ind_qdrop               ; (X stays: the shift moved one into it)
+        bra     @scan
+@nx:    inx
+        bra     @scan
+@room:  ldx     IND_QN                  ; ---- open a slot at the front
+        cpx     #IND_QMAX
+        bcc     @shift
+        dex                             ; full: the oldest one at the back loses
+@shift: cpx     #$00
+        beq     @put
+        lda     IND_QD-1,x
+        sta     IND_QD,x
+        dex
+        bra     @shift
+@put:   tya
+        sta     IND_QD
+        ldx     IND_QN
+        cpx     #IND_QMAX
+        bcs     @now
+        inc     IND_QN
+@now:   lda     IND_TIMER               ; ---- and the bar's hold is over
+        beq     @done                   ;   (idle: indicate_tick takes it anyway)
+        lda     #$01
+        sta     IND_TIMER
+@done:  rts
+
+; ind_qdrop - take IND_QD[X] out of the queue, shifting the rest down. X and Y
+; come back as they went in.
+ind_qdrop:
+        dec     IND_QN
+        phx
+@sh:    cpx     IND_QN
+        bcs     @done
+        lda     IND_QD+1,x
+        sta     IND_QD,x
+        inx
+        bra     @sh
+@done:  plx
+        rts
+
+        .popseg
 
 ; -----------------------------------------------------------------------------
 ; ind_timer_tick - age the message on the bar. Every frame, from hud_tick.
@@ -868,11 +949,15 @@ STR_LIVES:  .byte   "LIVES: "
 
 IM_HULL_S:  .byte   "HULL BREACH", 0
 IM_CRIT_S:  .byte   "HULL CRITICAL", 0
-IM_LEVEL_S: .byte   "STAY ALIVE", 0
+IM_LEVEL_S: .byte   "CLEAR THE SECTOR", 0
 IM_LIFE_S:  .byte   "SHIP LOST", 0
 IM_ENEMY_S: .byte   "ENEMY DETECTED", 0
+IM_GUN_S:   .byte   "BLASTER ARMED", 0
+IM_LASER_S: .byte   "LASER ARMED", 0
 
 IND_LO:     .byte   <IM_HULL_S, <IM_CRIT_S, <IM_LEVEL_S, <IM_LIFE_S, <IM_ENEMY_S
+            .byte   <IM_GUN_S, <IM_LASER_S
 IND_HI:     .byte   >IM_HULL_S, >IM_CRIT_S, >IM_LEVEL_S, >IM_LIFE_S, >IM_ENEMY_S
+            .byte   >IM_GUN_S, >IM_LASER_S
 
         .segment "CODE2"

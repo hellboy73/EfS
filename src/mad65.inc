@@ -24,6 +24,11 @@ API_GPU_DOTPIXELS   = $FF24     ; OS_ARG+0..1 = ptr -> { N, x0,y0, ... }  half-r
 API_GPU_SPRITE      = $FF2A     ; OS_ARG+0 = SPR_ID, +1..2 = X16, +3..4 = Y16
 API_GPU_LOAD        = $FF39     ; OS_ARG+0 = GPU page MSB, +1..2 = ptr -> 256 bytes
 API_GPU_CLEARBG     = $FF3C     ; (no args) clear the VRAM background
+API_GPU_HDOTLINE    = $FFB1     ; OS_ARG+0..2 = X1,Y,X2, half-res bytes - a
+                                ;   byte-aligned horizontal dotted rule ($49):
+                                ;   the OS clamps, orders X1<=X2 and widens the
+                                ;   run to whole VRAM bytes (4 half-res px).
+                                ;   Image layer only. The laser's beam (laser.s)
 API_GPU_DOTLINE_CLIP= $FF93     ; OS_ARG+0..7 = X1,Y1,X2,Y2, signed 16 half-res.
                                 ;        Cohen-Sutherland: emits nothing when the
                                 ;        segment misses the screen entirely

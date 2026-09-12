@@ -206,7 +206,9 @@ impulse written into `VELX`/`VELY` is gone by the next one. So:
   up. The step is clamped to the side of `THRTL_REST` the ship was already on: a
   hit can stop the ship dead, it cannot punch it into reverse. Same argument as
   open question B8 makes about the gun's recoil.
-- **`SHIPHP`** — one hit point, and at zero the ship breaks apart.
+- **`SHIPHP`** — `RAM_DMG`, one ordinary hit (`HIT_HP` = 10) of its `HP_MAX` =
+  50, and at zero the ship breaks apart. A hit bigger than what is left is the
+  last one (design_technical 11.25).
 
 Splitting the impulse rather than applying all of it twice is the point: without
 the subtraction the along-heading half would be charged once as a jolt and again
@@ -392,7 +394,7 @@ the deepest decides, and three things happen, in this order:
 The normal is `d/|d|`, `|d|` from `max(M, 0.875M + 0.5m)` carried at 2×
 (ship_respond's estimate at 4×, which a 74-unit zone would overflow).
 
-**Ramming.** A ship that flies into a UFO pays a hit point exactly as for a rock,
+**Ramming.** A ship that flies into a UFO pays `RAM_DMG` exactly as for a rock,
 and the UFO is shoved out of the way; `FOE_RAMCD` frames pass before that UFO can
 charge it again. The UFO itself takes no damage — the rocks' rule (4.6, the
 rock's own hit point is off by request).
@@ -408,7 +410,8 @@ Integration is every frame for every UFO.
 | name | meaning | value |
 |---|---|---|
 | `FOE_R` | the UFO's collision radius, collision units | **9** (18 full-res px) **(TBM)**; the shape is 1.25x the first one — at 1x (radius 7) it was too small next to the ship to hit, at 1.5x (11) too big |
-| `FOE_HP` | hits it takes | **3** |
+| `FOE_HP` | hit points | **30** = 3 × `HIT_HP`: three bullets, or 15 frames of laser |
+| `FSH_DMG` | what its bullet takes off the ship or a rock | **10** = `HIT_HP`, one ordinary hit |
 | `FOE_SEE` | sight | **6400** world units — the resting screen's height |
 | `FOE_LOSE` | it gives up the chase past this | **12800** — twice the sight |
 | `FOE_SHOOT` | it only fires within this | **3520** — 220 px **(TBM)**; it was `FOE_SEE`, and read as being shot the instant it saw you |
@@ -424,3 +427,44 @@ Integration is every frame for every UFO.
 | `FOE_SNEAR` / `FOE_SFAR` | think every 2^this frames, near / far | **1 / 3** |
 | `FOE_FARPG` | pages past the coarse window before a UFO is far | **16** |
 | `SCORE_FOE_HIT` / `SCORE_FOE_KILL` | the player's pay for a hit / the last one | **50 / 100** |
+
+## 10. The laser — a screen segment, not a body
+
+`src/laser.s`; the decision is `design_technical.md` 11.24. The laser moves no
+mass and is moved by none: it is a test, made once a frame, of which circles
+reach one segment on the screen.
+
+**The segment** runs from the ship's nose to the top of the screen. The ship
+always points up and TATE puts up on the framebuffer's −X, so it is horizontal
+in the framebuffer: `x ∈ [0, nose]` on the ship's row. The nose is `LSR_NOSE`
+ahead of the ship's centre, scaled by `ZEASH` as the hull is; the centre and the
+row are where `emit_ship` puts them, screen shake included — and the targets'
+points (the visible list, `FOEFX/FY`) carry the same shake, so it cancels.
+
+**A target is crossed** when its circle — its collision radius at this zoom, as
+the gun uses it (`BODY_R` or `FOE_R`, `qmul` by `ZOOMH`, doubled into full-res),
+plus `LSR_HW` — reaches the segment: level with it and `|v| ≤ R` across, or past
+an end by `over` and `over² + v² ≤ R²` (the quarter-square table). Everything it
+crosses loses **`LSR_DMG` = 4 hit points a frame** — two fifths of a bullet;
+`rock_take_hit` for a rock, `foe_take_hit` for a UFO — and nothing stops the
+beam.
+
+**The sweep.** The world turns about the ship by whole brads, so a target `u` px
+up the screen from the ship moves `u·d·2π/256` px across the beam on a frame the
+heading changed by `d`. At the top of a zoomed-out screen `d = 1` is ~8 px and
+the smallest rock's whole circle is 12, so a beam tested once a frame could be
+stepped over. The test is therefore widened on the side the beam came from — +Y
+after a right turn (HEAD rising), −Y after a left — to `R + u·|d|·LSR_SWK/512`,
+which is the wedge between last frame's beam and this one, near enough. The ends
+are not widened; the far one is off the screen and the near one barely moves.
+`tools/preview.py` checks the guarantee directly: a rock level with the beam on
+both sides of a crossing has been hit on one of the two frames.
+
+| name | meaning | value |
+|---|---|---|
+| `LSR_FRAMES` | frames one press keeps the beam lit; no re-fire while lit | **20** — CETAS's `HERO_LASER_DUR` **(TBM, open_questions B9)** |
+| `LSR_HW` | the beam's half-width for the hit test, full-res px, added to every target's radius | **2** — CETAS's `HERO_LASER_HH`, the gun's `SHOT_HITR` |
+| `LSR_NOSE` | full-res px from the ship's centre to the nose at 1:1 | **22** — `SHIP_SHAPE` vertex 13, the gun's muzzle |
+| `LSR_SWK` | the sweep, 128·4·2π/256 per brad | **13** — 12.57 rounded up, 3% generous |
+| `LSR_DMAX` | brads a frame the sweep believes at most | **7** — bounds `qmul`; real turns are under 2 |
+| `LSR_DMG` | hit points a frame to everything crossed | **4** — two fifths of a bullet's `SHOT_DMG` (10); 80 a press. Paid pro rata: `LSR_SCORE` 4, `LSR_FOE_SCORE` 20 a frame **(TBM, B9)** |

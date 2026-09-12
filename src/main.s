@@ -138,7 +138,19 @@ START_LEVEL = 0                 ; which of levels.s's levels cart_init loads.
                                 ;   One level exists; the campaign is five
                                 ;   (design_technical 9), and picking between
                                 ;   them is the menu's job, not a constant's.
-HP_MAX      = 5                 ; the ship's hit points at full health. It lives
+HIT_HP      = 10                ; ONE ORDINARY HIT, in hit points: what a bullet,
+                                ;   a ram and a UFO's bullet each take off what
+                                ;   they land on. Every hit point in the game
+                                ;   was multiplied by it, so that the laser can
+                                ;   deal a fraction of one hit a frame (laser.s
+                                ;   LSR_DMG): ROCK_HP, FOE_HP and HP_MAX are all
+                                ;   written as so many of these, and a hit
+                                ;   bigger than what is left is simply the last
+CRACK_HP    = HIT_HP            ; a rock at or under this is on its LAST hit: the
+                                ;   crack is drawn (one_asteroid's ACRACK) and
+                                ;   the crack shake fires on the hit that takes
+                                ;   it across (rock_take_hit)
+HP_MAX      = 5 * HIT_HP        ; the ship's hit points at full health. It lives
                                 ;   HERE, and not beside the hull bar that draws
                                 ;   it, because it is a property of the SHIP -
                                 ;   cart_init seeds SHIPHP from it and the HUD
@@ -844,8 +856,9 @@ SHP_DEAD    = $FF               ; the OBJSHP a destroyed rock is stamped with.
 OBJANG      = $6000             ; NOBJ bytes: its spin angle, brad (integer part)
 OBJANGF     = $6100             ; ...and the fraction, so a spin can be far slower
                                 ;   than one brad a frame
-SHIPHP      = $6241             ; the ship's hit points, starts at 5 (cart_init)
-                                ;   - 1 per collision (physics.s ship_respond),
+SHIPHP      = $6241             ; the ship's hit points, starts at HP_MAX
+                                ;   (game_start) - RAM_DMG a ram, FSH_DMG a
+                                ;   UFO's bullet (physics.s ship_hurt),
                                 ;   0 = broken apart (ship_die)
 SHIPINV     = $6FC2             ; frames of post-respawn INVULNERABILITY left,
                                 ;   0 = the hull pays for hits again. It is
@@ -1389,6 +1402,11 @@ cart_frame:
                                         ; keep off the rocks, shoot, and the
                                         ; wreck it leaves. AFTER shots.s, whose
                                         ; bullet test and rock kill it reuses.
+        .include "laser.s"              ; the second weapon: a beam from the
+                                        ; nose to the top of the screen, and
+                                        ; the FIRE2 click that chooses it. Its
+                                        ; code is CODE4 (cart.cfg). After
+                                        ; foes.s, whose UFO kill it reuses.
         .include "sfx.s"                ; the sound effects and the explosion
                                         ; flash. A HIDATA file end to end - the
                                         ; SFX engine reads the step programs
@@ -1483,10 +1501,10 @@ THRTL_REST  = TIER_ZERO*128     ; ...and the position that means a standstill.
 ; and the jump goes backwards along the heading.
 TP_OFF      = 120               ; |SHOFF| the ship lands on, sign by direction
 
-; FIRE2 is double-click-to-teleport now: a single click is reserved for a
-; future weapon select (open_questions - there is only one weapon so far, so
-; it does nothing yet), and do_input tells the two apart by whether a second
-; press lands inside TPCLICK_FRAMES of the first. TPLOCK_FRAMES then swallows
+; FIRE2 is double-click-to-teleport now: a single click changes the weapon
+; (laser.s wpn_toggle - the gun and the laser, in turn), and do_input tells the
+; two apart by whether a second press lands inside TPCLICK_FRAMES of the first -
+; which is also why a weapon change lands TPCLICK_FRAMES after its click. TPLOCK_FRAMES then swallows
 ; FIRE2 for a stretch after the teleport fires, so an eager triple click's
 ; third edge cannot register as the very next single click. Both TBM - picked
 ; to feel like an ordinary double-click, not measured against anyone's thumb.

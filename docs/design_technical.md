@@ -976,6 +976,18 @@ These are settled and should not be re-opened without a reason:
     like the other four. It is ordinary run-area code; where one segment ends and
     the next begins is where a bank filled, not a difference in kind.
 
+    **AMENDED A THIRD TIME, with the laser (24): `CODE4`, and the bootstrap
+    became a table.** `laser.s` is 783 bytes and bank 3's ROM had 539 left
+    behind `HIDATA` + `CODE3`, so `CODE4` is stored behind `COLD` in bank 4 —
+    which has 5 KB spare, since `COLD` is only the puff table — and copied into
+    the run area after `CODE3`. That needed one more `cart_load`, and bank 0,
+    which holds the bootstrap as well as `CODE`, had **15 bytes** left against
+    the 31 a written-out call costs. So `bootstrap.s` copies from a table now:
+    seven bytes a segment (bank, `LOAD`, `RUN`, `SIZE` — `cart_load`'s own
+    `OS_ARG` block) and one loop, 73 bytes for six segments where five cost
+    161, and bank 0 has 103 free. A seventh segment is one row. Every address
+    in it is still the linker's.
+
     **And a second place code can run: `CART_HIRAM`, `$C000-$DFFF`** (19), 8 KB
     the CPU OS gave the cartridge on 2026-09-11. Nothing is there yet. It is the
     answer to "where does the next enemy's code go" once the run area's last
@@ -992,15 +1004,16 @@ These are settled and should not be re-opened without a reason:
 
     | area | size | free | what belongs there |
     |---|---|---|---|
-    | run area `$1000-$5FFF` | 20,480 | 2,566 | **code** — `CODE`, `CODE2`, `CODE3` — and nothing else if it can be helped |
+    | run area `$1000-$5FFF` | 20,480 | 1,762 | **code** — `CODE`, `CODE2`, `CODE3`, `CODE4` — and nothing else if it can be helped |
     | lower RAM `$0400-$0FFF` | 3,072 | ~0 | the hot tables — ROT, the quarter-square multiply, the star layer |
     | under the cart `$8000-$9FFF` | 8,192 | ~2,700 | bulk data walked in **bracketed passes** — the object pool, and the enemies' state (`foes.s`, `$9100-$95FF`) |
-    | upper RAM `$A000-$BEFF` | 7,936 | 879 | `RODATA`, `HIDATA`: tables and cold code, **and anything the IRQ reads** |
+    | upper RAM `$A000-$BEFF` | 7,936 | 742 | `RODATA`, `HIDATA`: tables and cold code, **and anything the IRQ reads** |
     | `CART_HIRAM` `$C000-$DFFF` | 8,192 | 8,192 | code or data, full speed, always mapped — **unused so far** |
 
-    (Free as of the UFO, 23. Upper RAM is the tight one; `CART_HIRAM` is the
-    whole of the new room. New per-frame code goes to `CODE3` while the run area
-    lasts, and `HIDATA` is for what the IRQ reads or runs once a level.)
+    (Free as of the laser, 24. Upper RAM is the tight one; `CART_HIRAM` is the
+    whole of the new room. New per-frame code goes to `CODE4` while the run area
+    lasts — bank 4 has the ROM for it, bank 3 no longer does — and `HIDATA` is
+    for what the IRQ reads or runs once a level.)
 
     **`CART_HIRAM`, `$C000-$DFFF`: 8 KB that became the game's on 2026-09-11,
     and from now on belong to every MAD-65 cartridge.** The CPU1 ROM is two 8 KB
@@ -1336,7 +1349,7 @@ These are settled and should not be re-opened without a reason:
     **Its bullet is the gun's bullet**, same command, same speed, same screen
     margin, and dies the moment it leaves the screen once it has been on it; one
     fired from off screen gets `FSH_MIN` = 60 frames to arrive first. It costs
-    the ship a hit point through `ship_hurt`, exactly as a rock does, and breaks
+    the ship one ordinary hit (`FSH_DMG`) through `ship_hurt`, as a ram does, and breaks
     rocks the way the gun does — for no score (`FOEKILL`), thrown across its own
     heading (`SPL_HD`, which the gun sets too now). It hits against the SECTOR
     GRID, not the visible list, so it hits what is in its way off screen as well.
@@ -1345,10 +1358,10 @@ These are settled and should not be re-opened without a reason:
     bullets.
 
     **The player's bullets** hit a UFO on the screen with shots.s's own swept
-    test. Three hits; 50 a hit and 100 on top for the last, so the killing blow
+    test. Three hits (`FOE_HP` = 30, 25); 50 a hit and 100 on top for the last, so the killing blow
     pays both, like a rock's. It dies with a rock's boom, flash and break shake,
     and its PARTS fly apart and tumble for 1.5 s — debris.s's recipe, with parts
-    where the ship has runs. A ship that RAMS a UFO pays a hit point, as for a
+    where the ship has runs. A ship that RAMS a UFO pays a ram's worth, as for a
     rock, and the UFO is shoved aside undamaged — the rocks' rule (physics.md
     4.6).
 
@@ -1372,3 +1385,107 @@ These are settled and should not be re-opened without a reason:
     read only inside `cart_frame`'s bracket (19); its code is `CODE2`, the new
     `CODE3` (18) and `HIDATA`. Its shot is `SE_UFO_SHOT`: the gun's crack a fifth
     higher, on `VOICE_ROCK` so the two guns never cut each other off.
+24. **The second weapon is the LASER: one beam from the nose to the top of the
+    screen, twenty frames a press, through everything, `LSR_DMG` = 4 hit points
+    a frame.**
+    `src/laser.s`; the model and its numbers are `physics.md` 10, and its
+    balance is `open_questions.md` B9.
+
+    **FIRE2's single click chooses it** — the gun and the laser in turn. The
+    double click is still the teleport (B1), so a change lands `TPCLICK_FRAMES`
+    after its click: until then it could be the first half of a double. It is
+    said on the message bar (FRONT BLASTER ARMED / LASER ARMED) — and it JUMPS
+    THE QUEUE there, the only line that does (`hud_game.s indicate_urgent`):
+    every other message reports something that happened, while this one is the
+    state the player is now flying in, and queued behind a HULL BREACH's two
+    seconds it would arrive after they had already fired the other weapon. It is
+    heard as CETAS's click-clack
+    (`SE_WSWITCH`). A new game starts on the gun. A beam already burning when
+    the weapon changes burns out, the way a bullet in flight is not recalled.
+
+    **It is CETAS's laser, drawn CETAS's way.** `gpu_hdotline`, the byte-aligned
+    dotted rule every laser in CETAS is drawn with; CETAS's twenty frames
+    (`HERO_LASER_DUR`); CETAS's falling tone (`SE_LASER`, at the gun's level).
+    One rule where CETAS draws two. It fits here for a reason CETAS does not
+    have: the ship always points up (3) and TATE puts up on the framebuffer's
+    −X, so nose-to-top-edge is ALWAYS a horizontal framebuffer line, and the
+    cheapest line opcode there is is always the right one. The rule is widened
+    to whole VRAM bytes by the OS, so its near end can reach up to 3 half-res px
+    into the nose — under the hull, which is drawn after it.
+
+    **The ship is not locked while it burns**, as CETAS's whale is. The beam is
+    laid from wherever the nose is on every frame, so turning SWEEPS it across
+    the field — and the sweep is TESTED, not sampled: on a frame the heading
+    moved, the hit test is widened on the side the beam came from by what the
+    turn swept at each target's distance (physics.md 10), because at the top of
+    a zoomed-out screen one brad carries a speck most of its own width. One
+    press, one beam; a press while it burns does nothing.
+
+    **It pierces, and it is paid like the gun.** Every rock and UFO whose circle
+    it reaches loses `LSR_DMG` = 4 hit points a frame, two fifths of a bullet
+    (25) — `rock_take_hit`, `foe_take_hit` — and pays pro rata for it, 4 a
+    frame on a rock and 20 on a UFO, so a rock is worth the same to the beam as
+    to bullets. Nothing stops it, and a rock broken in it drops both
+    halves in it. The test is the gun's own, on the screen: the visible list and
+    `FOEFX/FY`, which carry the screen shake, against a beam placed with the
+    shake too. A rock something else broke earlier in the frame is still in the
+    list stamped `SHP_DEAD`, and is skipped — its slot may already be free.
+
+    **`tools/preview.py` flies it**, on a flight of its own after the main one
+    (which never changes weapon, and is unchanged by this entry save for the
+    cycle counts): the main flight's opening climb and turn, zoomed out, with
+    one FIRE2 click and three beams into the turn - a press into the first -
+    then a UFO parked ahead of a fourth on the straight, a double click and a
+    click back. It checks the choice and its timing, that the
+    teleport leaves the weapon alone and FIRE fires no bullet on the laser,
+    exactly `LSR_FRAMES` lit frames a press, one rule a frame from byte 0 to the
+    nose's byte on the ship's row, at most `LSR_DMG` off a rock a frame and only
+    while lit, that every hit point lost is explained by the beam's geometry and
+    nothing level with it and inside its width escapes, that no rock the beam
+    swept across was stepped over, and that the UFO loses `LSR_DMG` a frame and
+    dies on the frame its hit points run out.
+
+    **What it costs, on CPU1** — inclusive, by stack depth, over preview.py's
+    flights in py65: **35 cycles a frame dark** (`lsr_frame` 21, `lsr_foes`
+    14). **Lit, on the zoomed-out turning flight, 1,824 median and 2,737 at the
+    90th percentile** — 0.8% and 1.2% of the frame, against the gun's own hit
+    pass at 2,027 median — and **13,911 at worst, 5.9%**, which is `rock_split`
+    running inside it on the frame a big rock comes apart: the split a bullet
+    would pay for too. (`lsr_foes` alone peaks at 7,572, the frame a UFO dies
+    and its wreck is spawned.) The GPU side is one `HDOT_LINE` a frame and is
+    not measured (B9).
+
+    **Where it lives.** Its code is `CODE4` (18, amended a third time); its
+    state is `$6FC9-$6FE1`, the free tail of the page `main.s`'s death block
+    sits on, asserted against `thrust.s`'s `$7000`. It reaches the frame through
+    three hooks: `do_shots` dispatches FIRE through `wpn_trigger` and calls
+    `lsr_frame` after the gun's hit pass; `do_foes` calls `lsr_foes` after
+    `foe_hits`; `input.s do_fire2` calls `wpn_toggle` when a single click is
+    confirmed.
+25. **Hit points are counted in tenths of a hit: `HIT_HP` = 10.** `main.s`.
+    Every hit point in the game was multiplied by ten on 2026-09-11, and every
+    ordinary hit with it, so that the laser can deal a fraction of one. A
+    bullet, a ram and a UFO's bullet each cost `HIT_HP` (`SHOT_DMG`, `RAM_DMG`,
+    `FSH_DMG`); the laser costs `LSR_DMG` = 4 a frame. The ship has `HP_MAX` =
+    50, a UFO `FOE_HP` = 30, the rocks `ROCK_HP` = 50 / 40 / 30 / 20 / 10 — all
+    written as so many `HIT_HP`, so they still read as "how many bullets".
+    Nothing changed for the gun: five hits end the ship, three a UFO, and a rock
+    takes the bullets it always took.
+
+    **What had to change with it, beyond the numbers.** Every `dec` of a hit
+    point became a subtraction that treats "more than was left" as the last
+    hit, because two sizes of hit now mix — a 50 lasered down to 8 and then
+    shot is at -2: `rock_take_hit`, `rock_take_hit_deferred`, `ship_hurt` and
+    the new `foe_take_hit` all take the hit's size in A. The two thresholds that
+    meant "one left" mean "one ordinary hit left" now (`CRACK_HP`, and HULL
+    CRITICAL at `HIT_HP`): the crack is drawn, and its shake fires, when a hit
+    takes a rock across `CRACK_HP`, whatever the hit's size. A split refused
+    for want of a slot leaves the rock on 1 — a sliver — as it always did. The
+    hull bar used to form `hp × HP_CELLS` in a byte, which 50 overflows; it
+    carries a remainder round its add loop instead (Bresenham's trick), which
+    stays under `HP_MAX + HP_CELLS`. And the laser is paid pro rata, `SCORE_HIT`
+    per `SHOT_DMG`.
+
+    **The one balance change it makes** is the laser's, and it is B9's to
+    judge: a press is 80, so the largest rock (50) goes in thirteen frames with
+    the beam still lit for the halves it just made, and a UFO (30) lasts eight.

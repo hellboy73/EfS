@@ -34,6 +34,21 @@
 ; carry that padding into RAM between CODE and RODATA. The segments RUN
 ; contiguously; only their LOAD addresses are apart.
 ; =============================================================================
+; ONE ROW PER SEGMENT, AND ONE LOOP FOR ALL OF THEM
+;
+; It was two calls, then five, each written out as seven loads and stores and a
+; jsr - 31 bytes of bank 0 a segment. Bank 0 holds this stub AND CODE, and when
+; the laser (laser.s) needed a sixth segment it had 15 bytes left. So the copies
+; are a TABLE now: seven bytes a segment, laid out exactly as cart_load's OS_ARG
+; block wants them - bank, LOAD, RUN, SIZE - and one loop that moves a row
+; across and makes the call. Six segments cost 70 bytes where five cost 158, and
+; the next one costs seven.
+;
+; Every address in the table is the LINKER'S. Nothing here is added up: when
+; RODATA moved out of the $2000 run to $A000, not one line of this file changed,
+; and that is the whole argument for __X_RUN__ over arithmetic. Only the bank
+; numbers are typed, and they have to match cart.cfg's MEMORY order.
+; =============================================================================
 
 .setcpu "65SC02"                 ; (zp) indirect and bra are 65C02-only
 
@@ -42,6 +57,7 @@
         .import __RODATA_LOAD__, __RODATA_RUN__, __RODATA_SIZE__
         .import __HIDATA_LOAD__, __HIDATA_RUN__, __HIDATA_SIZE__
         .import __CODE3_LOAD__, __CODE3_RUN__, __CODE3_SIZE__
+        .import __CODE4_LOAD__, __CODE4_RUN__, __CODE4_SIZE__
         .import cart_init, cart_frame
 
         .export boot_init
@@ -53,117 +69,64 @@
 OS_ARG        = $20             ; $20-$2F, the API argument block
 API_CART_LOAD = $FF06           ; OS_ARG: bank8, src16, dst16, len16
 
-CODE2_BANK    = 1               ; must match cart.cfg's MEMORY order
+CODE_BANK     = 0               ; must match cart.cfg's MEMORY order
+CODE2_BANK    = 1
 RODATA_BANK   = 2
 HIDATA_BANK   = 3               ; HIDATA runs at $A000 (MAD-65's separate
                                  ;   upper RAM), not chained after RODATA - see
                                  ;   cart.cfg's note on why bank 3 exists
 CODE3_BANK    = 3               ; ...and CODE3 is the rest of that bank, which
                                  ;   runs in the $1000 area after CODE2
+CODE4_BANK    = 4               ; ...and CODE4 rides behind COLD in bank 4, and
+                                 ;   runs after CODE3
 
         .segment "BOOT"
 
 boot_init:
-        lda     #$00                    ; --- CODE: bank 0 window -> RAM $2000
-        sta     OS_ARG+0
-        lda     #<__CODE_LOAD__
-        sta     OS_ARG+1
-        lda     #>__CODE_LOAD__
-        sta     OS_ARG+2
-        lda     #<__CODE_RUN__
-        sta     OS_ARG+3
-        lda     #>__CODE_RUN__
-        sta     OS_ARG+4
-        lda     #<__CODE_SIZE__
-        sta     OS_ARG+5
-        lda     #>__CODE_SIZE__
-        sta     OS_ARG+6
+        ldx     #$00                    ; X walks the table, Y the row
+@row:   ldy     #$00
+@arg:   lda     boot_segs,x
+        sta     OS_ARG,y
+        inx
+        iny
+        cpy     #7
+        bne     @arg
+        phx                             ; cart_load's registers are its own
         jsr     API_CART_LOAD
-
-        ; --- bank 1: CODE2 ------------------------------------------------
-        ; This used to be one copy covering CODE2 AND RODATA, because the two
-        ; were contiguous in the window as well as in RAM. The split pushed them
-        ; past 8 KB together and RODATA moved to a bank of its own (cart.cfg),
-        ; and then out of the $2000 run altogether - it lands at $A000 now, with
-        ; HIDATA. NOT ONE LINE OF THIS FILE CHANGED FOR THAT, which is the whole
-        ; argument for taking the run addresses from the linker: every copy below
-        ; says __X_RUN__ and none of them has an address this file could get
-        ; wrong when the map moves under it.
-        lda     #CODE2_BANK
-        sta     OS_ARG+0
-        lda     #<__CODE2_LOAD__
-        sta     OS_ARG+1
-        lda     #>__CODE2_LOAD__
-        sta     OS_ARG+2
-        lda     #<__CODE2_RUN__
-        sta     OS_ARG+3
-        lda     #>__CODE2_RUN__
-        sta     OS_ARG+4
-        lda     #<__CODE2_SIZE__
-        sta     OS_ARG+5
-        lda     #>__CODE2_SIZE__
-        sta     OS_ARG+6
-        jsr     API_CART_LOAD
-
-        ; --- bank 2: RODATA, -> $A000 as well - see cart.cfg's RODATA MOVE --
-        lda     #RODATA_BANK
-        sta     OS_ARG+0
-        lda     #<__RODATA_LOAD__
-        sta     OS_ARG+1
-        lda     #>__RODATA_LOAD__
-        sta     OS_ARG+2
-        lda     #<__RODATA_RUN__
-        sta     OS_ARG+3
-        lda     #>__RODATA_RUN__
-        sta     OS_ARG+4
-        lda     #<__RODATA_SIZE__
-        sta     OS_ARG+5
-        lda     #>__RODATA_SIZE__
-        sta     OS_ARG+6
-        jsr     API_CART_LOAD
-
-        ; --- bank 3: HIDATA, -> upper RAM, straight after RODATA -----------
-        ; Both of the last two land outside the $2000-$5FFF run, and the linker
-        ; packs them into UPPER in SEGMENTS order - so this one's address is
-        ; RODATA's end, and it gets it the only safe way: its own RUN symbol,
-        ; never __RODATA_RUN__ + __RODATA_SIZE__ arithmetic done here.
-        lda     #HIDATA_BANK
-        sta     OS_ARG+0
-        lda     #<__HIDATA_LOAD__
-        sta     OS_ARG+1
-        lda     #>__HIDATA_LOAD__
-        sta     OS_ARG+2
-        lda     #<__HIDATA_RUN__
-        sta     OS_ARG+3
-        lda     #>__HIDATA_RUN__
-        sta     OS_ARG+4
-        lda     #<__HIDATA_SIZE__
-        sta     OS_ARG+5
-        lda     #>__HIDATA_SIZE__
-        sta     OS_ARG+6
-        jsr     API_CART_LOAD
-
-        ; --- bank 3 again: CODE3, -> the run area after CODE2 ---------------
-        ; The same bank as HIDATA, a different destination: the linker stores it
-        ; behind HIDATA in the window and runs it behind CODE2 in RAM, and the
-        ; two symbols say both - nothing here adds anything up.
-        lda     #CODE3_BANK
-        sta     OS_ARG+0
-        lda     #<__CODE3_LOAD__
-        sta     OS_ARG+1
-        lda     #>__CODE3_LOAD__
-        sta     OS_ARG+2
-        lda     #<__CODE3_RUN__
-        sta     OS_ARG+3
-        lda     #>__CODE3_RUN__
-        sta     OS_ARG+4
-        lda     #<__CODE3_SIZE__
-        sta     OS_ARG+5
-        lda     #>__CODE3_SIZE__
-        sta     OS_ARG+6
-        jsr     API_CART_LOAD
-
+        plx
+        cpx     #boot_segs_end - boot_segs
+        bne     @row
         jmp     cart_init               ; its rts returns to the boot ROM
+
+; The rows, in the order they are copied. Read from THIS bank, which is safe
+; between calls because cart_load hands bank 0 back every time (above).
+;
+;   CODE    bank 0 -> the run area at $1000
+;   CODE2   bank 1 -> the run area, after CODE
+;   RODATA  bank 2 -> upper RAM at $A000 - see cart.cfg's RODATA MOVE
+;   HIDATA  bank 3 -> upper RAM, straight after RODATA. Both land outside the
+;                     run area and the linker packs them into UPPER in SEGMENTS
+;                     order, so this one's address is RODATA's end - and it
+;                     gets it the only safe way, its own RUN symbol
+;   CODE3   bank 3 -> the run area, after CODE2: the same bank as HIDATA, a
+;                     different destination - stored behind HIDATA in the
+;                     window, run behind CODE2 in RAM
+;   CODE4   bank 4 -> the run area, after CODE3: stored behind COLD, which is
+;                     read in the window and never copied
+boot_segs:
+        .byte   CODE_BANK
+        .word   __CODE_LOAD__, __CODE_RUN__, __CODE_SIZE__
+        .byte   CODE2_BANK
+        .word   __CODE2_LOAD__, __CODE2_RUN__, __CODE2_SIZE__
+        .byte   RODATA_BANK
+        .word   __RODATA_LOAD__, __RODATA_RUN__, __RODATA_SIZE__
+        .byte   HIDATA_BANK
+        .word   __HIDATA_LOAD__, __HIDATA_RUN__, __HIDATA_SIZE__
+        .byte   CODE3_BANK
+        .word   __CODE3_LOAD__, __CODE3_RUN__, __CODE3_SIZE__
+        .byte   CODE4_BANK
+        .word   __CODE4_LOAD__, __CODE4_RUN__, __CODE4_SIZE__
+boot_segs_end:
 
 ; -----------------------------------------------------------------------------
 ; boot_frame - the OS's per-frame entry, and A TRAMPOLINE THAT LIVES IN THE

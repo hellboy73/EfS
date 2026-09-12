@@ -1161,6 +1161,7 @@ ship_respond:
         ; gets its velocity share above and rock_take_hit_deferred is still
         ; wired up (physics.s, below) for whenever this comes back; only the
         ; jsr to it is pulled.
+        lda     #RAM_DMG
         jsr     ship_hurt               ; the ship still pays - then fall into
                                         ;   the separation below, same as
                                         ;   col_respond falls into col_separate
@@ -1450,8 +1451,9 @@ ship_separate:
         rts
 
 ; -----------------------------------------------------------------------------
-; rock_take_hit_deferred - X = the rock. Same as shots.s's rock_take_hit
-; (spend one HP, crack-shake if it lands on 1) EXCEPT the actual kill is
+; rock_take_hit_deferred - X = the rock, A = the hit points the hit is worth.
+; Same as shots.s's rock_take_hit (spend them, crack-shake on crossing
+; CRACK_HP, a hit bigger than what is left is the last) EXCEPT the kill is
 ; deferred: do_collide is still walking the sector grid when ship_respond
 ; runs (called from mid-way through it, ship_test), and rock_destroy relinks
 ; that same grid - rock_split reuses the parent's OWN slot for one of its two
@@ -1461,21 +1463,35 @@ ship_separate:
 ; whole walk is over) does the actual rock_destroy call.
 ; -----------------------------------------------------------------------------
 rock_take_hit_deferred:
-        dec     OBJHP,x
-        bne     @alive
-        stx     SHIPKILL_PEND
-        rts
-@alive: lda     OBJHP,x
-        cmp     #1
-        bne     @done
+        sta     RKDMG
+        lda     OBJHP,x
+        sec
+        sbc     RKDMG
+        beq     @dead
+        bcc     @dead
+        sta     OBJHP,x
+        cmp     #CRACK_HP+1             ; across CRACK_HP on this hit?
+        bcs     @done
+        adc     RKDMG                   ; (carry clear)
+        cmp     #CRACK_HP+1
+        bcc     @done
         lda     #SHK_SHIFT_CRACK
         jsr     shake_arm
 @done:  rts
+@dead:  stz     OBJHP,x
+        stx     SHIPKILL_PEND
+        rts
 
 ; -----------------------------------------------------------------------------
-; ship_hurt - spend one of the ship's hit points. At 0, it breaks apart.
+; ship_hurt - A = the hit points this hit costs the ship. At 0, it breaks apart.
 ; -----------------------------------------------------------------------------
+; RAM_DMG for a ram, a rock's or a UFO's (foes.s); FSH_DMG for a UFO's bullet.
+; A hit bigger than what is left is simply the last one. Preserves X and Y.
+; -----------------------------------------------------------------------------
+RAM_DMG     = HIT_HP            ; a ram costs the ship one ordinary hit (main.s)
+
 ship_hurt:
+        pha                             ; the cost, parked across the sounds
         lda     #SE_KLANG               ; METAL ON STONE - BOTH halves of it,
                                         ;   and they are fired whether or not
                                         ;   the hull pays below: a ram you can
@@ -1499,10 +1515,18 @@ ship_hurt:
                                         ;   side you can see reads as a broken
                                         ;   collision test, not as mercy. See
                                         ;   ship.s ship_die
-        dec     SHIPHP
-        bne     @ok
+        pla                             ; SHIPHP - the cost, as SHIPHP + ~A + 1:
+        eor     #$FF                    ;   carry CLEAR is a borrow, a hit
+        sec                             ;   bigger than what was left
+        adc     SHIPHP
+        beq     @dead
+        bcc     @dead
+        sta     SHIPHP
+        bra     @ok
+@dead:  stz     SHIPHP
         jmp     ship_die
-@free:  rts
+@free:  pla
+        rts
 @ok:
         ; ...and say so on the message bar. The bar de-duplicates against what is
         ; already showing, so a ship grinding along a rock for half a second gets
@@ -1513,9 +1537,9 @@ ship_hurt:
         ; walks the queue with it.
         phx
         lda     SHIPHP
-        cmp     #1                      ; one hit point left reads differently
-        beq     @crit                   ;   from the first scratch
-        lda     #IM_HULL
+        cmp     #HIT_HP+1               ; one more ordinary hit would end it:
+        bcc     @crit                   ;   that reads differently from the
+        lda     #IM_HULL                ;   first scratch
         bra     @say
 @crit:  lda     #IM_CRITICAL
 @say:   jsr     indicate_msg

@@ -231,6 +231,8 @@ EXPL_DOTS_N = 8                 ; pixels in a cloud, at its fullest
 ; Taking a 192 all the way down to nothing is 31 rocks broken and 31+ hits
 ; landed, so about 3,000 points; a 120-rock field cleared out is comfortably
 ; inside the five digits row 2 of the HUD has room for (hud_game.s).
+SHOT_DMG    = HIT_HP            ; what one bullet takes off a rock or a UFO -
+                                ;   one ordinary hit (main.s)
 SCORE_HIT   = 10                ; a bullet landed on a rock
 SCORE_KILL  = 50                ; ...and that rock came apart
 
@@ -292,6 +294,9 @@ SPL_HD      = $73A6             ; the WORLD heading of whatever shot is landing 
                                 ;   is not in SHTANG
 FOEKILL     = $73A7             ; nonzero while a UFO's bullet is the one
                                 ;   breaking a rock: rock_score pays nobody
+RKDMG       = $73A8             ; the hit points the hit being taken is worth -
+                                ;   rock_take_hit's and rock_take_hit_deferred's
+                                ;   argument, held across the sound call
 SPL_TYA     = $73A4             ; the two halves' authored variants, drawn once
 SPL_TYB     = $73A5             ;   and DIFFERENT - see rock_split
 SHTC        = $7020             ; per bullet: the cosine and sine of its screen
@@ -372,9 +377,17 @@ do_shots:
         jsr     rock_sweep              ; the debris the split leaves behind, put
                                         ;   back on the free stack before
                                         ;   anything asks for a slot
-        jsr     shot_fire
+        jsr     wpn_trigger             ; FIRE, to whichever weapon FIRE2 last
+                                        ;   chose: shot_fire below, or the
+                                        ;   laser's beam (laser.s)
         jsr     shot_move
         jsr     shot_hits
+        jsr     lsr_frame               ; ...and the beam, while it burns: laid,
+                                        ;   drawn and tested against the rocks
+                                        ;   here, after the bullets and for
+                                        ;   their reason - the visible list is
+                                        ;   finished and nothing stands on a
+                                        ;   cell list (laser.s)
         ; fall through into shot_draw
 
 ; -----------------------------------------------------------------------------
@@ -859,8 +872,9 @@ shot_hits:
         lda     SHTANG,x                ;   across, if this is the killing blow
         sta     SPL_HD
         ldx     SHTOBJ
-        jsr     rock_take_hit           ; dec HP; destroy, or the crack shake
-        bcs     @rnext                  ;   if this landed it on 1 - see the
+        lda     #SHOT_DMG
+        jsr     rock_take_hit           ; SHOT_DMG off it; destroy, or the crack
+        bcs     @rnext                  ;   shake if it crossed CRACK_HP - see the
                                         ;   routine. Destroyed: this slot is
                                         ;   not the rock the inner loop was
                                         ;   testing against any more, so the
@@ -1674,30 +1688,41 @@ NBLOCK      = $73A1             ; splits refused for want of a slot. It should b
 ; -----------------------------------------------------------------------------
 
 ; -----------------------------------------------------------------------------
-; rock_take_hit - X = the rock. Spend one hit point, exactly the same way
-; regardless of what caused it - a bullet (shot_hits, above) or a ship
-; collision (physics.s ship_respond) both just want "this rock took a hit".
-; Out: carry SET if that was its last point (rock_destroy has already run -
+; rock_take_hit - X = the rock, A = the hit points this hit is worth. Spent
+; the same way whatever caused it - a bullet (shot_hits, SHOT_DMG), the laser
+; (laser.s, LSR_DMG a frame) or a UFO's bullet (foes.s, FSH_DMG) all just want
+; "this rock took a hit this big". A hit bigger than what is left is simply
+; the last one: HP is never allowed to wrap below zero.
+; Out: carry SET if that was the end of it (rock_destroy has already run -
 ; the slot may be gone); carry CLEAR if it is still standing, having fired
-; the crack shake if this was the hit that landed it on 1.
+; the crack shake if this was the hit that took it across CRACK_HP.
 ; -----------------------------------------------------------------------------
 rock_take_hit:
-        dec     OBJHP,x
-        bne     @alive
-        jsr     rock_destroy
+        sta     RKDMG
+        lda     OBJHP,x
         sec
-        rts
-@alive: lda     #SE_ROCK_HIT            ; STILL STANDING: the weak tap, not the
+        sbc     RKDMG
+        beq     @dead                   ; exactly used up...
+        bcc     @dead                   ; ...or more than used up: gone either way
+        sta     OBJHP,x
+        lda     #SE_ROCK_HIT            ; STILL STANDING: the weak tap, not the
         jsr     sfx_fire                ;   boom - it is the ONLY sound this rock
                                         ;   makes for this hit, and it plays on
                                         ;   every non-fatal one, not just the
                                         ;   one that cracks it. Preserves X
-        lda     OBJHP,x                 ; CRACK: just reached its last hit point
-        cmp     #1                      ;   by damage - the same "1" one_asteroid's
-        bne     @done                   ;   ACRACK tests. A class that SPAWNS at 1
-        lda     #SHK_SHIFT_CRACK        ;   (16px) can never land here: its only
-        jsr     shake_arm               ;   hit takes it straight to 0, above.
+        lda     OBJHP,x                 ; CRACK: this hit took it across CRACK_HP,
+        cmp     #CRACK_HP+1             ;   onto its last - the same line
+        bcs     @done                   ;   one_asteroid's ACRACK draws at. Now at
+        adc     RKDMG                   ;   or under it (carry is clear), and was
+        cmp     #CRACK_HP+1             ;   it over it before? A class that SPAWNS
+        bcc     @done                   ;   at or under it never crosses: its
+        lda     #SHK_SHIFT_CRACK        ;   first hit is its last, above.
+        jsr     shake_arm
 @done:  clc
+        rts
+@dead:  stz     OBJHP,x
+        jsr     rock_destroy
+        sec
         rts
 
 rock_destroy:
@@ -1728,7 +1753,8 @@ rock_destroy:
 @blocked:
         inc     NBLOCK
         ldx     SPL_P                   ; nothing to break into: the hit lands,
-        inc     OBJHP,x                 ;   the rock survives it
+        lda     #1                      ;   the rock survives it, on the last
+        sta     OBJHP,x                 ;   sliver of a hit point
         lda     #SE_ROCK_HIT            ; ...so it sounds like what it is - the
         jmp     sfx_fire                ;   weak tap of a rock that took a hit
                                         ;   and stayed whole. NOT the boom: the

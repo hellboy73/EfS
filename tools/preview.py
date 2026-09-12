@@ -176,6 +176,9 @@ def decode(stream):
         elif op == 0x50:                        # SPRITE: id, X16, Y16
             out.append((op, stream[i + 1:i + 6]))
             i += 6
+        elif op == 0x49:                        # HDOT_LINE: XB, Y, NB - the
+            out.append((op, stream[i + 1:i + 4]))   # laser's beam (laser.s),
+            i += 4                              #   already byte-aligned by the OS
         elif op in (0x4C, 0x4D, 0x4E):          # the POLYGON family: a 7-byte
             n = stream[i + 7] & 0x7F            #   header (CX16, CY16, ANGLE,
             out.append((op, stream[i + 1:i + 8 + 2 * n]))   # SCALE, N) and 2N
@@ -3061,6 +3064,370 @@ print(f"        message bar: {len(msgs)} message frame(s) {sorted(set(msgs))}, "
 check("the message bar shows a message and then clears itself",
       bool(msgs) and len(ind) > len(msgs),
       f"{len(msgs)} shown, {len(ind) - len(msgs)} cleared")
+
+# =============================================================================
+# The laser (laser.s) - on its own short flight
+# =============================================================================
+# The main flight never changes weapon: its one FIRE2 gesture is the teleport's
+# double click. So this re-inits the cart and flies the main flight's opening -
+# the climb to the top tier, where the camera is pulled furthest back, turning
+# right - but clicks FIRE2 ONCE and lights the beam three times into that turn,
+# with a press in the middle of the first that must do nothing. Zoomed out and
+# turning is where a beam tested once a frame would step over the smallest
+# rocks: the case the sweep exists for. (Sitting still at the level's start is
+# no test of it - the visible list there holds one rock.) Then, flying straight,
+# a UFO is parked dead ahead for a fourth beam: not in a turn, because a UFO is
+# steered and crosses a turning beam in three frames under its own power. Every
+# other UFO is taken off the field first, so nothing here can lose a hit point
+# to anything but the beam. Last, a double click (the teleport must not change
+# the weapon) and a single click back to the gun, clear of the teleport's TPLOCK.
+import math
+
+
+def laser_sym(name, dec=False):
+    """A $hhhh address, or with dec a decimal constant, out of laser.s."""
+    pat = r"(\d+)" if dec else r"[$]([0-9A-Fa-f]{4})"
+    m = re.search(rf"^{re.escape(name)}\s*=\s*{pat}", (SRC / "laser.s").read_text(), re.M)
+    if not m:
+        raise RuntimeError(f"{name} not found in laser.s")
+    return int(m.group(1), 10 if dec else 16)
+
+
+IND_CUR_A = int(re.search(r"^IND_CUR" + chr(92) + r"s*=" + chr(92) + r"s*[$]([0-9A-Fa-f]{4})",
+                          (SRC / "hud_game.s").read_text(), re.M).group(1), 16)
+LSR_FRAMES, LSR_HW, LSR_NOSE, LSR_DMG = (
+    laser_sym(n, True) for n in ("LSR_FRAMES", "LSR_HW", "LSR_NOSE", "LSR_DMG"))
+WEAPON_A, LSRHN_A = laser_sym("WEAPON"), laser_sym("LSRHN")
+VISN_A = cart_addr("VISN")
+VISIDX_A, VSXL_A, VSXH_A, VSYL_A, VSYH_A = (
+    cart_addr(n) for n in ("VISIDX", "VSXL", "VSXH", "VSYL", "VSYH"))
+SHAKEX_A, SHAKEY_A = cart_addr("SHAKEX"), cart_addr("SHAKEY")
+FBCY_C = cart_const("FBCY")
+FOE_HP = foes_const("FOE_HP")
+LZ_CLICK = (2, 130, 132, 150)           # a single click, a double, a single
+LZ_FIRE = (20, 30, 42, 64, 100)         # a beam, a press into it, two more
+                                        #   back to back into the turn, and
+                                        #   the UFO's beam on the straight
+LZ_TURN = range(TURN_UNTIL)             # the main flight's turn
+LZ_UFO_AT, LZ_UFO_D = 99, 150 * 16      # the UFO, parked the frame before its
+                                        #   beam, this far ahead in world units
+LZ_N = 195                              # ...and long enough after the last click
+                                        #   for the bar to have painted it: the
+                                        #   check below asserts exactly that
+
+
+def foe_put(k, x, y):
+    """Park UFO k at world (x, y), holding that post, full of hit points."""
+    for n, v in (("FOEXF", 0), ("FOEYF", 0), ("FOEVXL", 0), ("FOEVXH", 0),
+                 ("FOEVYL", 0), ("FOEVYH", 0), ("FOEPVXL", 0), ("FOEPVXH", 0),
+                 ("FOEPVYL", 0), ("FOEPVYH", 0),
+                 ("FOEAXL", x & 0xFF), ("FOEAXH", x >> 8),
+                 ("FOEAYL", y & 0xFF), ("FOEAYH", y >> 8),
+                 ("FOEST", 1), ("FOEHP", FOE_HP), ("FOECD", 255), ("FOERAM", 0),
+                 ("FOEPSPD", 0), ("FOESLP", 0), ("FOENEW", 1)):
+        cpu_mem[foes_addr(n) + k] = v
+    cpu_mem[0x6F00 + k], cpu_mem[0x6F10 + k] = x & 0xFF, x >> 8
+    cpu_mem[0x6F20 + k], cpu_mem[0x6F30 + k] = y & 0xFF, y >> 8
+
+
+def grid_ok():
+    """None if the sector grid is whole, else what is wrong with it.
+
+    Whole means: every cell list ends, holds only objects whose OBJCEL says that
+    cell, and holds each at most once; and every live rock below the high-water
+    mark is in one, or on the free stack. A grid that fails this is a grid
+    cell_unlink can walk off the end of - and then never come back.
+    """
+    hd, nx = ram_block(CELLHD, 256), ram_block(OBJNXT, NOBJ)
+    cel, shp = ram_block(OBJCEL, NOBJ), ram_block(OBJSHP_A, NOBJ)
+    seen = set()
+    for c in range(256):
+        o = hd[c]
+        while o != 0xFF:
+            if o >= NOBJ or o in seen or cel[o] != c:
+                return f"cell {c} reaches object {o} (OBJCEL {cel[o] if o < NOBJ else '-'})"
+            seen.add(o)
+            o = nx[o]
+    free = {cpu_mem[FREEL_A + i] for i in range(cpu_mem[NFREE_A])}
+    lost = [i for i in range(cpu_mem[0x0CB8]) if shp[i] != SHP_DEAD
+            and i not in seen and i not in free]
+    return f"live rocks in no cell: {lost[:6]}" if lost else None
+
+
+call(cpu, CART_INIT)
+for k in range(cpu_mem[0x6E1C]):                # NFOE: every UFO off the field
+    cpu_mem[FOEST_A + k] = 0
+lz = []
+prevj = 0
+for f in range(LZ_N):
+    j = JOY_RIGHT if f in LZ_TURN else 0
+    if f < CLIMB_FRAMES:
+        j |= JOY_UP
+    cpu_mem[JOY1_PREV] = prevj
+    cpu_mem[JOY1] = j
+    p = j & ~prevj & 0x0F
+    if f in LZ_FIRE:
+        p |= JOY_FIRE
+    if f in LZ_CLICK:
+        p |= JOY_FIRE2
+    cpu_mem[JOY1_PRESS] = p
+    prevj = j
+    if f == LZ_UFO_AT:                          # ahead is (sin H, -cos H)
+        h = cpu_mem[0x83] * 2 * math.pi / 256
+        sx, sy = cpu_mem[0x8B] | (cpu_mem[0x8C] << 8), cpu_mem[0x8E] | (cpu_mem[0x8F] << 8)
+        foe_put(0, (sx + round(LZ_UFO_D * math.sin(h))) & 0xFFFF,
+                (sy - round(LZ_UFO_D * math.cos(h))) & 0xFFFF)
+    call(cpu, API_GPU_BEGIN)
+    c = call(cpu, CART_FRAME)
+    call(cpu, API_GPU_END)
+    end = cpu_mem[0x04] | (cpu_mem[0x05] << 8)
+    stream = bytes(cpu_mem[PPRAM + i] for i in range(end - PPRAM + 1))
+    nv = cpu_mem[VISN_A]
+    vis = zip(ram_block(VISIDX_A, nv), ram_block(VSXL_A, nv), ram_block(VSXH_A, nv),
+              ram_block(VSYL_A, nv), ram_block(VSYH_A, nv))
+    lz.append({"c": c, "hd": [pl for op, pl in decode(stream) if op == 0x49],
+               "weapon": cpu_mem[WEAPON_A], "hn": cpu_mem[LSRHN_A],
+               "head": cpu_mem[0x83], "shoffh": cpu_mem[0xD0],
+               "shofxh": cpu_mem[0x0CA1], "zeash": cpu_mem[0x62D5],
+               "zoomh": cpu_mem[0x62F8], "shx": sb8(cpu_mem[SHAKEX_A]),
+               "shy": sb8(cpu_mem[SHAKEY_A]), "tp": cpu_mem[0x0CB3],
+               "shots": sum(cpu_mem[SHTLIVE + i] for i in range(SHOT_N)),
+               "cls": ram_block(OBJSHP_A, NOBJ),
+               "hp": [cpu_mem[OBJHP + i] for i in range(NOBJ)],
+               "vis": {i: (s16(xl, xh), s16(yl, yh)) for i, xl, xh, yl, yh in vis},
+               "foe": (ram(FOEST_A), ram(foes_addr("FOEHP"))),
+               "ufo": (ram(foes_addr("FOEON")),
+                       s16(ram(foes_addr("FOEFXL")), ram(foes_addr("FOEFXH"))),
+                       s16(ram(foes_addr("FOEFYL")), ram(foes_addr("FOEFYH")))),
+               "sweep": (cpu_mem[laser_sym("LSRD")], cpu_mem[laser_sym("LSRSGN")]),
+               "grid": grid_ok(), "ind": cpu_mem[IND_CUR_A]})
+
+# --- the choice ------------------------------------------------------------
+w = [t["weapon"] for t in lz]
+LZ_SW = LZ_CLICK[0] + TPCLICK_FRAMES - 1        # the frame a lone click lands on
+LZ_BACK = LZ_CLICK[3] + TPCLICK_FRAMES - 1
+check("a single FIRE2 click chooses the laser, once the double-click window lapses",
+      not any(w[:LZ_SW]) and w[LZ_SW] == 1,
+      f"first laser frame {w.index(1) if 1 in w else None}, expected {LZ_SW}")
+check("a double click still teleports, and leaves the weapon alone",
+      lz[LZ_CLICK[2]]["tp"] == lz[LZ_CLICK[2] - 1]["tp"] + 1
+      and all(w[LZ_SW:LZ_BACK]),
+      f"teleports {lz[LZ_CLICK[2] - 1]['tp']} -> {lz[LZ_CLICK[2]]['tp']}")
+check("...and the next single click goes back to the gun",
+      w[LZ_BACK] == 0 and w[-1] == 0, f"weapon {w[LZ_BACK - 1]} -> {w[LZ_BACK]}")
+check("FIRE fires no bullet while the laser is chosen",
+      not any(t["shots"] for t in lz[LZ_SW:LZ_BACK]))
+
+# --- the beam --------------------------------------------------------------
+lit = [f for f, t in enumerate(lz) if t["hd"]]
+litset = set(lit)
+want, beam0, n = [], set(), 0                   # the rule, as laser.s states it:
+for f in range(LZ_N):                           #   a press lights LSR_FRAMES,
+    if f in LZ_FIRE and n == 0 and w[f]:        #   and a press while lit is
+        n = LSR_FRAMES                          #   nothing. beam0 is each
+        beam0.add(f)                            #   beam's first frame, which
+    if n:                                       #   sweeps nothing
+        want.append(f)
+        n -= 1
+check("one press lights the beam for exactly LSR_FRAMES frames, and a press into it adds none",
+      lit == want and LZ_FIRE[1] not in beam0,
+      f"lit {len(lit)} frames, expected {len(want)}; first difference at "
+      f"{next((a for a, b in zip(lit, want) if a != b), None)}")
+check("the beam is ONE rule a frame", all(len(t["hd"]) <= 1 for t in lz))
+
+
+def lz_beam(t):
+    """(pivot x, nose x, row y), full-res, as emit_ship would place them."""
+    cx = ship_fbx(t["shoffh"]) + t["shx"]
+    return cx, cx - ((LSR_NOSE * t["zeash"] + 64) >> 7), FBCY_C + sb8(t["shofxh"]) + t["shy"]
+
+
+bad = []
+for f in lit:
+    xb, y, nb = lz[f]["hd"][0]
+    _, nx, ny = lz_beam(lz[f])
+    if xb != 0 or y != ny >> 1 or xb + nb - 1 != (nx >> 1) >> 2:
+        bad.append((f, (xb, y, nb), (nx, ny)))
+check("the rule runs from the top edge to the nose's byte, on the ship's row", not bad,
+      f"{len(bad)} off, first {bad[:2]}")
+
+# --- what it did to the rocks ----------------------------------------------
+# A slot that keeps its class from one frame to the next is the same rock, and
+# any hit point it lost, it lost that frame. One whose class changed split or
+# died - the killing blow - and is left out of the per-hit checks.
+hits, multi, dark, breaks = [], [], [], 0
+for f in range(1, LZ_N):
+    a, b = lz[f - 1], lz[f]
+    for i in range(NOBJ):
+        if a["cls"][i] == SHP_DEAD:
+            continue
+        if b["cls"][i] != a["cls"][i]:
+            breaks += f in litset
+            continue
+        d = a["hp"][i] - b["hp"][i]
+        if d > LSR_DMG:
+            multi.append((f, i, d))
+        if d > 0:
+            (hits if f in litset else dark).append((f, i))
+
+
+def lz_geom(f, i):
+    """(R, over, v, u) for slot i against frame f's beam, or None if not listed."""
+    t = lz[f]
+    if i not in t["vis"]:
+        return None
+    sx, sy = t["vis"][i]
+    cx, nx, ny = lz_beam(t)
+    r = 2 * ((BODY_R[t["cls"][i]] * t["zoomh"] + 64) >> 7) + LSR_HW
+    over = sx - nx if sx > nx else (-sx if sx < 0 else 0)
+    return r, over, sy - ny, cx - sx
+
+
+def lz_turn(f):
+    """The whole brads the world turned into frame f, signed; 0 on a first frame."""
+    return 0 if f in beam0 else ((lz[f]["head"] - lz[f - 1]["head"] + 128) & 0xFF) - 128
+
+
+unexplained, sweep_only = [], 0
+for f, i in hits:
+    g = lz_geom(f, i)
+    if g is None:
+        unexplained.append((f, i, "not in the visible list"))
+        continue
+    r, over, v, u = g
+    d = lz_turn(f)
+    vs = v if d >= 0 else -v                    # the swept side, folded onto +v
+    e = max(u, 0) * abs(d) * 2 * math.pi / 256 * 1.04 + 1
+    if over > r + 1:
+        unexplained.append((f, i, g))
+    elif over > 0:
+        if over * over + v * v > (r + 1) ** 2:
+            unexplained.append((f, i, g))
+    elif not (-r - 1 <= vs <= r + e):
+        unexplained.append((f, i, g))
+    elif vs > r:
+        sweep_only += 1
+
+missed = []
+for f in lit:
+    for i, _ in lz[f]["vis"].items():
+        if lz[f - 1]["cls"][i] == SHP_DEAD or lz[f]["cls"][i] != lz[f - 1]["cls"][i]:
+            continue
+        r, over, v, _ = lz_geom(f, i)
+        if over == 0 and abs(v) <= r - 1 and (f, i) not in hits:
+            missed.append((f, i, r, v))
+
+# THE SWEEP'S OWN GUARANTEE: a rock that is on one side of the beam on one lit
+# frame and on the other side on the next - level with the span both times -
+# was crossed by it, and has to have been hit on one of the two.
+crossed, stepped = 0, []
+hitset = set(hits)
+for f in lit:
+    if f - 1 not in litset:
+        continue
+    for i in lz[f]["vis"]:
+        if (lz[f]["cls"][i] != lz[f - 1]["cls"][i] or lz[f]["cls"][i] == SHP_DEAD
+                or i not in lz[f - 1]["vis"]):
+            continue
+        g0, g1 = lz_geom(f - 1, i), lz_geom(f, i)
+        if g0[1] or g1[1] or (g0[2] > 0) == (g1[2] > 0):
+            continue
+        crossed += 1
+        if (f, i) not in hitset and (f - 1, i) not in hitset:
+            stepped.append((f, i, g0, g1))
+
+print(f"        laser: {len(hits)} hit points taken off rocks and {breaks} broken over "
+      f"{len(lit)} lit frames, {sum(t['hn'] for t in lz)} hits counted by the cart; "
+      f"{sweep_only} hit only through the sweep, {crossed} crossings")
+check("the beam takes hit points off the rocks it crosses", hits and breaks,
+      f"{len(hits)} hits, {breaks} breaks")
+check("a rock loses at most LSR_DMG hit points a frame", not multi, f"{multi[:3]}")
+check("...and only while the beam burns", not dark, f"{dark[:3]}")
+check("every hit point lost is explained by the beam's geometry", not unexplained,
+      f"{len(unexplained)}, first {unexplained[:2]}")
+check("...and nothing level with the beam and inside its width escapes it", not missed,
+      f"{len(missed)}, first {missed[:2]}")
+check("a turning beam never steps over a rock it swept across", not stepped,
+      f"{len(stepped)} of {crossed}, first {stepped[:1]}")
+
+# --- ...and to a UFO --------------------------------------------------------
+fh = [t["foe"] for t in lz]
+uf = LZ_UFO_AT + 1                              # its beam's first frame
+nk = -(-FOE_HP // LSR_DMG)                      # ...and how many frames it lasts
+check("a UFO in the beam loses LSR_DMG hit points a frame and dies as they run out",
+      uf in beam0 and nk <= LSR_FRAMES and fh[LZ_UFO_AT][1] == FOE_HP and fh[LZ_UFO_AT][0]
+      and [h for _, h in fh[uf:uf + nk - 1]] == [FOE_HP - LSR_DMG * (k + 1) for k in range(nk - 1)]
+      and fh[uf + nk - 1][0] == 0,
+      "(FOEST, FOEHP, across, along-past-nose, turn) by frame from "
+      f"{LZ_UFO_AT}: " + str([(fh[f][0], fh[f][1], lz[f]["ufo"][2] - lz_beam(lz[f])[2],
+                               lz[f]["ufo"][1] - lz_beam(lz[f])[1], lz_turn(f))
+                              for f in range(LZ_UFO_AT, LZ_UFO_AT + nk + 2)]))
+
+lc = sorted(t["c"] for f, t in enumerate(lz) if f in litset)
+print(f"        laser frames: median {lc[len(lc) // 2]} / worst {lc[-1]} cycles "
+      f"({100 * lc[-1] / BUDGET:.1f}%) - whole frames, and TURNING ones, so this "
+      f"is not the beam's own cost")
+check("the laser's worst frame fits the budget", lc[-1] < BUDGET)
+check("the sector grid is whole after every frame of the laser flight",
+      not any(t["grid"] for t in lz),
+      next((f"frame {f}: {t['grid']}" for f, t in enumerate(lz) if t["grid"]), ""))
+
+# =============================================================================
+# A UFO just off the side of the screen (occlude.s add_disc / occ_bands)
+# =============================================================================
+# A UFO is drawn - and registers its hole in the starfield - out to FOE_SMARG
+# past the screen's edge, so its disc can lie wholly off the field. add_disc
+# used to clamp such a box's far end to 149 but let its near end stay past it,
+# into a band past the last one (OCCB_N); occ_bands appended to that band every
+# frame without ever resetting its count, one byte a frame past OCCBL - through
+# PEND and into the sector grid's cell heads - until cell_unlink was sent down a
+# list its object was no longer on and never came back. That was a hung console
+# (dumps/00004489: GPU in "CPU NOT READY", CPU1 at 100% inside cell_unlink).
+# So: one UFO pinned 180..195 px to the ship's left, every frame - across the
+# edge of FOE_SMARG - and the bytes past OCCBN and the grid watched throughout.
+# ...and the bar itself: a weapon change JUMPS THE QUEUE (hud_game.s
+# indicate_urgent), so it must reach the bar within a paint cycle or two of the
+# click however busy the bar was.
+IM_GUN_ID, IM_LASER_ID = hud_const("IM_GUN"), hud_const("IM_LASER")
+IND_WAIT = 3 * hud_const("HUD_PERIOD")
+assert LZ_BACK + IND_WAIT <= LZ_N, "the laser flight ends before the bar can paint the last click"
+onbar = [t["ind"] for t in lz]
+check("the weapon change reaches the message bar, ahead of whatever was on it",
+      IM_LASER_ID in onbar[LZ_SW:LZ_SW + IND_WAIT]
+      and IM_GUN_ID in onbar[LZ_BACK:LZ_BACK + IND_WAIT],
+      f"bar after the laser click: {onbar[LZ_SW:LZ_SW + IND_WAIT]}, "
+      f"after the gun click: {onbar[LZ_BACK:LZ_BACK + IND_WAIT]}")
+
+OCCBN_A, OCCB_N = cart_addr("OCCBN"), cart_const("OCCB_N")
+FOE_OCC = foes_const("FOE_OCC")
+spare0 = ram_block(OCCBN_A + OCCB_N, 16 - OCCB_N)
+check("no flight before this one wrote past the occluder bands", not any(spare0),
+      f"bytes past OCCBN: {spare0}")
+call(cpu, CART_INIT)
+for k in range(cpu_mem[0x6E1C]):
+    cpu_mem[FOEST_A + k] = 0
+for i in range(16 - OCCB_N):
+    cpu_mem[OCCBN_A + OCCB_N + i] = 0
+side, spare, side_grid = 0, [], None
+for f in range(64):
+    cpu_mem[JOY1_PREV] = cpu_mem[JOY1] = cpu_mem[JOY1_PRESS] = 0
+    h = cpu_mem[0x83] * 2 * math.pi / 256    # left of the ship is -(cos H, sin H)
+    d = (180 + f % 16) * 16
+    sx, sy = cpu_mem[0x8B] | (cpu_mem[0x8C] << 8), cpu_mem[0x8E] | (cpu_mem[0x8F] << 8)
+    foe_put(0, (sx - round(d * math.cos(h))) & 0xFFFF, (sy - round(d * math.sin(h))) & 0xFFFF)
+    call(cpu, API_GPU_BEGIN)
+    call(cpu, CART_FRAME)
+    call(cpu, API_GPU_END)
+    fy = s16(ram(foes_addr("FOEFYL")), ram(foes_addr("FOEFYH")))
+    if ram(foes_addr("FOEON")) and (fy >> 1) - ((FOE_OCC * cpu_mem[0x62F8] + 64) >> 7) >= 150:
+        side += 1
+    spare.append(ram_block(OCCBN_A + OCCB_N, 16 - OCCB_N))
+    side_grid = side_grid or grid_ok()
+print(f"        off the side: {side} of 64 frames drew a UFO whose disc lies wholly off the field")
+check("...a UFO drawn with its disc wholly off the screen is exercised", side > 0)
+check("a disc wholly off the screen is never put in a band that does not exist",
+      not any(any(s) for s in spare), f"bytes past OCCBN by the end: {spare[-1]}")
+check("...and the sector grid survives it", side_grid is None, str(side_grid))
 
 # =============================================================================
 # preview.png — the framebuffer as the rotated monitor shows it

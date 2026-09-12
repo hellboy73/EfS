@@ -63,6 +63,8 @@ SE_DEATH_N   = 10       ; ...and the blast the two of them ride on. All three
                         ;   fired together from ship.s ship_die - see se_death
 SE_UFO_SHOT  = 11       ; a UFO fired (foes.s) - the gun's crack, a fifth up
 SE_ALARM     = 12       ; a UFO has seen the ship - beep, beep, beep
+SE_LASER     = 13       ; the laser was lit (laser.s) - a fast falling tone
+SE_WSWITCH   = 14       ; FIRE2 changed the weapon - a click-clack
 
 ; voice hint per effect: 0/1/2 = a forced tone voice, $FF = noise (auto, voice 7)
 VOICE_GUN   = 0
@@ -136,6 +138,8 @@ LEN_BOOST  = BOOST_FRAMES       ; se_boost is authored to the whole boost
 LEN_DEATH  = 91         ; ...and all THREE layers of the death are authored to
                         ;   the same length, so they end together
 LEN_ALARM  = 36
+LEN_LASER  = 10
+LEN_WSWITCH= 6
 
 ; -----------------------------------------------------------------------------
 ; sfx_fire — A = SE_* id. Play that effect on its assigned voice.
@@ -208,16 +212,16 @@ voice_reset:
 sfx_lo: .byte   <se_shot, <se_rock_boom, <se_rock_hit, <se_klang
         .byte   <se_psst, <se_boost, <se_teleport, <se_klang_n
         .byte   <se_death, <se_death_low, <se_death_n, <se_ufo_shot
-        .byte   <se_alarm
+        .byte   <se_alarm, <se_laser, <se_wswitch
 sfx_hi: .byte   >se_shot, >se_rock_boom, >se_rock_hit, >se_klang
         .byte   >se_psst, >se_boost, >se_teleport, >se_klang_n
         .byte   >se_death, >se_death_low, >se_death_n, >se_ufo_shot
-        .byte   >se_alarm
+        .byte   >se_alarm, >se_laser, >se_wswitch
 sfx_voice:
         .byte   VOICE_GUN, VOICE_NOISE, VOICE_ROCK, VOICE_SHIP
         .byte   VOICE_NOISE, VOICE_NOISE, VOICE_SHIP, VOICE_NOISE
         .byte   VOICE_SHIP, VOICE_GUN, VOICE_NOISE, VOICE_ROCK
-        .byte   VOICE_ROCK
+        .byte   VOICE_ROCK, VOICE_GUN, VOICE_GUN
 
 ; ...the same voice again as a 0-3 CLAIM INDEX, because sfx_voice's $FF is a
 ; firmware hint ("noise, allocate it yourself") and not a table row. Derived by
@@ -226,7 +230,7 @@ sfx_voice:
 sfx_vi: .byte   VOICE_GUN, 3, VOICE_ROCK, VOICE_SHIP
         .byte   3, 3, VOICE_SHIP, 3
         .byte   VOICE_SHIP, VOICE_GUN, 3, VOICE_ROCK
-        .byte   VOICE_ROCK
+        .byte   VOICE_ROCK, VOICE_GUN, VOICE_GUN
         .assert VOICE_N = 4, error, "sfx.s: sfx_vi's noise rows say 3; VOICE_N moved"
 
 ; ...and the arbiter's own two, in the same order. Every effect has a real row
@@ -236,12 +240,12 @@ sfx_pri:
         .byte   PRI_FEEDBACK, PRI_BOOM, PRI_FEEDBACK, PRI_FEEDBACK
         .byte   PRI_FEEDBACK, PRI_BOOST, PRI_FEEDBACK, PRI_KLANG
         .byte   PRI_DEATH, PRI_FEEDBACK, PRI_DEATH, PRI_FEEDBACK
-        .byte   PRI_ALARM
+        .byte   PRI_ALARM, PRI_FEEDBACK, PRI_FEEDBACK
 sfx_len:
         .byte   LEN_SHOT, LEN_BOOM, LEN_ROCKHIT, LEN_KLANG
         .byte   LEN_PSST, LEN_BOOST, LEN_TELE, LEN_KLANG_N
         .byte   LEN_DEATH, LEN_DEATH, LEN_DEATH, LEN_SHOT
-        .byte   LEN_ALARM
+        .byte   LEN_ALARM, LEN_LASER, LEN_WSWITCH
 
 ; --- the effect programs -----------------------------------------------------
 
@@ -290,6 +294,36 @@ se_alarm:
         .byte   6, 86, 0
         .byte   8, 86, 10               ; beep
         .byte   $FF                     ; 36 frames - keep LEN_ALARM in step
+
+; SE_LASER - the laser was lit (laser.s lsr_fire). CETAS's se_laser, its U-BOOT
+; and hero laser both: a fast fall from C7 to A2 over ten one-frame steps, then
+; held there fading. CETAS's NOTES, and the gun's LEVEL - every step four down
+; from CETAS's 12..6, the same -8 dB se_shot was taken down by, so the two
+; weapons sit at one loudness on the one voice they share. Ten frames against a
+; twenty-frame beam, as in CETAS: the fall is the shot, the beam is seen.
+se_laser:
+        .byte   $00                     ; tone
+        .byte   1, 96, 8
+        .byte   1, 88, 8
+        .byte   1, 81, 7
+        .byte   1, 74, 7
+        .byte   1, 67, 6
+        .byte   1, 60, 5
+        .byte   1, 52, 5
+        .byte   1, 45, 4
+        .byte   1, 45, 3
+        .byte   1, 45, 2
+        .byte   $FF                     ; 10 frames - keep LEN_LASER in step
+
+; SE_WSWITCH - FIRE2 changed the weapon (laser.s wpn_toggle). CETAS's
+; se_wswitch, its dry mechanical click-clack - a high tick, a one-frame gap, a
+; lower tock - at the gun's level, four down, like se_laser.
+se_wswitch:
+        .byte   $00                     ; tone
+        .byte   2, 96, 5                ; click
+        .byte   1, 60, 0                ; (silence)
+        .byte   3, 72, 4                ; clack
+        .byte   $FF                     ; 6 frames - keep LEN_WSWITCH in step
 
 ; SE_ROCK_BOOM — a rock came apart. CETAS's se_boom verbatim, the mina
 ; explosion: low white noise (mode 6) over a 30-frame loudness decay. The

@@ -19,7 +19,8 @@ UNITS = src/header.s src/bootstrap.s src/main.s
 MODULES = src/math.s src/input.s src/camera.s src/ship.s src/thrust.s \
           src/objects.s src/physics.s src/stars.s src/occlude.s src/hud.s \
           src/hud_game.s src/gameover.s src/debris.s src/radar.s \
-          src/shots.s src/foes.s src/sfx.s src/window.s src/music.s
+          src/shots.s src/foes.s src/laser.s src/sfx.s src/window.s \
+          src/music.s
 DATA    = src/shapes.s src/enemies.s src/levels.s src/radar_bg.s src/ship32.s \
           src/flames.s
 

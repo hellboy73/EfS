@@ -74,9 +74,10 @@ Two mechanics ride on top, and neither has been judged yet:
   length is not authored at all. The ship lands on a fixed screen point
   (`TP_OFF = 120`), so the distance falls out of the geometry as `SHOFF -
   landing`: 246 px at +350, 160 px at a standstill, and backwards in reverse.
-  FIRE2 is shared with a **future weapon select** — a single click is reserved
-  for that (`do_fire2`, input.s) and does nothing yet, since there is only the
-  one gun. `TPCLICK_FRAMES`/`TPLOCK_FRAMES` (main.s, ~300 ms/~250 ms) are a
+  FIRE2 is shared with **weapon select** — a single click changes the weapon,
+  gun and laser in turn (`laser.s wpn_toggle`, design_technical 11.24), and
+  lands `TPCLICK_FRAMES` after the click, because until the window lapses it
+  could still be the first half of a double. `TPCLICK_FRAMES`/`TPLOCK_FRAMES` (main.s, ~300 ms/~250 ms) are a
   first cut at the double-click window and the post-teleport lockout that stops
   a triple click's third edge from landing as the next single click - both TBM.
 
@@ -107,6 +108,29 @@ things have to be decided together with the number:
 Worth flying against B1's speed table rather than settled on paper: at 6 slots
 and one shot per press the rate is already bounded, so the question is whether a
 burst should read as *costing* something.
+
+**B9. The laser's numbers, and what it should cost (TBM).** The weapon itself is
+settled (design_technical 11.24); its balance is not, and nothing about it has
+been flown yet. What is open:
+
+- **Is it too strong?** One press is 20 frames at `LSR_DMG` = 4 a frame — 80
+  hit points, eight bullets' worth — on everything the beam touches, with no
+  ammunition and no cooldown past its own burn (hit points are in tenths of a
+  hit since design_technical 11.25). The largest rock (50) goes in thirteen
+  frames and the beam is still lit for the halves it just made; a UFO (30)
+  lasts eight frames. CETAS gates its
+  laser behind a pickup and 50 rounds; this one is free. `LSR_DMG`, `LSR_FRAMES`
+  (CETAS's 20), a cooldown or a charge count like `BOOST_AVAIL` are the levers.
+- **Feedback at the contact.** A non-fatal laser hit throws no puff — a bullet's
+  puff sits on its tip, and the beam has no tip; the six puff slots would be full
+  in a frame anyway. What is heard is `SE_ROCK_HIT` restarted every frame, which
+  reads as a buzz. Both to judge in madsim.
+- **The switch's latency.** A single FIRE2 click lands `TPCLICK_FRAMES` (18,
+  ~300 ms) after the press, because the double click owns the button. B1 has the
+  same number open for the teleport.
+- **The GPU side.** One `HDOT_LINE` a frame, the cheapest line op the GPU has
+  (~10–14x a dotted line of the same span, per the MAD-65 guide), and not
+  measured with madsim's F3 meter.
 
 **B4. Visual bank angle while turning (TBD).** How much the ship tilts, and whether
 it is a sprite swap (cheap, a handful of frames) or a real small rotation.

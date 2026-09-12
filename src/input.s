@@ -2,9 +2,9 @@
 ; input.s - the joystick, and the only file that reads one
 ; =============================================================================
 ; One stick. Joystick 1 steers and throttles on HELD bits, teleports on a
-; DOUBLE CLICK of FIRE2 (a single click is reserved for a future weapon
-; select), and boosts on a gesture read off its own throttle HELD bit - not a
-; button at all. Nothing else in the program looks at JOY1/JOY2:
+; DOUBLE CLICK of FIRE2 (a single click changes the weapon - laser.s), and
+; boosts on a gesture read off its own throttle HELD bit - not a button at
+; all. Nothing else in the program looks at JOY1/JOY2:
 ; everything downstream reads the state this leaves behind - the heading, the
 ; throttle position, the boost timer.
 ;
@@ -229,9 +229,10 @@ do_input:
 ; teleport and arms TPLOCK, which swallows FIRE2 for TPLOCK_FRAMES so an eager
 ; triple click's third edge cannot land as the very next single click - i.e.
 ; a weapon change - the instant after teleporting. TPWIN expiring with no
-; second press is a confirmed single click: nothing to do yet, since there is
-; only the one weapon so far - the hook for weapon select once there is more
-; than one.
+; second press is a confirmed single click, and that CHANGES THE WEAPON: the
+; gun and the laser, in turn (laser.s wpn_toggle). It lands TPCLICK_FRAMES
+; after the press, because until then it could still be the first half of a
+; double.
 ; -----------------------------------------------------------------------------
 do_fire2:
         lda     JOYINP
@@ -249,8 +250,13 @@ do_fire2:
 @arm:   lda     #TPCLICK_FRAMES
         sta     TPWIN
 @tick:  lda     TPWIN                   ; the window ticks down every frame,
-        beq     @locktick               ;   pressed or not
+        beq     @locktick               ;   pressed or not...
         dec     TPWIN
+        bne     @locktick               ; ...and running out with no second
+        jsr     wpn_toggle              ;   press is the SINGLE click: the other
+                                        ;   weapon (laser.s). A double click
+                                        ;   zeroes TPWIN above and never gets
+                                        ;   here
 @locktick:
         lda     TPLOCK
         beq     @done

@@ -85,7 +85,9 @@ FOE_R       = 9                 ; the UFO's circle, collision units (32 world
                                 ;   Rounded UP from 8.75: it was 7 with a shape
                                 ;   0.8 of this one, too small next to the ship
                                 ;   to hit; 1.5x that was too big, so 1.25x
-FOE_HP      = 3
+FOE_HP      = 3*HIT_HP          ; three bullets' worth (main.s HIT_HP)
+FSH_DMG     = HIT_HP            ; what a UFO's bullet takes off whatever it hits,
+                                ;   the ship or a rock - one ordinary hit
 FOE_SEE     = 400*16            ; sees within this: the resting screen's
                                 ;   height, in world units
 FOE_LOSE    = 2*FOE_SEE         ; ...and gives up the chase past this
@@ -376,7 +378,8 @@ FEVOH       = $9573
 ;
 ;   think      see, decide, steer, avoid - and integrate, every UFO
 ;   screen     where each one is on the screen, if it is
-;   hits       the player's bullets against the ones that are
+;   hits       the player's bullets against the ones that are, then the
+;              laser's beam (laser.s lsr_foes)
 ;   draw       what survived, and its hole in the starfield
 ;   bullets    the UFOs' own: fly, hit, draw
 ;   wreck      what is left of the ones that did not survive
@@ -387,6 +390,8 @@ do_foes:
         jsr     foe_think_all
         jsr     foe_screen_all
         jsr     foe_hits
+        jsr     lsr_foes                ; ...and the laser's beam, on the same
+                                        ;   screen points (laser.s)
         jsr     foe_draw_all
         jsr     fsh_all
         jmp     fw_all
@@ -1082,8 +1087,9 @@ foe_avoid:
         ldx     FEI
         lda     FOERAM,x
         bne     @noship
-        lda     #FOE_RAMCD              ; RAMMED: the ship pays a hit point,
+        lda     #FOE_RAMCD              ; RAMMED: the ship pays a ram's worth,
         sta     FOERAM,x                ;   the same as for a rock
+        lda     #RAM_DMG
         jsr     ship_hurt
 @noship:
         lda     NFOE                    ; --- the other UFOs
@@ -1787,12 +1793,10 @@ foe_hits:
         lda     #SCORE_FOE_HIT
         jsr     score_add
         ldx     FEI
-        dec     FOEHP,x
-        bne     @alive
-        jsr     foe_kill                ; ...and that was the last one
-        jmp     @fnext
-@alive: lda     #SE_ROCK_HIT
-        jsr     sfx_fire
+        lda     #SHOT_DMG
+        jsr     foe_take_hit            ; a bullet's worth off it...
+        bcc     @bnext
+        jmp     @fnext                  ; ...and that was the end of it
 @bnext: dec     SHTJ
         bmi     @fnext
         jmp     @blp
@@ -1938,7 +1942,8 @@ fsh_ship:
         clc
         rts
 @hit:   jsr     fsh_bang
-        jsr     ship_hurt               ; one hit point, the same as a rock
+        lda     #FSH_DMG
+        jsr     ship_hurt               ; one ordinary hit, the same as a ram
         sec
         rts
 @go:    ldx     FSI
@@ -2171,6 +2176,7 @@ fsh_rock1:
         lda     #$01                    ; ...and nobody is paid for it
         sta     FOEKILL
         ldx     FEJ
+        lda     #FSH_DMG
         jsr     rock_take_hit
         stz     FOEKILL
         sec                             ; stop: the lists may have moved
@@ -2941,6 +2947,28 @@ foe_alarm:
         jsr     sfx_fire
         lda     #IM_ENEMY
         jmp     indicate_msg            ; tail (clobbers A and X)
+
+; -----------------------------------------------------------------------------
+; foe_take_hit - X = FEI's UFO, A = the hit points the hit is worth: a bullet's
+; SHOT_DMG (foe_hits) or the laser's LSR_DMG a frame (laser.s lsr_foes). Still
+; standing: the rock's tap, carry CLEAR. Used up - a hit bigger than what is
+; left is simply the last - foe_kill, carry SET.
+; -----------------------------------------------------------------------------
+foe_take_hit:
+        eor     #$FF                    ; FOEHP - A, as FOEHP + ~A + 1: carry
+        sec                             ;   CLEAR is a borrow
+        adc     FOEHP,x
+        beq     @dead
+        bcc     @dead
+        sta     FOEHP,x
+        lda     #SE_ROCK_HIT
+        jsr     sfx_fire
+        clc
+        rts
+@dead:  stz     FOEHP,x
+        jsr     foe_kill
+        sec
+        rts
 
 ; -----------------------------------------------------------------------------
 ; foe_kill - FEI is out of hit points.

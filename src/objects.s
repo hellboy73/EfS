@@ -1163,12 +1163,12 @@ one_asteroid:
         tax
         ldy     OBJSHP,x                ; the SIZE CLASS - CLASS_BASE (shapes.s)
 
-        lda     ROCK_HP,y               ; CRACK: only when the last hit point is
-        cmp     #1                      ;   the result of DAMAGE, not just the
-        beq     @uncracked              ;   16px class's whole life - it starts
-        lda     OBJHP,x                 ;   at HP 1 and never took a hit, so
-        cmp     #1                      ;   ROCK_HP's own floor for this class
-        bne     @uncracked              ;   is the "already at 1, always was"
+        lda     ROCK_HP,y               ; CRACK: only when being on the last hit
+        cmp     #CRACK_HP+1             ;   is the result of DAMAGE, not just the
+        bcc     @uncracked              ;   16px class's whole life - it starts
+        lda     OBJHP,x                 ;   at CRACK_HP and never took a hit, so
+        cmp     #CRACK_HP+1             ;   a class that SPAWNS at or under it
+        bcs     @uncracked              ;   is the "on its last, always was"
         lda     #$01                    ;   case that must NOT draw a crack.
         bra     :+
 @uncracked:
@@ -1512,8 +1512,10 @@ AST_SPIN:
         .word   $FF00           ;  -1.00     4.2 s
         .word   $0180           ;   1.50     2.8 s - the chips are frantic
 
-; HIT POINTS, per size class. How many shots a rock takes before it is gone -
-; the smallest goes on one, and each class up takes one more. See shots.s.
+; HIT POINTS, per size class, written in HIT_HP (main.s) - one bullet's worth -
+; so they still say how many shots a rock takes before it is gone: the smallest
+; goes on one, and each class up takes one more. The laser takes LSR_DMG a
+; frame, a fraction of that. See shots.s rock_take_hit.
 ;
 ; This is the one rock property that has to SURVIVE going off camera, and that
 ; is what makes it an array (OBJHP) rather than a table read per frame the way
@@ -1522,7 +1524,7 @@ AST_SPIN:
 ; a rock outside the window is frozen, so nobody can see what its spin is doing
 ; and it does not have to be remembered.
 ;                192 128  64  32  16
-ROCK_HP:    .byte  5,  4,  3,  2,  1
+ROCK_HP:    .byte  5*HIT_HP, 4*HIT_HP, 3*HIT_HP, 2*HIT_HP, 1*HIT_HP
 
 ; Starting spin phases, spread over the circle by (index & 7). Hardcoded for the
 ; same reason the velocities are: a reproducible field.
