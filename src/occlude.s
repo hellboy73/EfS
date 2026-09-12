@@ -94,20 +94,32 @@ add_ship_occluder:
 add_disc:
         ldy     OCCN
         cpy     #16
-        bcs     @full
-        lda     CX2L
+        bcc     :+
+        rts                             ; the list is full
+:       lda     CX2L
         sta     OCCCX,y
         lda     CY2L
         sta     OCCCY,y
 
+        ; A DISC WHOLLY OFF THE FIELD IS DROPPED, NOT CLAMPED. Clamping each end
+        ; on its own is only right for a box that overlaps the field: one wholly
+        ; past an edge came out with its near end still past it - y0 = 161
+        ; against a field that stops at 149 - and occ_bands filed that under a
+        ; band past the last. Rocks never did it (emit_asteroids only registers
+        ; the ones on camera); a UFO does, because it is drawn out to FOE_SMARG
+        ; past the edge. It suppresses no star out there, so it is not entered.
         sec                             ; box x0 = cx - R, clamped at 0
         lda     CX2L
         sbc     AOCR
         tax
         lda     CX2H
         sbc     #$00
-        bpl     @x0ok
-        ldx     #$00
+        bmi     @x0lo                   ; left of 0: clamp
+        bne     @full                   ; 256+: wholly past the right edge
+        cpx     #200
+        bcs     @full                   ; 200..255: likewise
+        bra     @x0ok
+@x0lo:  ldx     #$00
 @x0ok:  txa
         sta     OCCX0,y
         clc                             ; box x1 = cx + R, clamped at 199
@@ -116,6 +128,7 @@ add_disc:
         tax
         lda     CX2H
         adc     #$00
+        bmi     @full                   ; still left of 0: wholly off that edge
         bne     @x1hi                   ; past 255, so past the right edge
         cpx     #200
         bcc     @x1ok
@@ -129,8 +142,12 @@ add_disc:
         tax
         lda     CY2H
         sbc     #$00
-        bpl     @y0ok
-        ldx     #$00
+        bmi     @y0lo
+        bne     @full
+        cpx     #150
+        bcs     @full
+        bra     @y0ok
+@y0lo:  ldx     #$00
 @y0ok:  txa
         sta     OCCY0,y
         clc
@@ -139,6 +156,7 @@ add_disc:
         tax
         lda     CY2H
         adc     #$00
+        bmi     @full
         bne     @y1hi
         cpx     #150
         bcc     @y1ok
@@ -234,16 +252,21 @@ occ_bands:
         stx     T3                      ; ...parked: X becomes the band, because
         lda     OCCY0,x                 ;   INC abs,y does not exist
         lsr     a                       ; the bands its clamped box spans. Both
-        lsr     a                       ;   ends are already 0..149, so both
-        lsr     a                       ;   bands are already 0..OCCB_N-1 and
-        lsr     a                       ;   neither needs a range test.
-        sta     T0
-        lda     OCCY1,x
-        lsr     a
-        lsr     a
-        lsr     a
-        lsr     a
-        sta     T1
+        lsr     a                       ;   ends are 0..149 - add_disc drops a
+        lsr     a                       ;   box that is not - so both bands are
+        lsr     a                       ;   0..OCCB_N-1. AND THEY ARE TESTED ANY
+        cmp     #OCCB_N                 ;   WAY, because a band past the last is
+        bcs     @next                   ;   a write past OCCBL, through PEND and
+        sta     T0                      ;   into the sector grid's cell heads -
+        lda     OCCY1,x                 ;   one byte a frame, since nothing
+        lsr     a                       ;   resets a band that does not exist -
+        lsr     a                       ;   until cell_unlink walks off a list
+        lsr     a                       ;   and never returns. A UFO off the
+        lsr     a                       ;   side of the screen once did exactly
+        cmp     #OCCB_N                 ;   that and hung the console
+        bcc     :+                      ;   (dumps/00004489). Memory safety does
+        lda     #OCCB_N-1               ;   not get to rest on a caller keeping
+:       sta     T1                      ;   a promise.
 @band:  ldx     T0
         lda     OCCBN,x                 ; append at band*16 + count. The count
         inc     OCCBN,x                 ;   cannot reach 16: OCCN is capped at 16
@@ -263,7 +286,7 @@ occ_bands:
         cmp     T1
         beq     @band
         bcc     @band
-        ldx     T3
+@next:  ldx     T3
         bne     @occ
 
 @done:  ldx     #OCCB_N-1               ; deepest band, for the harness to report
