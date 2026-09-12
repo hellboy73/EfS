@@ -175,7 +175,11 @@ HUD_ON      = 0
 
 ; TEMPORARY, and one edit removes every byte of it: the class census top left,
 ; five hex counts one under the other, largest class first. See hud_game.s.
-DBG_CLASSES = 1
+; PARKED, not deleted: the whole thing is behind `.if DBG_CLASSES` - the call in
+; cart_frame, the routine, its RAM and its asserts - so this 0 takes it off the
+; screen and out of the image, and a 1 brings it back when a tuning question
+; wants the counts again.
+DBG_CLASSES = 0
 
 ; Which opcode draws a rock. All three are the SAME command - one closed figure
 ; per outline, with the centre, the angle, the scale and the RAW shape sent as
