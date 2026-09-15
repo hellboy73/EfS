@@ -106,6 +106,10 @@ CAMFL       = $73AA             ; the servo's verdict: bit 0 past the tight
                                 ;   margin, bit 1 not inside the loose one
 CAMSD       = $73AB             ; the SHOFF the slide wants, before the slew
 CAMZ        = $73AC             ; the rung's reciprocal as a Q0.7 multiplier
+CAMZLAG     = $73AD             ; the shift do_ship's zoom ease uses: ZOOM_LAG,
+                                ;   or ZOOM_LAG+1 on the way home from a target
+                                ;   that is gone - half the pace, so an enemy
+                                ;   killed on the edge is seen coming apart
 
         .pushseg
         .segment "CODE5"
@@ -139,13 +143,24 @@ cam_foe:
         jsr     cam_pick
         ldx     CAMT
         bne     cf_have
-        lda     #$FF                    ; no target: the tier's zoom, and the
-        sta     CAMK                    ;   next target starts from wherever the
-        lda     CAMRT                   ;   camera is then
+        ldx     CAMK                    ; no target. Lost one this frame: the
+        bmi     :+                      ;   way home runs at half the ease's
+        lda     #$FF                    ;   pace, and the next target starts
+        sta     CAMK                    ;   from wherever the camera is then
+        lda     #ZOOM_LAG+1
+        sta     CAMZLAG
+:       lda     ZEASH                   ; ...until the zoom is home (or the tier
+        cmp     CAMRT                   ;   has gone wider than it)
+        bcc     :+
+        lda     #ZOOM_LAG
+        sta     CAMZLAG
+:       lda     CAMRT                   ; the tier's zoom
         sta     CAMRZ
         jmp     cf_slew
 
 cf_have:
+        lda     #ZOOM_LAG
+        sta     CAMZLAG
         dex
         sec                             ; the wrap is free: a 16-bit subtract is
         lda     FOEXL,x                 ;   the short way round

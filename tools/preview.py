@@ -3964,7 +3964,25 @@ check("...with the ship back where the tier puts it, since the zoom alone was en
       f"offset {[r['sh'] for r in tail]}")
 check("...and no arrow once it frames it", not any(r["arrows"] for r in near[-30:]))
 
-back = cam_scene("spider", -700, 0, 180, SHOT and f"{SHOT}_behind.png")
+# The target goes (killed, here simply switched off): the zoom goes home to the
+# tier's 1:1 at HALF the ease's pace, ZOOM_LAG+1, so an enemy killed on the edge
+# is still in frame while it comes apart. From ~71, 1/16 a frame gets within 8
+# counts in ~31 frames; 1/32 takes twice that.
+cpu_mem[FOEST_A] = 0
+home = []
+for f in range(150):
+    run_frame()
+    home.append(cpu_mem[ZOOMH_A])
+t_home = next((f for f, z in enumerate(home) if z >= 120), None)
+print(f"        camera, target gone: zoom {near[-1]['z']} -> {home[-1]}, within 8 of 1:1 "
+      f"after {t_home} frames")
+check("...and when it is gone the zoom goes home at half the tier ease's pace",
+      t_home is not None and 45 <= t_home <= 100 and home[-1] == 128,
+      f"zoom by frame {home[::10]}")
+
+# 240 frames: the scene before it ended with its target GONE, so the servo
+# starts this one from 1:1 - 32 rungs, a frame each, before the slide may begin.
+back = cam_scene("spider", -700, 0, 240, SHOT and f"{SHOT}_behind.png")
 tail = back[-40:]
 lit = [a for r in tail for a in r["arrows"]]
 up_bound = CAM_F_K * 64 // 128 - 200

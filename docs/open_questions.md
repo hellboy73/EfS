@@ -254,6 +254,10 @@ the tuning list at the end of this entry. The rules, agreed 2026-09-15:
      the remainder, clamped to the **screen bounds** below. The along target is
      **slewed** `CAM_SSTEP` px a frame, so taking, swapping or losing a target
      never throws the ship; the tier's own moves pass straight through.
+  When the target is GONE (killed, lost), the zoom's way home to the tier runs
+  at `ZOOM_LAG + 1` — half the pace (`CAMZLAG`) — until it lands: at the tier's
+  own rate a kill on the edge of a 2x frame snapped to 1:1 before the wreck
+  could be seen (flown 2026-09-15).
   3. Still does not fit: the enemy stays off screen, and a **blinking arrow on
      the screen edge** points at it — on ALL four edges, sides, ahead and
      behind. **Exactly one arrow, ever**: only for the camera's target (the

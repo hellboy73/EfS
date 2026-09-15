@@ -329,7 +329,8 @@ do_ship:
         lda     T1
         sbc     ZEASH
         sta     T1
-        ldx     #ZOOM_LAG
+        ldx     CAMZLAG                 ; ZOOM_LAG, or one slower going home
+                                        ;   from a lost target (cam.s)
 :       lda     T1
         cmp     #$80
         ror     T1
