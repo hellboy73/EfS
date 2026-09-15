@@ -1121,6 +1121,10 @@ cart_init:
         jsr     init_qs
         jsr     init_stars
         jsr     init_motes
+        jsr     hof_seed                ; the hiscore board - HERE and not in
+                                        ;   game_start, which is exactly what
+                                        ;   lets it survive a new game
+                                        ;   (hiscore.s)
 
         ; ...and everything a NEW GAME resets - the ship, the field, the HUD -
         ; is game_start (gameover.s), because FIRE on the game-over screen has
@@ -1437,6 +1441,9 @@ cart_frame:
         .include "cam.s"                ; the camera frames the nearest enemy,
                                         ; and an edge arrow points at one it
                                         ; cannot. CODE4, after laser.s.
+        .include "hiscore.s"            ; the hiscore table in KEEP, the page
+                                        ; of CART_HIRAM a new game never
+                                        ; resets. CODE5, after cam.s.
         .include "sfx.s"                ; the sound effects and the explosion
                                         ; flash. A HIDATA file end to end - the
                                         ; SFX engine reads the step programs

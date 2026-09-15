@@ -1002,6 +1002,14 @@ These are settled and should not be re-opened without a reason:
     seventh `boot_segs` row. Only code lives there — the state it keeps is in
     the `$6Fxx` page the OS clears, so nothing trusts the demo's bytes.
 
+    **And its top page is KEEP, `$DF00-$DFFF` (2026-09-15).** `cart.cfg`'s
+    `HIRAM` area is `$1F00` long, not `$2000`, so no segment can be placed on
+    the last page. It holds what must outlive a NEW GAME — the hiscore table
+    first (`src/hiscore.s`, 8 × 11 B) — which is filled once by `cart_init`
+    and never by `game_start`, and lasts one power-on (a RESET copies the demo
+    back over it). It is also the page the screens' code overlays will leave
+    alone when they are copied to `$C000` (`open_questions.md` H1).
+
 19. **There are FIVE places a byte can live, and access pattern decides which.**
     CPU1 has more RAM than one contiguous window suggests, and the five areas
     are not interchangeable — each is ruled out for something. Measured, in both
@@ -1015,7 +1023,7 @@ These are settled and should not be re-opened without a reason:
     | lower RAM `$0400-$0FFF` | 3,072 | ~0 | the hot tables — ROT, the quarter-square multiply, the star layer |
     | under the cart `$8000-$9FFF` | 8,192 | ~2,700 | bulk data walked in **bracketed passes** — the object pool, and the enemies' state (`foes.s`, `$9100-$95FF`) |
     | upper RAM `$A000-$BEFF` | 7,936 | 742 | `RODATA`, `HIDATA`: tables and cold code, **and anything the IRQ reads** |
-    | `CART_HIRAM` `$C000-$DFFF` | 8,192 | 6,574 | code or data, full speed, always mapped — `CODE5` (`cam.s`, 1,618 B) since 2026-09-15 |
+    | `CART_HIRAM` `$C000-$DFFF` | 8,192 | 6,431 + 168 | code or data, full speed, always mapped — `CODE5` (`cam.s` + `hof_seed`, 1,505 B) since 2026-09-15; the top page `$DF00-$DFFF` is KEEP (hiscores, 88 B) |
 
     (Free as of the laser, 24. Upper RAM is the tight one; `CART_HIRAM` is the
     whole of the new room. New per-frame code goes to `CODE4` while the run area

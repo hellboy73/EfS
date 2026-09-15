@@ -938,6 +938,43 @@ frame loop first. **How to settle:** with F1, because a level summary and a
 mission-complete screen are the same machinery, and it is worth building all of
 them once rather than the game-over one alone.
 
+**Decided 2026-09-15 (the user), not yet built:**
+
+* **The states:** an INTRO played once after power-on; a TITLE with a scroller
+  along the bottom, cycling through ATTRACT panels (the enemies, the hiscores,
+  a demo); the five LEVELS, no bosses; a STORY screen between levels; two
+  dedicated ENDINGS, won and lost; HISCORE sign-up. Today's GAME OVER / PUSH
+  FIRE banner is a placeholder for the lost ending and goes when it arrives.
+* **Story screens are bitmaps, and may differ per level.** None exist yet. They
+  go to the background COMPRESSED — `gpu_rect_bg_begin` / `gpu_rect_bg_cart`,
+  RLE bands decoded by the GPU (MAD-65 CPU OS, *The transport block*) — so the
+  art costs cartridge banks and no CPU1 RAM at all. The bank count (32) is what
+  a picture per level spends.
+* **The attract DEMO is recorded play, replayed without the HUD** — a stretch of
+  a later level. Cheap in RAM if it is what it sounds like: the game engine is
+  already resident, and the recording is a few joystick bytes a frame fed into
+  `input.s`'s one reader (`JOYIN`/`JOYINP`/`JOYINV`) from a level loaded with its
+  own seed. **The catch to plan for:** a replay is only a replay while the
+  simulation is bit-identical, and physics is expected to be re-tuned many
+  times, so a recording desyncs silently on the next tune. It wants a
+  re-record tool, and a `preview.py` check that a replay still ends where it
+  was recorded to.
+* **The screens' code is not resident** — the run area and upper RAM have a few
+  hundred bytes between them. The plan is CETAS's overlay (`states.s`
+  `load_uicode`): screen code in its own banks, copied to `CART_HIRAM` at a
+  state change, split by when it runs (INTRO once; TITLE + ATTRACT + sign-up;
+  STORY + ENDINGS). `api_decrunch` can take LZ-packed overlays at 73–95 cycles
+  per byte, so one is a loading frame or two. **Open:** how an overlay shares
+  `$C000` with `CODE5` (`cam.s`), which the demo needs as much as play does —
+  sized beside it, or reloaded on entry to play. **TBM:** what a load costs.
+* **Hiscores live in KEEP**, `$DF00-$DFFF`, the page `cart.cfg` holds back from
+  `CART_HIRAM`: seeded once by `cart_init`, never by `game_start`, so the board
+  outlives a game and lasts one power-on. Built — `src/hiscore.s`.
+* **Open, not ruled out:** a short in-between STAGE after some levels — a
+  mini-game, flying a tunnel. If it comes it is its own state with its own
+  code, so it is one more overlay, not resident code, and it has to be weighed
+  against the same `CART_HIRAM` room as the screens.
+
 **H2. The wreck's numbers (TBM, and being flown).** `DEBRIS_FRAMES` 120,
 `DEBRIS_K` 11, `DEBRIS_JIT` 32, `DEBRIS_SPIN` 2 (`src/debris.s`). It has already
 moved twice — 45/28/64/4, then 60/21/64/4, now this — and the lesson each time
