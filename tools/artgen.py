@@ -1,0 +1,158 @@
+#!/usr/bin/env python3
+"""PNGs -> full-screen art for the background, RLE bands packed into banks.
+
+    python tools/artgen.py src/screens_art.s \
+        LOGO=assets/png/bitmaps/MAD65_logo.png@22,160/128 \
+        TITLE=assets/png/bitmaps/efs_title_scr.png@0,0/15
+
+Each argument is NAME=png@X0,Y0/BAND: the picture authored upright, placed at
+portrait (X0, Y0) - the player's view of the turned monitor - and cut into bands
+of BAND framebuffer rows. The turn is bggen.py's, exactly: fb_x = portrait_y,
+fb_y = 299 - portrait_x.
+
+WHY BANDS, AND WHY THIS IS NOT bggen.py. bggen emits ONE band, which is right for
+the radar's sparse ring. A title screen is 15,000 bytes raw and ~9.6 KB after RLE,
+and one RECT_BG_RLE command has to fit in the 2 KB of PPRAM a frame - together
+with the replay of the band before it, which the OS re-emits on the next frame
+(the two-frame background rule). So a picture goes out as many bands, a few a
+frame, each its own command with its own replay record, and each band is exactly
+BAND rows (the GPU drives its decoder by WB*H output bytes; a short band would
+read on into the next command - MAD-65 roms/rle.py band_blobs).
+
+WHY BANKS. ~10 KB of art is more than one 8 KB bank, and a band is read by the OS
+straight out of the cartridge window by bank + address, so no band may straddle
+a bank boundary. This tool packs the bands in order into ART5 (a whole bank) and
+then ART6, and writes a table the runtime walks - bank, window address and
+destination row per band - so no address or bank number is typed anywhere.
+
+WHAT IT EMITS (one .s, included by src/screens.s):
+  ART_<NAME>   offset of the picture's row in ART_GEO
+  ART_GEO      per picture: XB, WB, GAP, H, first, end  (offsets into ART_TAB)
+  ART_TAB      per band:    bank, address.16, Y.16       (5 bytes)
+  the blobs    in segments ART5 / ART6, which cart.cfg keeps in the window.
+ART_GEO and ART_TAB go to UICODE, which runs in RAM (CART_HIRAM).
+"""
+
+import pathlib
+import sys
+
+from PIL import Image
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+from bggen import rle_blob                          # noqa: E402 - the one codec
+
+ART_BANKS = ((5, "ART5"), (6, "ART6"))             # must match cart.cfg's MEMORY order
+BANK_SIZE = 0x2000
+FB_W, FB_H, ROW_BYTES = 400, 300, 50
+
+
+def raster(path, x0, y0):
+    """bggen.py's conversion: the PNG turned into framebuffer rows of bytes."""
+    im = Image.open(path).convert("RGBA")
+    w, h = im.size
+    px = im.load()
+
+    def lit(ix, iy):
+        r, g, b, a = px[ix, iy]
+        return a > 127 and (r or g or b)
+
+    fbx0, fbx1 = y0, y0 + h - 1
+    fby0, fby1 = 299 - x0 - (w - 1), 299 - x0
+    if not (0 <= fbx0 and fbx1 < FB_W and 0 <= fby0 and fby1 < FB_H):
+        sys.exit(f"{path} at portrait ({x0},{y0}) falls off the framebuffer")
+    col0 = fbx0 // 8
+    ncol = fbx1 // 8 - col0 + 1
+    raw = bytearray()
+    for r in range(w):                              # fb row fby0 + r
+        ipx = w - 1 - r
+        for c in range(ncol):
+            byte = 0
+            for bit in range(8):
+                ipy = (col0 + c) * 8 + bit - fbx0
+                if 0 <= ipy < h and lit(ipx, ipy):
+                    byte |= 0x80 >> bit
+            raw.append(byte)
+    return bytes(raw), col0, ncol, w, fby0
+
+
+def main(dst, specs):
+    pics = []
+    for spec in specs:
+        name, rest = spec.split("=", 1)
+        path, rest = rest.split("@", 1)
+        at, band = rest.split("/")
+        x0, y0 = (int(v) for v in at.split(","))
+        band = int(band)
+        raw, xb, wb, rows, fby0 = raster(path, x0, y0)
+        pad = (-rows) % band
+        if fby0 + rows + pad > FB_H:
+            sys.exit(f"{name}: {rows} rows do not divide into bands of {band}, and "
+                     f"padding them would write past framebuffer row {FB_H - 1}")
+        raw += bytes(pad * wb)
+        rows += pad
+        blobs = [rle_blob(raw[y * wb:(y + band) * wb]) for y in range(0, rows, band)]
+        pics.append((name.upper(), path, xb, wb, band, fby0, blobs, len(raw)))
+
+    # Pack every band, in order, into the art banks.
+    placed = {bank: [] for bank, _ in ART_BANKS}
+    k, used = 0, 0
+    tab = []                                        # (bank, label, y)
+    for name, _, xb, wb, band, fby0, blobs, _ in pics:
+        for i, b in enumerate(blobs):
+            if used + len(b) > BANK_SIZE:
+                k, used = k + 1, 0
+                if k == len(ART_BANKS):
+                    sys.exit("the art does not fit in the art banks - add one to "
+                             "cart.cfg and to ART_BANKS")
+            bank = ART_BANKS[k][0]
+            label = f"{name}_B{i}"
+            placed[bank].append((label, b))
+            tab.append((bank, label, fby0 + i * band))
+            used += len(b)
+
+    out = []
+    A = out.append
+    A("; ===========================================================================")
+    A("; screens_art.s - GENERATED by tools/artgen.py. Do not edit; edit the PNGs")
+    A("; and run make.")
+    A("; ===========================================================================")
+    geo, first = [], 0
+    for n, (name, path, xb, wb, band, fby0, blobs, nraw) in enumerate(pics):
+        size = sum(len(b) for b in blobs)
+        A(f"; {name}: {path} - {len(blobs)} band(s) of {band} rows x {wb} bytes,")
+        A(f";   {nraw} B raw -> {size} B RLE ({nraw / size:.2f}x), from row {fby0}")
+        A(f"ART_{name} = {n * 6}")
+        geo.append((xb, wb, 0, band, first * 5, (first + len(blobs)) * 5))
+        first += len(blobs)
+    if first * 5 > 255:
+        sys.exit("ART_TAB is indexed by a byte and has outgrown it")
+    A("")
+    for bank, seg in ART_BANKS:
+        A(f'        .segment "{seg}"                ; bank {bank}, read in the window')
+        A(f"; {sum(len(b) for _, b in placed[bank])} of {BANK_SIZE} B")
+        for label, b in placed[bank]:
+            A(f"{label}:")
+            for i in range(0, len(b), 16):
+                A("        .byte   " + ",".join(f"${v:02X}" for v in b[i:i + 16]))
+        A("")
+    A('        .segment "UICODE"')
+    A("ART_GEO:                                ; XB, WB, GAP, H, first, end")
+    for g in geo:
+        A("        .byte   " + ", ".join(str(v) for v in g))
+    A("ART_TAB:                                ; bank, blob, Y")
+    for bank, label, y in tab:
+        A(f"        .byte   {bank}")
+        A(f"        .addr   {label}")
+        A(f"        .word   {y}")
+    A("")
+    pathlib.Path(dst).write_text("\n".join(out), newline="\n")
+    print(f"wrote {dst}: " + ", ".join(
+        f"{p[0]} {len(p[6])} bands {sum(len(b) for b in p[6])} B" for p in pics)
+        + " | " + ", ".join(f"bank {bk} {sum(len(b) for _, b in placed[bk])} B"
+                            for bk, _ in ART_BANKS))
+
+
+if __name__ == "__main__":
+    if len(sys.argv) < 3:
+        sys.exit(__doc__)
+    main(sys.argv[1], sys.argv[2:])

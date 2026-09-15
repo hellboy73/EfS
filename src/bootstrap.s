@@ -59,6 +59,7 @@
         .import __CODE3_LOAD__, __CODE3_RUN__, __CODE3_SIZE__
         .import __CODE4_LOAD__, __CODE4_RUN__, __CODE4_SIZE__
         .import __CODE5_LOAD__, __CODE5_RUN__, __CODE5_SIZE__
+        .import __UICODE_LOAD__, __UICODE_RUN__, __UICODE_SIZE__
         .import cart_init, cart_frame
 
         .export boot_init
@@ -81,6 +82,8 @@ CODE3_BANK    = 3               ; ...and CODE3 is the rest of that bank, which
 CODE4_BANK    = 4               ; ...and CODE4 rides behind COLD in bank 4, and
                                  ;   runs after CODE3
 CODE5_BANK    = 4               ; ...and CODE5 behind BGDATA, running at $C000
+UICODE_BANK   = 6               ; ...and the screens' code behind the pictures
+                                 ;   in bank 6, running after CODE5
 
         .segment "BOOT"
 
@@ -130,6 +133,8 @@ boot_segs:
         .word   __CODE4_LOAD__, __CODE4_RUN__, __CODE4_SIZE__
         .byte   CODE5_BANK
         .word   __CODE5_LOAD__, __CODE5_RUN__, __CODE5_SIZE__
+        .byte   UICODE_BANK
+        .word   __UICODE_LOAD__, __UICODE_RUN__, __UICODE_SIZE__
 boot_segs_end:
 
 ; -----------------------------------------------------------------------------

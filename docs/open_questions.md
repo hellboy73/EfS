@@ -974,6 +974,25 @@ them once rather than the game-over one alone.
 * **Hiscores live in KEEP**, `$DF00-$DFFF`, the page `cart.cfg` holds back from
   `CART_HIRAM`: seeded once by `cart_init`, never by `game_start`, so the board
   outlives a game and lasts one power-on. Built — `src/hiscore.s`.
+* **Built 2026-09-15: the INTRO and the TITLE** (`src/screens.s`). Power-on is
+  `SC_INTRO`: black, the MAD-65 logo, MISSION / ASTEROID / DESTRUCTION one on
+  each of the song's opening ticks (every 28 frames); then the blinder, the
+  title picture streamed in under it and shown on frame 225, where the song's
+  chords come in (3.733 s) - constants read off the song once, not synced to
+  it; and a marquee (`src/scroller_text.s`, plain ASCII) on the bottom line; FIRE starts a
+  game. Both pictures go out as RLE bands through
+  `RECT_BG_BEGIN` / `RECT_BG_CART` (`tools/artgen.py`, banks 5-6, 15-row bands,
+  batches of four every OTHER frame, `ART_BATCH`). The GPU's TIME binds, not
+  PPRAM: a 15-row band costs it ~49,000 cycles to decode, so five in a frame
+  (the first cut, which PPRAM allowed) measured 252,717 cycles, 106% of the
+  GPU's frame - the last band never landed and left a black bar down the
+  title's left side. Four is ~90%, and the frame after a batch carries only its
+  replay. Every future story screen obeys the same arithmetic. The screens' code is `UICODE`, loaded
+  at boot into `CART_HIRAM` behind `CODE5` — resident for now, not yet an
+  overlay — and its state is in KEEP. The title-theme sketch plays from
+  power-on as a stand-in (`MUSIC_ON` = 1, banks 7-8). Still open: game over
+  goes straight back into a game rather than to the title, and a frame of the
+  title picture shows under the first frame of flight.
 * **Open, not ruled out:** a short in-between STAGE after some levels — a
   mini-game, flying a tunnel. If it comes it is its own state with its own
   code, so it is one more overlay, not resident code, and it has to be weighed

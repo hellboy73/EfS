@@ -20,15 +20,18 @@ MODULES = src/math.s src/input.s src/camera.s src/ship.s src/thrust.s \
           src/objects.s src/physics.s src/stars.s src/occlude.s src/hud.s \
           src/hud_game.s src/gameover.s src/debris.s src/radar.s \
           src/shots.s src/foes.s src/laser.s src/sfx.s src/window.s \
-          src/music.s src/cam.s src/hiscore.s
+          src/music.s src/cam.s src/hiscore.s src/screens.s
 DATA    = src/shapes.s src/enemies.s src/levels.s src/radar_bg.s src/ship32.s \
-          src/flames.s src/arrows.s
+          src/flames.s src/arrows.s src/screens_art.s src/scroller_text.s
 
 # The song. vgmstrip.py removes the VGM header and the GD3 tag - vgm_play does
 # no header parsing, it executes commands from the address it is given - and
 # emits the loop anchor as an assembler constant in a sibling .inc. Both are
 # build outputs and gitignored; src/music.s takes them back out at MUSIC_ON=0.
-MUSIC   = assets/vgm/song_stream.bin assets/vgm/song_stream.inc
+#
+# TEMPORARY: the title-theme sketch stands in for music until there is some.
+TITLE_VGM = assets/vgm/efs_title_theme_sketch_rearranged10.vgm
+MUSIC   = assets/vgm/title_stream.bin assets/vgm/title_stream.inc
 DEPS    = $(UNITS) $(MODULES) $(DATA) $(MUSIC) src/mad65.inc cart.cfg
 
 all: $(CART)
@@ -50,6 +53,17 @@ preview:
 
 assets/vgm/%_stream.bin: assets/vgm/%.vgm tools/vgmstrip.py
 	python tools/vgmstrip.py $< $@ $*
+
+assets/vgm/title_stream.bin: $(TITLE_VGM) tools/vgmstrip.py
+	python tools/vgmstrip.py $< $@ title
+
+# The screens' pictures. The output is tracked, like radar_bg.s and arrows.s;
+# this rule only keeps it in step with the PNGs.
+# The placements (@X0,Y0 in portrait) and band heights (/rows) are the layout.
+LOGO_PNG  = assets/png/bitmaps/MAD65_logo.png
+TITLE_PNG = assets/png/bitmaps/efs_title_scr.png
+src/screens_art.s: $(LOGO_PNG) $(TITLE_PNG) tools/artgen.py tools/bggen.py
+	python tools/artgen.py $@ LOGO=$(LOGO_PNG)@22,160/128 TITLE=$(TITLE_PNG)@0,0/15
 
 # ...and the .inc is a CO-PRODUCT of that same run, not a second one.
 assets/vgm/%_stream.inc: assets/vgm/%_stream.bin ;

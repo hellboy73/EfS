@@ -764,6 +764,35 @@ cpu_mem.subscribe_to_write([CART_BANK_REG], bank_write)
 cpu_mem.subscribe_to_read(range(0x8000, 0xA000), cart_read)
 
 cpu = MPU(memory=cpu_mem)
+
+
+def asm_consts(*files):
+    """Every NAME = expr constant across these sources, in order, with $hex and
+    %binary turned into Python - so an address written in terms of another
+    (screens.s's SCR_STATE = HOF_END) is read, not copied."""
+    env = {}
+    for name in files:
+        for m in re.finditer(r"^([A-Z_][A-Z0-9_]*)\s*=\s*([^;\n]+)",
+                             (SRC / name).read_text(), re.M):
+            expr = m.group(2).strip().replace("$", "0x").replace("%", "0b")
+            try:
+                env[m.group(1)] = int(eval(expr, {}, dict(env)))
+            except Exception:
+                pass
+    return env
+
+
+SCR = asm_consts("hud_game.s", "hiscore.s", "screens.s")
+
+
+def boot_cart():
+    """The cartridge's init, and then straight into the flight. Power-on is the
+    intro and the title now (src/screens.s), and every run in this bench is a
+    run of the GAME - so it skips them the way FIRE on the title would land,
+    with the world cart_init already built. SC_PLAY is the frame the game has
+    always had, command for command."""
+    call(cpu, CART_INIT)
+    cpu_mem[SCR["SCR_STATE"]] = SCR["SC_PLAY"]
 # The OS boot leaves the cartridge ENABLED on bank 0 (cart_bank <- $80, see the
 # Boot Procedure) and CART_SHADOW holding that byte. This bench skips OS boot and
 # calls the cartridge directly, so it has to stand in for that step: cart_load
@@ -772,7 +801,7 @@ cpu = MPU(memory=cpu_mem)
 # long as cart_read ignored CART_EN.
 cpu_mem[CART_SHADOW_ZP] = 0x80
 cart_bank[0] = 0x80
-call(cpu, CART_INIT)
+boot_cart()
 
 # Joystick script. The two paths through do_stars have to be exercised
 # separately, so: climb the speed tiers and turn for the first TURN_UNTIL
@@ -1543,7 +1572,7 @@ def wrapped(a, b):
     return d - 65536 if d > 32767 else d
 
 
-call(cpu, CART_INIT)
+boot_cart()
 rev = []
 REV_FRAMES = -(-(TIER_ZERO * 128) // THRTL_ACCEL)   # tier 3 -> 0, full astern
 for f in range(60):
@@ -3317,7 +3346,7 @@ def grid_ok():
     return f"live rocks in no cell: {lost[:6]}" if lost else None
 
 
-call(cpu, CART_INIT)
+boot_cart()
 for k in range(cpu_mem[0x6E1C]):                # NFOE: every UFO off the field
     cpu_mem[FOEST_A + k] = 0
 lz = []
@@ -3566,7 +3595,7 @@ FOE_OCC = foes_const("FOE_OCC")
 spare0 = ram_block(OCCBN_A + OCCB_N, 16 - OCCB_N)
 check("no flight before this one wrote past the occluder bands", not any(spare0),
       f"bytes past OCCBN: {spare0}")
-call(cpu, CART_INIT)
+boot_cart()
 for k in range(cpu_mem[0x6E1C]):
     cpu_mem[FOEST_A + k] = 0
 for i in range(16 - OCCB_N):
@@ -3684,7 +3713,7 @@ def obj_xy(i):
 
 
 # --- level 0's own three -----------------------------------------------------
-call(cpu, CART_INIT)
+boot_cart()
 lvl = [(ram(FOEST_A + k), ram(foes_addr("FOEROCK") + k))
        for k in range(cpu_mem[0x6E1C]) if ram(FOEKIND_AD + k) == FK_SPIDER]
 print(f"        level 0 spiders: {len(lvl)}, states {[s for s, _ in lvl]}, riding rock "
@@ -3914,7 +3943,7 @@ def cam_scene(kind, along, across, frames, shot=None):
     """One enemy `along` world px ahead (+) or behind (-) and `across` to the
     right, in the ship's own frame: forward is (sin H, -cos H) and right is
     (cos H, sin H), camera.s's view_xform."""
-    call(cpu, CART_INIT)
+    boot_cart()
     for k in range(cpu_mem[0x6E1C]):
         cpu_mem[FOEST_A + k] = 0
     h = cpu_mem[0x83] * 2 * math.pi / 256
@@ -4049,7 +4078,7 @@ check("past a corner: the DOWN arrow, whole on the screen, a corner's margin in"
 
 
 def shooter_at_ship(spider):
-    call(cpu, CART_INIT)
+    boot_cart()
     for k in range(cpu_mem[0x6E1C]):
         cpu_mem[FOEST_A + k] = 0
     sx = cpu_mem[0x8B] | (cpu_mem[0x8C] << 8)

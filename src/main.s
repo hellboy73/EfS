@@ -1125,6 +1125,8 @@ cart_init:
                                         ;   game_start, which is exactly what
                                         ;   lets it survive a new game
                                         ;   (hiscore.s)
+        jsr     scr_boot                ; ...and power-on is the intro, not the
+                                        ;   flight (screens.s)
 
         ; ...and everything a NEW GAME resets - the ship, the field, the HUD -
         ; is game_start (gameover.s), because FIRE on the game-over screen has
@@ -1156,6 +1158,9 @@ cart_frame:
         inc     FRAME
         bne     :+
         inc     FRAME+1
+:       lda     SCR_STATE               ; a screen - the intro or the title -
+        beq     :+                      ;   takes the whole frame (screens.s);
+        jmp     scr_frame               ;   SC_PLAY is 0 and falls through
 :
 .if SHIP_SPRITE
         lda     SPRSTEP                 ; the sprite upload, one LOAD page per
@@ -1444,6 +1449,9 @@ cart_frame:
         .include "hiscore.s"            ; the hiscore table in KEEP, the page
                                         ; of CART_HIRAM a new game never
                                         ; resets. CODE5, after cam.s.
+        .include "screens.s"            ; the intro, the title and the line into
+                                        ; the game. UICODE (bank 6), in
+                                        ; CART_HIRAM after CODE5.
         .include "sfx.s"                ; the sound effects and the explosion
                                         ; flash. A HIDATA file end to end - the
                                         ; SFX engine reads the step programs
