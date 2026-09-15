@@ -15,11 +15,11 @@
 ;
 ;   line  2   .......... a centred, transient message ..........
 ;   ...
-;   line 47   LIVES: 3  |xxxxxxxxxxxx|          <-- radar
-;   line 48   (blank)                            <-- radar
-;   line 49   LEVEL: 1  SCORE: 0000120           <-- radar
+;   line 46   LIVES: 3  |xxxxxxxxxxxx|          <-- radar
+;   line 47   (blank)                            <-- radar
+;   line 48   LEVEL: 1  SCORE: 0000120           <-- radar
 ;
-; A CLEAR LINE BETWEEN THEM: the rows are 47 and 49, not 48 and 49. Eight pixels
+; A CLEAR LINE BETWEEN THEM: the rows are 46 and 48, not 47 and 48. Eight pixels
 ; of leading is the difference between two readings and a block of text.
 ;
 ; THE TWO ROWS ARE THE SAME WIDTH AND THE COLUMNS LINE UP. Both are exactly 24
@@ -82,8 +82,8 @@ LIVES_START  = 5                ; ships in hand at the start of a game. NINE
                                 ;   hard-coding a digit and going red every time
                                 ;   it is changed. LIVES is one digit, so 9 is as
                                 ;   high as the readout goes.
-HUD_ROW1     = 47               ; LIVES and the hull bar
-HUD_ROW2     = 49               ; LEVEL and SCORE
+HUD_ROW1     = 46               ; LIVES and the hull bar
+HUD_ROW2     = 48               ; LEVEL and SCORE
 IND_ROW      = 2                ; the message bar - third text row from the top,
                                 ;   rows 0 and 1 left clear so it is not hard
                                 ;   against the screen edge
