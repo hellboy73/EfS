@@ -485,6 +485,8 @@ def render_generated(model):
     for i, n in enumerate(names):
         out.append(f"EA_{n:<14} = {i}")
     out.append(f"EN_APPN = {len(names)}      ; how many appearances there are")
+    out.append(f"EN_PWMAX = {max(e.wreck_n() for e in model.enemies)}      "
+               f"; the most wreck pieces one appearance throws - foes.s asserts FW_N covers it")
     for field, vals, note in (
         ("EN_PN", [f"EN_{n}_PN" for n in names], "parts per frame"),
         ("EN_PW", [f"EN_{n}_PW" for n in names], "...of which become wreck pieces"),

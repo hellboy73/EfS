@@ -1161,9 +1161,10 @@ cart_frame:
 :
 .endif
         lda     FLSTEP                  ; same shape, for the flames - see
-        cmp     #$05                    ;   upload_flames_step. Unconditional:
-        bcs     :+                      ;   the ship is a vector outline, but
-        jsr     upload_flames_step      ;   its flames are sprites regardless.
+        cmp     #$06                    ;   upload_flames_step - and then the
+        bcs     :+                      ;   enemy arrows' page (cam.s). The
+        jsr     upload_art_step         ;   ship is a vector outline, but its
+                                        ;   flames are sprites regardless.
 :
         lda     BGDONE                  ; one-shot: wipe the boot screen off the
         bne     :+                      ;   background. The OS replays background
@@ -1290,6 +1291,8 @@ cart_frame:
         jsr     emit_ship
         jsr     do_flames                ; the side thruster flames, riding the
                                         ; screen centre emit_ship just placed
+        jsr     cam_arrow               ; the arrow at the edge, for an enemy
+                                        ;   the camera could not frame (cam.s)
         jsr     do_debris               ; ...and, when there is no ship left to
                                         ;   hang them on, the four pieces of it
                                         ;   (debris.s). AFTER do_flames, not
@@ -1431,6 +1434,9 @@ cart_frame:
                                         ; the FIRE2 click that chooses it. Its
                                         ; code is CODE4 (cart.cfg). After
                                         ; foes.s, whose UFO kill it reuses.
+        .include "cam.s"                ; the camera frames the nearest enemy,
+                                        ; and an edge arrow points at one it
+                                        ; cannot. CODE4, after laser.s.
         .include "sfx.s"                ; the sound effects and the explosion
                                         ; flash. A HIDATA file end to end - the
                                         ; SFX engine reads the step programs

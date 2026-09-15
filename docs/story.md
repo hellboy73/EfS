@@ -20,8 +20,8 @@ story stay in step.
 
 2093. Corporate probes find **SATURNium** in Saturn's rings — a mineral that bends
 electromagnetic and gravitational propagation. Mining begins; sensors start lying;
-ships collide with things that were not there a moment earlier. Eight crewed survey
-ships are sent to investigate the anomaly. You fly one of them. The reveal, never
+ships collide with things that were not there a moment earlier. Five crewed survey
+ships launch from the Titan base to investigate the anomaly. You fly one of them. The reveal, never
 stated outright, is that Saturnium was an alien **cloak** — the aliens have been
 hiding at Saturn for a very long time, and mining the mineral is tearing the veil.
 Once they realise they are being found, they hunt.
@@ -79,7 +79,7 @@ earlier ones. World size is per-level data (open question A3), so this is free �
 but it means A1 must be settled as a *baseline* with room to grow, not a fixed
 constant.
 
-**6. Eight crewed ships.** Eight survey ships are sent and are lost across the
+**6. Five crewed ships.** Five survey ships launch from Titan and are lost across the
 campaign. That is a natural fit for lives, or for a between-level "ships remaining"
 count, and it gives the game-over screen its meaning. **(TBD)**
 

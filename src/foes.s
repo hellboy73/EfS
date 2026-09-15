@@ -179,7 +179,14 @@ FSH_MIN     = 60                ; frames one fired from OFF screen lives before
                                 ;   the screen may take it - so a pursuer can
                                 ;   reach a ship it cannot yet draw
 
-FW_N        = 4                 ; wreck pieces at once: two UFOs' worth
+FW_N        = 8                 ; wreck pieces at once. It was 4 - "two UFOs'
+                                ;   worth" - and the SPIDER throws FIVE (a body
+                                ;   and four legs), so its last leg found no
+                                ;   free piece and simply was not in the wreck.
+                                ;   8 is what the arrays below were spaced for,
+                                ;   and the assert against EN_PWMAX (enemies.s,
+                                ;   the most any one appearance throws) is what
+                                ;   stops the next enemy repeating it
 FW_FRAMES   = 90                ; how long a wreck is drawn
 FW_K        = 28                ; launch: a piece's pivot offset from the shape's
                                 ;   middle times this, 8.8 px a frame
@@ -212,6 +219,7 @@ FOE_PUSHN   = (FOE_SPD + 767) / 768
         .assert 2*FOE_SLPM < 256, error, "foes.s: f_onscr doubles its margin in a byte"
         .assert (FW_JIT & (FW_JIT-1)) = 0, error, "foes.s: FW_JIT must be a power of two - the jitter is an AND"
         .assert FSH_N <= 8 && FW_N <= 8, error, "foes.s: the bullet and wreck arrays are eight apart"
+        .assert FW_N >= EN_PWMAX, error, "foes.s: FW_N is fewer wreck pieces than one enemy throws - its last parts would vanish instead of flying off"
         .assert FOE_MAX <= 16, error, "foes.s: the FOE arrays are sixteen apart"
         .assert 3*FOE_PUSHN < 128, error, "foes.s: the push's high byte must stay a positive signed byte"
         .assert SHIP_RAD*SHIP_RAD*2 < 256, error, "foes.s: fsh_in sums two squares in one byte"
@@ -326,6 +334,15 @@ FWANG       = $9470             ; tumble, brad
 FWSPN       = $9478
 FWCX        = $9480             ; the part's pivot, signed full-res px
 FWCY        = $9488
+FWPXT       = $9490             ; the offset's TOP byte, so it is 16.8 and not
+FWPYT       = $9498             ;   8.8. As 8.8 its integer part was a signed
+                                ;   byte: a piece that got more than 127 px
+                                ;   from its anchor wrapped to -128 and came
+                                ;   back in from the far side of the screen.
+                                ;   A spider's legs sit ~20 px out and launch
+                                ;   at ~2.2 px a frame, ~200 px over FW_FRAMES;
+                                ;   the UFO's parts never got past ~100, which
+                                ;   is why this held until the spider
 
 ; scratch, $9500 on
 FEI         = $9500             ; the UFO being thought about
@@ -2790,6 +2807,13 @@ fw_all:
         lda     FWPXH,x
         adc     FWVXH,x
         sta     FWPXH,x
+        ldy     #$00                    ; ...and the velocity's sign into the
+        lda     FWVXH,x              ;   top byte (the carry is still the
+        bpl     :+                      ;   add's: LDY, LDA, BPL, DEY and TYA
+        dey                             ;   leave C alone)
+:       tya
+        adc     FWPXT,x
+        sta     FWPXT,x
         clc
         lda     FWPYL,x
         adc     FWVYL,x
@@ -2797,6 +2821,13 @@ fw_all:
         lda     FWPYH,x
         adc     FWVYH,x
         sta     FWPYH,x
+        ldy     #$00                    ; ...and the velocity's sign into the
+        lda     FWVYH,x              ;   top byte (the carry is still the
+        bpl     :+                      ;   add's: LDY, LDA, BPL, DEY and TYA
+        dey                             ;   leave C alone)
+:       tya
+        adc     FWPYT,x
+        sta     FWPYT,x
         clc
         lda     FWANG,x
         adc     FWSPN,x
@@ -2827,25 +2858,19 @@ fw_all:
         bcs     @next
         jsr     view_xform
         jsr     zoom_fb
-        ldx     FEWI                    ; ...plus the piece's own offset
-        ldy     #$00
-        lda     FWPXH,x
-        bpl     :+
-        dey
-:       clc
-        adc     FXL
-        sta     FXL
-        tya
+        ldx     FEWI                    ; ...plus the piece's own offset, all
+        clc                             ;   16 bits of it - a piece far past the
+        lda     FWPXH,x                 ;   edge stays past the edge, and
+        adc     FXL                     ;   f_onscr drops it, instead of the
+        sta     FXL                     ;   byte wrapping it back into view
+        lda     FWPXT,x
         adc     FXH
         sta     FXH
-        ldy     #$00
+        clc
         lda     FWPYH,x
-        bpl     :+
-        dey
-:       clc
         adc     FYL
         sta     FYL
-        tya
+        lda     FWPYT,x
         adc     FYH
         sta     FYH
         lda     #FOE_SMARG
@@ -2856,6 +2881,55 @@ fw_all:
         bmi     :+
         jmp     @lp
 :       rts
+
+; (fw_scale and fw_jitter live here in CODE3 although only fw_spawn, in
+; HIDATA, calls them: UPPER ran out of room, and the two segments share ROM
+; bank 3, so moving them costs the bank nothing.)
+; fw_scale - A = a signed byte -> FEWR0/FEWR1 = A * FW_K, signed 16. debris.s's
+; db_scale with its own constant.
+fw_scale:
+        sta     FEWT0
+        ldx     #$00
+        cmp     #$80
+        bcc     :+
+        ldx     #$FF
+:       stx     FEWT1
+        stz     FEWR0
+        stz     FEWR1
+        lda     #FW_K
+        sta     FEWK
+@lp:    lsr     FEWK
+        bcc     @no
+        clc
+        lda     FEWR0
+        adc     FEWT0
+        sta     FEWR0
+        lda     FEWR1
+        adc     FEWT1
+        sta     FEWR1
+@no:    asl     FEWT0
+        rol     FEWT1
+        lda     FEWK
+        bne     @lp
+        rts
+
+; fw_jitter - FEWR += a signed nudge in -FW_JIT .. FW_JIT-1.
+fw_jitter:
+        jsr     prng
+        and     #(2*FW_JIT-1)
+        sec
+        sbc     #FW_JIT
+        ldx     #$00
+        cmp     #$80
+        bcc     :+
+        ldx     #$FF
+:       clc
+        adc     FEWR0
+        sta     FEWR0
+        txa
+        adc     FEWR1
+        sta     FEWR1
+        rts
 
 ; fw_draw - the piece's part, its vertices moved onto its own pivot so the GPU
 ; tumbles it about its own middle, not about the UFO's.
@@ -3603,6 +3677,13 @@ fw_spawn:
         sta     FWCX,x
         sta     FWPXH,x
         stz     FWPXL,x
+        pha                             ; the pivot, sign-extended into the top
+        asl     a                       ;   byte: bit 7 to C, then 0 - 0 - !C is
+        lda     #$00                    ;   $FF for a positive pivot and 0 for a
+        sbc     #$00                    ;   negative one, inverted
+        eor     #$FF
+        sta     FWPXT,x
+        pla
         sec
         sbc     FEWOX
         jsr     fw_scale
@@ -3618,6 +3699,13 @@ fw_spawn:
         sta     FWCY,x
         sta     FWPYH,x
         stz     FWPYL,x
+        pha                             ; the pivot, sign-extended into the top
+        asl     a                       ;   byte: bit 7 to C, then 0 - 0 - !C is
+        lda     #$00                    ;   $FF for a positive pivot and 0 for a
+        sbc     #$00                    ;   negative one, inverted
+        eor     #$FF
+        sta     FWPYT,x
+        pla
         sec
         sbc     FEWOY
         jsr     fw_scale
@@ -3745,52 +3833,6 @@ fw_centre:
         ror     a
         sec
         sbc     #$80
-        rts
-
-; fw_scale - A = a signed byte -> FEWR0/FEWR1 = A * FW_K, signed 16. debris.s's
-; db_scale with its own constant.
-fw_scale:
-        sta     FEWT0
-        ldx     #$00
-        cmp     #$80
-        bcc     :+
-        ldx     #$FF
-:       stx     FEWT1
-        stz     FEWR0
-        stz     FEWR1
-        lda     #FW_K
-        sta     FEWK
-@lp:    lsr     FEWK
-        bcc     @no
-        clc
-        lda     FEWR0
-        adc     FEWT0
-        sta     FEWR0
-        lda     FEWR1
-        adc     FEWT1
-        sta     FEWR1
-@no:    asl     FEWT0
-        rol     FEWT1
-        lda     FEWK
-        bne     @lp
-        rts
-
-; fw_jitter - FEWR += a signed nudge in -FW_JIT .. FW_JIT-1.
-fw_jitter:
-        jsr     prng
-        and     #(2*FW_JIT-1)
-        sec
-        sbc     #FW_JIT
-        ldx     #$00
-        cmp     #$80
-        bcc     :+
-        ldx     #$FF
-:       clc
-        adc     FEWR0
-        sta     FEWR0
-        txa
-        adc     FEWR1
-        sta     FEWR1
         rts
 
 ; -----------------------------------------------------------------------------

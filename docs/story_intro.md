@@ -12,7 +12,7 @@ Before long, small problems begin to appear near the new mining fields. Automate
 ships start reporting false readings. Objects show up on radar out of nowhere. Some
 craft collide with something that was not there a moment earlier.
 
-Eight crewed ships are assigned to investigate the anomaly.
+Five crewed ships launch from the Titan station to investigate the anomaly.
 
 You fly one of them.
 

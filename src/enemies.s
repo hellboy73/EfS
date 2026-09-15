@@ -284,6 +284,7 @@ EA_WORM           = 1
 EA_SPIDER         = 2
 EA_SPIDER_FLOAT   = 3
 EN_APPN = 4      ; how many appearances there are
+EN_PWMAX = 5      ; the most wreck pieces one appearance throws - foes.s asserts FW_N covers it
 ; parts per frame
 EN_PN:         .byte EN_UFO_PN, EN_WORM_PN, EN_SPIDER_PN, EN_SPIDER_FLOAT_PN
 ; ...of which become wreck pieces

@@ -109,3 +109,14 @@ The player never has to be given the full explanation.
 
 What matters is that the space around Saturn starts behaving **less and less
 normally**.
+
+---
+
+## The five ships and their callsigns
+
+The five survey ships that launched from Titan are designated:
+- SRV-T01 (player's ship)
+- SRV-T02
+- SRV-T03
+- SRV-T04
+- SRV-T05

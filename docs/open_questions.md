@@ -222,9 +222,11 @@ harder is not free.
 Open: whether +/-80 is right, and the **sign** — which way it leans is the only
 thing about it that was ever a guess.
 
-**C6. Camera frames the nearest enemy (TBD — designed, not built).** Today zoom
-and camera centre are driven only by ship speed and turning (C1, C5). The rules
-agreed so far (2026-09-15):
+**C6. Camera frames the nearest enemy (BUILT 2026-09-15 — the numbers are TBM).**
+Built as below: `src/cam.s` (CODE5, the first code in `CART_HIRAM`), state at
+`$6FE2-$6FFC`, the arrow art out of `tools/arrowgen.py`, and three scenes in
+`tools/preview.py` (near behind, far behind, far aside). What is still open is
+the tuning list at the end of this entry. The rules, agreed 2026-09-15:
 
 * **The nearest enemy only.** Not a set, not a bounding box. Candidates are
   enemies in pursuit or within `FOE_SEE`, not `FS_MOUNTED`. The pick runs inside
@@ -249,14 +251,21 @@ agreed so far (2026-09-15):
   3. Still does not fit: the enemy stays off screen, and a **blinking arrow on
      the screen edge** points at it — on ALL four edges, sides, ahead and
      behind. **Exactly one arrow, ever**: only for the camera's target (the
-     nearest enemy), and only when steps 1-2 failed to frame it. Other enemies
+     nearest enemy), and shown whenever it is off the screen — not only once
+     steps 1-2 give up, which flown came too late: the camera eases, so an
+     enemy it will frame is still off screen for the second that takes.
+     (Zoom hysteresis, also from flying: out at `CAM_M`, back in only at
+     `CAM_M + CAM_MHYS`, and the room across measured from the centre line
+     rather than the lean the camera itself moves — that fed back and hunted.) Other enemies
      off screen get nothing; the radar has them. The arrow is a **sprite with
      an overlay** (the user is drawing it). Its place is the enemy's own screen position, `ship + e*RZ/128` per
      axis (already computed for step 2), clamped into the screen rectangle
      minus the sprite's half-size: whichever edge the clamp lands on is the
      edge it sits on, and that edge picks the frame. Four orientations
      pre-rotated (TATE: assets carry their rotation), or eight if the corners
-     read wrong with four. Blink off the frame counter, so ~0 B RAM.
+     read wrong with four. Blink off the frame counter, so ~0 B RAM. It may
+     sit over the HUD rows and the radar on purpose: the overlay plane is what
+     keeps it readable on any ground, so the edge is the screen's own.
   The result replaces the TARGETS of the existing eases — the ease, the rung
   quantiser, the cull window and the star sample point stay as they are.
 * **Screen bounds for the ship.** Along: `S_max` is today's 126 (signed-byte
@@ -265,8 +274,10 @@ agreed so far (2026-09-15):
   `S_min = F*RZ/128 - 200` (F = 250 lets it reach ~75 px above centre at 2x, but
   at 1:1 it must stay at least 50 px BELOW centre — which is why zoom comes
   first: zooming out is what buys the room to slide). Across: the existing lean
-  budget the cull was sized for — lean and enemy slide share it, clamped as one. (main.s's two comments disagree whether
-  that budget is 80 or 20 px; settle that first.)
+  budget the cull was sized for — lean and enemy slide share it, clamped as one.
+  That budget is **80 px**: `ZOOM_CULLR` at RZ 128 is 8,544 units = 534 px, the
+  worst-case reach with the full lean; the "499 px, +20" comment under the table
+  in main.s predates it. (Built as a bound on the lean target, `cam_lean`.)
 * **`ZCAP` is the hook for a performance safety net, later.** One byte, 64 (2x)
   for now — the ladder and `ZOOM_CULLR` end there. The intent is that when frame
   load is too high, zoom-out AND speed get capped regardless of enemies, by
@@ -279,10 +290,16 @@ axis is where a pursuer at `FOE_SEE` will still be missed.
 Open: `m`, `F`, the hysteresis margin; whether zoom and slide keep separate ease
 rates in enemy mode (the slide can land before the zoom and drop the enemy out
 of frame for a moment); how a ship high on the screen looks against C3's star
-churn. Cost guess: ~10 B RAM (slot, lock timer, current target distance, `ZCAP`,
-4 B view offset) outside `$8000-$9FFF`, ~300 B code, a reciprocal table.
-Logic is ~1-2k cycles; the real price is C1's square law when it zooms out in a
-fight.
+churn.
+
+Measured (preview.py, 2026-09-15): `cam_foe` **3,300 cycles** with a target it
+cannot frame, `cam_arrow` **1,182** — 1.9% of a frame together. RAM 27 B
+(`$6FE2-$6FFC`, 11 of them state), code and tables 1,618 B in `CART_HIRAM` (the
+guess was 300 — the division, the two slides and the arrow's edge maths are
+most of it). In the 220-frame flight the level's UFO holds the camera from
+frame 1, and the worst frame went 76.5% → **82.5%** (frame 2: the camera plus a
+ZS rebuild as it starts zooming out). The real price is still C1's square law
+in a long fight at 2x.
 
 ---
 

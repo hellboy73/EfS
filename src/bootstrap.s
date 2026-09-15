@@ -58,6 +58,7 @@
         .import __HIDATA_LOAD__, __HIDATA_RUN__, __HIDATA_SIZE__
         .import __CODE3_LOAD__, __CODE3_RUN__, __CODE3_SIZE__
         .import __CODE4_LOAD__, __CODE4_RUN__, __CODE4_SIZE__
+        .import __CODE5_LOAD__, __CODE5_RUN__, __CODE5_SIZE__
         .import cart_init, cart_frame
 
         .export boot_init
@@ -79,6 +80,7 @@ CODE3_BANK    = 3               ; ...and CODE3 is the rest of that bank, which
                                  ;   runs in the $1000 area after CODE2
 CODE4_BANK    = 4               ; ...and CODE4 rides behind COLD in bank 4, and
                                  ;   runs after CODE3
+CODE5_BANK    = 4               ; ...and CODE5 behind BGDATA, running at $C000
 
         .segment "BOOT"
 
@@ -126,6 +128,8 @@ boot_segs:
         .word   __CODE3_LOAD__, __CODE3_RUN__, __CODE3_SIZE__
         .byte   CODE4_BANK
         .word   __CODE4_LOAD__, __CODE4_RUN__, __CODE4_SIZE__
+        .byte   CODE5_BANK
+        .word   __CODE5_LOAD__, __CODE5_RUN__, __CODE5_SIZE__
 boot_segs_end:
 
 ; -----------------------------------------------------------------------------

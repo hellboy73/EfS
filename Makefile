@@ -20,9 +20,9 @@ MODULES = src/math.s src/input.s src/camera.s src/ship.s src/thrust.s \
           src/objects.s src/physics.s src/stars.s src/occlude.s src/hud.s \
           src/hud_game.s src/gameover.s src/debris.s src/radar.s \
           src/shots.s src/foes.s src/laser.s src/sfx.s src/window.s \
-          src/music.s
+          src/music.s src/cam.s
 DATA    = src/shapes.s src/enemies.s src/levels.s src/radar_bg.s src/ship32.s \
-          src/flames.s
+          src/flames.s src/arrows.s
 
 # The song. vgmstrip.py removes the VGM header and the GD3 tag - vgm_play does
 # no header parsing, it executes commands from the address it is given - and

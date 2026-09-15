@@ -989,11 +989,18 @@ These are settled and should not be re-opened without a reason:
     in it is still the linker's.
 
     **And a second place code can run: `CART_HIRAM`, `$C000-$DFFF`** (19), 8 KB
-    the CPU OS gave the cartridge on 2026-09-11. Nothing is there yet. It is the
-    answer to "where does the next enemy's code go" once the run area's last
-    2.5 KB are spent, and the natural home for per-level overlays — enemy
-    behaviour copied in by `cart_load` when a level starts, since the cartridge's
-    banks are free and RAM is what is scarce.
+    the CPU OS gave the cartridge on 2026-09-11. It is the answer to "where does
+    the next subsystem go" now that the run area is down to ~850 bytes, and the
+    natural home for per-level overlays — enemy behaviour copied in by
+    `cart_load` when a level starts, since the cartridge's banks are free and RAM
+    is what is scarce.
+
+    **Its first tenant, 2026-09-15: `CODE5`.** The camera's enemy framing
+    (`cam.s`, open_questions C6) is 1,618 bytes against the run area's 850, so
+    it is stored last in bank 4, behind `BGDATA` (which keeps its offsets and so
+    `RING_BANK`), and runs at `$C000`: a `HIRAM` memory area in `cart.cfg` and a
+    seventh `boot_segs` row. Only code lives there — the state it keeps is in
+    the `$6Fxx` page the OS clears, so nothing trusts the demo's bytes.
 
 19. **There are FIVE places a byte can live, and access pattern decides which.**
     CPU1 has more RAM than one contiguous window suggests, and the five areas
@@ -1008,7 +1015,7 @@ These are settled and should not be re-opened without a reason:
     | lower RAM `$0400-$0FFF` | 3,072 | ~0 | the hot tables — ROT, the quarter-square multiply, the star layer |
     | under the cart `$8000-$9FFF` | 8,192 | ~2,700 | bulk data walked in **bracketed passes** — the object pool, and the enemies' state (`foes.s`, `$9100-$95FF`) |
     | upper RAM `$A000-$BEFF` | 7,936 | 742 | `RODATA`, `HIDATA`: tables and cold code, **and anything the IRQ reads** |
-    | `CART_HIRAM` `$C000-$DFFF` | 8,192 | 8,192 | code or data, full speed, always mapped — **unused so far** |
+    | `CART_HIRAM` `$C000-$DFFF` | 8,192 | 6,574 | code or data, full speed, always mapped — `CODE5` (`cam.s`, 1,618 B) since 2026-09-15 |
 
     (Free as of the laser, 24. Upper RAM is the tight one; `CART_HIRAM` is the
     whole of the new room. New per-frame code goes to `CODE4` while the run area

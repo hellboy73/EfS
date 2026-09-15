@@ -75,7 +75,7 @@
 ; count of characters.
 ; =============================================================================
 
-LIVES_START  = 3                ; ships in hand at the start of a game. NINE
+LIVES_START  = 5                ; ships in hand at the start of a game. NINE
                                 ;   while the field is being flown for tuning;
                                 ;   the shipping number is 3. It is a constant so
                                 ;   that tools/preview.py reads it rather than
@@ -945,7 +945,7 @@ score_add:
 
 STR_LEVEL:  .byte   "LEVEL: "
 STR_SCORE:  .byte   "SCORE: "
-STR_LIVES:  .byte   "LIVES: "
+STR_LIVES:  .byte   "SHIPS: "
 
 IM_HULL_S:  .byte   "HULL BREACH", 0
 IM_CRIT_S:  .byte   "HULL CRITICAL", 0

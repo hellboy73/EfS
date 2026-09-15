@@ -185,9 +185,9 @@ do_ship:
         ; a 246 px gap in one frame, the subtract wrapped, and the ease walked
         ; the ship AWAY from its target. SHOFF itself stays 8.8 - only the gap
         ; needed the third byte.
-        ldx     ETIER
-        stz     T0
-        lda     SHIP_OFF,x
+        jsr     cam_foe                 ; the TARGETS: the tier's, unless the
+        stz     T0                      ;   nearest enemy needs more (cam.s)
+        lda     CAMSOF
         sta     T1
         ldy     #$00                    ; sign-extend the target into the third
         bit     T1                      ;   byte of the gap
@@ -272,6 +272,7 @@ do_ship:
                                         ;   a camera that swings on a pivot the
                                         ;   ship is sitting still on has nothing
                                         ;   to fail to keep up with. Zero there.
+        jsr     cam_lean                ; ...held clear of the enemy's side
         sec
         lda     MAL
         sbc     SHOFXL
@@ -318,8 +319,7 @@ do_ship:
         ; The camera pulls back as the ship slides down: both exist so the player
         ; is looking at where they are going, so they must move together or the
         ; two halves of it read as two events.
-        ldx     ETIER
-        lda     ZOOM_RZ,x
+        lda     CAMRZ
         sta     T1
         stz     T0
         sec
@@ -339,8 +339,7 @@ do_ship:
         lda     T0                      ; finding 13's trap, and it bites harder
         ora     T1                      ;   here: an ease that never lands would
         bne     @zstep                  ;   leave the reciprocal creeping, and
-        ldx     ETIER                   ;   every creep rebuilds a 512-byte table
-        lda     ZOOM_RZ,x
+        lda     CAMRZ                   ;   every creep rebuilds a 512-byte table
         sta     ZEASH
         stz     ZEASL
         bra     @zdone

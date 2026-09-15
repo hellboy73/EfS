@@ -193,7 +193,8 @@ upload_flames_step:
         iny
         cpy     #FLAME_N
         bne     @hlp
-@ship:  txa
+@ship:  jsr     arrow_defs              ; ...and the enemy arrows' four (cam.s)
+        txa
         clc
         adc     #$03                    ; GPU def pages $03/$04/$05/$06
         sta     OS_ARG+0
