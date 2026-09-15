@@ -222,6 +222,68 @@ harder is not free.
 Open: whether +/-80 is right, and the **sign** — which way it leans is the only
 thing about it that was ever a guess.
 
+**C6. Camera frames the nearest enemy (TBD — designed, not built).** Today zoom
+and camera centre are driven only by ship speed and turning (C1, C5). The rules
+agreed so far (2026-09-15):
+
+* **The nearest enemy only.** Not a set, not a bounding box. Candidates are
+  enemies in pursuit or within `FOE_SEE`, not `FS_MOUNTED`. The pick runs inside
+  `do_foes` (FOEST is under the cart window, so it has to be in the `win_off`
+  bracket) and leaves a slot number in ordinary RAM for the camera. Hysteresis:
+  switch to a new nearest only when it is closer by a clear margin, or the old
+  one died / lost the chase.
+* **Enemy first, defaults only without one.** With no target the camera is
+  exactly today's `ZOOM_RZ[tier]` / `SHIP_OFF[tier]` / lean. With a target those
+  are the starting point, and the camera only ever zooms OUT from them — never
+  tighter than the tier's own zoom. An enemy already in frame changes nothing.
+* **Zoom first, then move.** Moving the ship on the screen eats the view ahead,
+  so it is the last resort. Per frame, in view space (enemy offset `ex, ey` in
+  reference px from `view_xform`, ship at its default screen place `x0, s0`):
+  1. Zoom needed to fit the enemy plus margin `m` with the ship where it is, per
+     axis: ahead `RZ <= 128(200 + s0 - m)/ey`, behind `128(200 - s0 - m)/|ey|`,
+     across `128(150 -/+ x0 - m)/|ex|`. Take the smallest, `min` with the tier's
+     zoom, floor at `ZCAP`. One reciprocal table plus one quarter-square
+     multiply per axis — no divide, no `mul16`.
+  2. Only if it still does not fit at `ZCAP`: slide the ship away from the enemy
+     by the remainder, clamped to the **screen bounds** below.
+  3. Still does not fit: the enemy stays off screen, and a **blinking arrow on
+     the screen edge** points at it — on ALL four edges, sides, ahead and
+     behind. **Exactly one arrow, ever**: only for the camera's target (the
+     nearest enemy), and only when steps 1-2 failed to frame it. Other enemies
+     off screen get nothing; the radar has them. The arrow is a **sprite with
+     an overlay** (the user is drawing it). Its place is the enemy's own screen position, `ship + e*RZ/128` per
+     axis (already computed for step 2), clamped into the screen rectangle
+     minus the sprite's half-size: whichever edge the clamp lands on is the
+     edge it sits on, and that edge picks the frame. Four orientations
+     pre-rotated (TATE: assets carry their rotation), or eight if the corners
+     read wrong with four. Blink off the frame counter, so ~0 B RAM.
+  The result replaces the TARGETS of the existing eases — the ease, the rung
+  quantiser, the cull window and the star sample point stay as they are.
+* **Screen bounds for the ship.** Along: `S_max` is today's 126 (signed-byte
+  ceiling). `S_min`, how far UP the ship may go, should be DERIVED from the zoom
+  rather than fixed: "always see at least `F` px ahead in the world" gives
+  `S_min = F*RZ/128 - 200` (F = 250 lets it reach ~75 px above centre at 2x, but
+  at 1:1 it must stay at least 50 px BELOW centre — which is why zoom comes
+  first: zooming out is what buys the room to slide). Across: the existing lean
+  budget the cull was sized for — lean and enemy slide share it, clamped as one. (main.s's two comments disagree whether
+  that budget is 80 or 20 px; settle that first.)
+* **`ZCAP` is the hook for a performance safety net, later.** One byte, 64 (2x)
+  for now — the ladder and `ZOOM_CULLR` end there. The intent is that when frame
+  load is too high, zoom-out AND speed get capped regardless of enemies, by
+  writing this cap (and a speed equivalent). Not designed yet.
+
+Reach, derived not measured: at 2x with the ship slid to its bounds the camera
+frames ~570 px ahead, ~470 behind but only ~380 to the side — the narrow TATE
+axis is where a pursuer at `FOE_SEE` will still be missed.
+
+Open: `m`, `F`, the hysteresis margin; whether zoom and slide keep separate ease
+rates in enemy mode (the slide can land before the zoom and drop the enemy out
+of frame for a moment); how a ship high on the screen looks against C3's star
+churn. Cost guess: ~10 B RAM (slot, lock timer, current target distance, `ZCAP`,
+4 B view offset) outside `$8000-$9FFF`, ~300 B code, a reciprocal table.
+Logic is ~1-2k cycles; the real price is C1's square law when it zooms out in a
+fight.
+
 ---
 
 ## D. Rendering
@@ -578,6 +640,26 @@ fewer/shorter tracks.
 
 **F4. Save / continue / high score (TBD).** The console has no persistent storage;
 decide what a "campaign" means across a power cycle (level codes?).
+
+**F6. Rock-dropped pickups — collectible sprites, unscaled and animated (TBD).**
+Idea: some rocks, when broken apart, release a pickup into the world as a small
+sprite — not a vector shape, an unscaled animated icon — that the player flies
+into to collect. Two examples sketched so far:
+
+- **Laser, found rather than free.** The laser would no longer be available from
+  the start: it has to be picked up first, and then carries a limited ammunition
+  count. This directly reopens B9, which already names CETAS's
+  gated-behind-a-pickup-and-50-rounds laser as the path this engine chose *not*
+  to take ("this one is free") — the two entries need to be settled together.
+- **Shield.** Raises resistance to collisions and to enemy fire while active, and
+  for as long as it lasts is drawn as a `dot_circle` around the ship — a
+  diegetic readout of "shield is up" that costs no HUD text.
+
+Nothing is designed yet: which rock sizes can drop something and how often, how
+long an uncollected pickup sits in the world, the shield's duration and exactly
+what "resistance" reduces (damage taken, or collision impulse, or both), the
+laser's ammo count, and the pickup sprites themselves — new art rather than
+vector shapes, which ties to D2's sprite-step work.
 
 ---
 
