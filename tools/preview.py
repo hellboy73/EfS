@@ -89,7 +89,6 @@ ZP_ABS = {"TPCNT": 0x0CB3,          # teleports so far
           "SHOFXH": 0x0CA1,         # the cross-axis camera lean, signed 8.8
           "CAMT": 0x6FE2,           # cam.s: the enemy the camera frames, slot+1
           "CAMSOF": 0x6FE4,         #   ...the SHOFF target it set
-          "CAMOUT": 0x6FE7,         #   ...and 1 when it could not frame it
           "OVRCNT": 0x62E4, "ABUDGET": 0x62E5,
           # physics.s - what the collision pass found this frame, and the
           # running totals since boot
@@ -1518,14 +1517,17 @@ check("the boost fired and is counting down",
 # gap a frame, so 5 frames is 27.7% of it and 14 frames is 59.3% - the first five
 # must therefore carry more than 40% of what the first fourteen do. A linear walk
 # home would carry 36% and fail this.
-# The walk is measured from the first frame the TARGET holds still: the flight's
-# UFO has the camera until the jump carries the ship past FOE_LOSE, a frame or
-# two later, and an ease toward a target that moves mid-walk is not front-loaded
-# or back-loaded, it is two eases (cam.s).
-TP_WALK = next(f for f in range(TELEPORT_AT, FRAMES - 14)
-               if len({trace[g]["CAMSOF"] for g in range(f, f + 15)}) == 1)
-early = offs[TP_WALK + 5] - offs[TP_WALK]
-late = offs[TP_WALK + 14] - offs[TP_WALK]
+# The flight's UFO holds the camera, and cam.s SLEWS the target it hands this
+# ease, so the target is rarely still for fourteen frames. What is checked is
+# therefore the ease's own law, frame by frame, against the target that frame
+# actually had: each step closes 1/2^SHOFF_LAG of the gap to CAMSOF, within the
+# pixel the integer offset rounds away. That is front-loading, stated exactly.
+_lag = 2 ** cart_const("SHOFF_LAG")
+_tgt = [sb8(t["CAMSOF"]) for t in trace]
+_dev = [abs((offs[f] - offs[f - 1]) - (_tgt[f] - offs[f - 1]) / _lag)
+        for f in range(TELEPORT_AT + 1, TELEPORT_AT + 15)]
+early = offs[TELEPORT_AT + 5] - offs[TELEPORT_AT]
+late = offs[TELEPORT_AT + 14] - offs[TELEPORT_AT]
 # --- and the same jump in reverse, on its own short flight ------------------
 # The main flight only ever teleports at top speed, which is forward - and that
 # is exactly how a sign-extension bug in the backward case reached the screen.
@@ -1574,9 +1576,10 @@ _camf = [n for n, t in enumerate(trace) if t["CAMT"]]
 print(f"        camera target on {len(_camf)} of {FRAMES} flight frames"
       f"{f' ({_camf[0]}..{_camf[-1]})' if _camf else ''}; around the teleport "
       f"CAMT/CAMSOF {[(trace[f]['CAMT'], sb8(trace[f]['CAMSOF'])) for f in range(TELEPORT_AT - 2, TELEPORT_AT + 15, 2)]}")
-check("the camera walks back after the teleport, and front-loads it",
-      late > 0 and early > 0.40 * late,
-      f"{early} px of the first {late} px, {early / late:.0%}" if late else "no recovery")
+check("the camera walks back after the teleport, as an ease toward its target",
+      late != 0 and max(_dev) <= 1.5,
+      f"moved {early} px in 5 frames and {late} in 14; worst step off the law by "
+      f"{max(_dev):.2f} px; targets {_tgt[TELEPORT_AT:TELEPORT_AT + 15]}")
 check("the ship offset eases rather than snapping", jump <= 12,
       f"moved {jump} px in one frame")
 
@@ -3896,7 +3899,6 @@ def fb_png(path):
 
 
 CAMT_A = int(_num(CAM_SRC, "CAMT", r"[$]([0-9A-Fa-f]{4})"), 16)
-CAMOUT_A = int(_num(CAM_SRC, "CAMOUT", r"[$]([0-9A-Fa-f]{4})"), 16)
 CAMTF_A = int(_num(CAM_SRC, "CAMTF", r"[$]([0-9A-Fa-f]{4})"), 16)
 ARW_SLOT0_K = (int(_num((SRC / "thrust.s").read_text(), "FLAME_SLOT0"))
                + int(_num((SRC / "thrust.s").read_text(), "FLAME_N")))
@@ -3935,7 +3937,7 @@ def cam_scene(kind, along, across, frames, shot=None):
                  for q in polys(st))
         rows.append(dict(z=cpu_mem[ZOOMH_A], sh=sb8(cpu_mem[SHOFFH_A]),
                          sx=sb8(cpu_mem[SHOFXH_A]), t=cpu_mem[CAMT_A],
-                         out=cpu_mem[CAMOUT_A], arrows=arrows, on=on))
+                         arrows=arrows, on=on))
         if shot and arrows and f >= frames - 20:
             gpu_draw(st)
             fb_png(shot)
@@ -3958,8 +3960,8 @@ check("...zooms out until the one behind the ship is on the screen",
       all(r["on"] for r in near[-30:]) and all(64 <= r["z"] < 128 for r in tail),
       f"on {[r['on'] for r in near[-30:]]}, zoom {[r['z'] for r in tail]}")
 check("...with the ship back where the tier puts it, since the zoom alone was enough",
-      all(abs(r["sh"] - SHIP_OFF_REST) <= 3 for r in tail) and not any(r["out"] for r in tail),
-      f"offset {[r['sh'] for r in tail]}, CAMOUT {[r['out'] for r in tail]}")
+      all(abs(r["sh"] - SHIP_OFF_REST) <= 3 for r in tail),
+      f"offset {[r['sh'] for r in tail]}")
 check("...and no arrow once it frames it", not any(r["arrows"] for r in near[-30:]))
 
 back = cam_scene("spider", -700, 0, 180, SHOT and f"{SHOT}_behind.png")
@@ -3968,7 +3970,7 @@ lit = [a for r in tail for a in r["arrows"]]
 up_bound = CAM_F_K * 64 // 128 - 200
 down_x = 2 * 200 - 1 - ARW_EDGE_K - _arr_tip("DOWN", "X")
 print(f"        camera, spider 700 px behind: zoom {tail[-1]['z']}, ship offset "
-      f"{tail[-1]['sh']} (bound {up_bound}), CAMOUT {tail[-1]['out']}, arrow lit on "
+      f"{tail[-1]['sh']} (bound {up_bound}), arrow lit on "
       f"{sum(bool(r['arrows']) for r in tail)}/40 frames at {sorted(set(lit))[:3]}")
 _got = next(f for f, r in enumerate(back) if r["t"])
 check("the arrow is up the frame the target is taken - ENEMY DETECTED, not a blink later",
@@ -3991,10 +3993,10 @@ call(cpu, API_GPU_END)
 print(f"        camera cost: cam_foe {_c_foe} cycles, cam_arrow {_c_arr} "
       f"({100 * (_c_foe + _c_arr) / BUDGET:.1f}% of a frame)")
 check("...and ONE blinking DOWN arrow, its tip on the bottom edge",
-      all(r["out"] for r in tail) and 12 <= len(lit) <= 28
+      12 <= len(lit) <= 28
       and all(len(r["arrows"]) <= 1 for r in tail)
       and all(d == 3 and x == down_x and 0 <= y <= FB_H - 13 for d, x, y in lit),
-      f"CAMOUT {[r['out'] for r in tail]}, arrows {lit}")
+      f"arrows {lit}")
 
 side = cam_scene("spider", 0, 520, 180, SHOT and f"{SHOT}_aside.png")
 tail = side[-40:]
@@ -4011,6 +4013,21 @@ check("...and the RIGHT arrow on that edge",
       12 <= len(lit) <= 28
       and all(d == 0 and y == right_y and 0 <= x <= FB_W - 16 for d, x, y in lit),
       f"arrows {lit}")
+
+# ...and past a CORNER - behind and to the right at once, inside FOE_LOSE: the
+# top/bottom arrow wins, and it stays WHOLE on the screen, ARW_CM in from the
+# corner, rather than hanging half off it.
+corner = cam_scene("spider", -560, 480, 180, SHOT and f"{SHOT}_corner.png")
+tail = corner[-40:]
+lit = [a for r in tail for a in r["arrows"]]
+corner_y = int(_num(CAM_SRC, "ARW_CM")) - _arr_tip("DOWN", "Y")
+print(f"        camera, spider behind and to the right: arrow lit on "
+      f"{sum(bool(r['arrows']) for r in tail)}/40 frames at {sorted(set(lit))[:3]}")
+check("past a corner: the DOWN arrow, whole on the screen, a corner's margin in",
+      12 <= len(lit) <= 28
+      and all(d == 3 and x == down_x and y == corner_y
+              and 0 <= x <= FB_W - 16 and 0 <= y <= FB_H - 13 for d, x, y in lit),
+      f"arrows {lit}, wanted (3, {down_x}, {corner_y})")
 
 
 def shooter_at_ship(spider):

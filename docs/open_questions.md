@@ -224,14 +224,14 @@ thing about it that was ever a guess.
 
 **C6. Camera frames the nearest enemy (BUILT 2026-09-15 — the numbers are TBM).**
 Built as below: `src/cam.s` (CODE5, the first code in `CART_HIRAM`), state at
-`$6FE2-$6FFC`, the arrow art out of `tools/arrowgen.py`, and three scenes in
+`$6FE2-$6FFF` and `$73A9-$73AC`, the arrow art out of `tools/arrowgen.py`, and three scenes in
 `tools/preview.py` (near behind, far behind, far aside). What is still open is
 the tuning list at the end of this entry. The rules, agreed 2026-09-15:
 
 * **The nearest enemy only.** Not a set, not a bounding box. Candidates are
-  enemies in pursuit or within `FOE_SEE`, not `FS_MOUNTED`. The pick runs inside
-  `do_foes` (FOEST is under the cart window, so it has to be in the `win_off`
-  bracket) and leaves a slot number in ordinary RAM for the camera. Hysteresis:
+  enemies in pursuit (`FS_PURSUE` — the ENEMY DETECTED state), not `FS_MOUNTED`.
+  The pick runs at the top of `do_ship`, which is inside the `win_off` bracket
+  FOEST needs, and leaves a slot number in ordinary RAM. Hysteresis:
   switch to a new nearest only when it is closer by a clear margin, or the old
   one died / lost the chase.
 * **Enemy first, defaults only without one.** With no target the camera is
@@ -239,29 +239,37 @@ the tuning list at the end of this entry. The rules, agreed 2026-09-15:
   are the starting point, and the camera only ever zooms OUT from them — never
   tighter than the tier's own zoom. An enemy already in frame changes nothing.
 * **Zoom first, then move.** Moving the ship on the screen eats the view ahead,
-  so it is the last resort. Per frame, in view space (enemy offset `ex, ey` in
-  reference px from `view_xform`, ship at its default screen place `x0, s0`):
-  1. Zoom needed to fit the enemy plus margin `m` with the ship where it is, per
-     axis: ahead `RZ <= 128(200 + s0 - m)/ey`, behind `128(200 - s0 - m)/|ey|`,
-     across `128(150 -/+ x0 - m)/|ex|`. Take the smallest, `min` with the tier's
-     zoom, floor at `ZCAP`. One reciprocal table plus one quarter-square
-     multiply per axis — no divide, no `mul16`.
-  2. Only if it still does not fit at `ZCAP`: slide the ship away from the enemy
-     by the remainder, clamped to the **screen bounds** below.
+  so it is the last resort. Per frame, in view space (enemy offset from
+  `view_xform`, ship at the TIER's screen place, never its slid one):
+  1. The zoom is a **servo over `ZQ_LADDER` rungs**, not a computed value (it
+     was four divisions a frame, and the answer jittered a count at a time
+     under the ease). The enemy's distance on the screen at the TARGET rung is
+     held against the room to that edge, per axis: past the tight margin
+     (`CAM_M`) on either axis the target steps one rung wider every frame;
+     inside the loose one (`CAM_M + CAM_MHYS`) on both it steps one rung back
+     in every 4 frames; between, it holds. Never tighter than the tier, never
+     wider than `ZCAP`. Measured at the target and not at `ZOOMH`, or the servo
+     winds up while the ease catches it.
+  2. Only once the servo sits at `ZCAP`: slide the ship away from the enemy by
+     the remainder, clamped to the **screen bounds** below. The along target is
+     **slewed** `CAM_SSTEP` px a frame, so taking, swapping or losing a target
+     never throws the ship; the tier's own moves pass straight through.
   3. Still does not fit: the enemy stays off screen, and a **blinking arrow on
      the screen edge** points at it — on ALL four edges, sides, ahead and
      behind. **Exactly one arrow, ever**: only for the camera's target (the
      nearest enemy), and shown whenever it is off the screen — not only once
      steps 1-2 give up, which flown came too late: the camera eases, so an
      enemy it will frame is still off screen for the second that takes.
-     (Zoom hysteresis, also from flying: out at `CAM_M`, back in only at
-     `CAM_M + CAM_MHYS`, and the room across measured from the centre line
-     rather than the lean the camera itself moves — that fed back and hunted.) Other enemies
-     off screen get nothing; the radar has them. The arrow is a **sprite with
-     an overlay** (the user is drawing it). Its place is the enemy's own screen position, `ship + e*RZ/128` per
-     axis (already computed for step 2), clamped into the screen rectangle
-     minus the sprite's half-size: whichever edge the clamp lands on is the
-     edge it sits on, and that edge picks the frame. Four orientations
+     Its blink starts LIT on the frame the target is taken, so the arrow comes
+     up with ENEMY DETECTED. (The room across is measured from the centre line
+     rather than the lean the camera itself moves — that fed back and hunted.)
+     Other enemies off screen get nothing; the radar has them. The arrow is a
+     **sprite with an overlay** (`tools/arrowgen.py`). Its place is the enemy's
+     own screen position (`zoom_fb`), clamped onto the screen — and the clamp is
+     the whole test: nothing clamped, no arrow; the edge it clamped to picks the
+     frame and holds the tip. Past a CORNER the top/bottom arrow wins, and the
+     coordinate along the edge is held `ARW_CM` in from the ends, so the arrow
+     is always whole rather than half off the corner (asked for 2026-09-15). Four orientations
      pre-rotated (TATE: assets carry their rotation), or eight if the corners
      read wrong with four. Blink off the frame counter, so ~0 B RAM. It may
      sit over the HUD rows and the radar on purpose: the overlay plane is what
@@ -278,28 +286,30 @@ the tuning list at the end of this entry. The rules, agreed 2026-09-15:
   That budget is **80 px**: `ZOOM_CULLR` at RZ 128 is 8,544 units = 534 px, the
   worst-case reach with the full lean; the "499 px, +20" comment under the table
   in main.s predates it. (Built as a bound on the lean target, `cam_lean`.)
-* **`ZCAP` is the hook for a performance safety net, later.** One byte, 64 (2x)
-  for now — the ladder and `ZOOM_CULLR` end there. The intent is that when frame
+* **`ZCAP` is the hook for a performance safety net, later.** One byte, the
+  widest `ZQ_LADDER` RUNG allowed: 0 = 2x, where the ladder and `ZOOM_CULLR`
+  end. The intent is that when frame
   load is too high, zoom-out AND speed get capped regardless of enemies, by
   writing this cap (and a speed equivalent). Not designed yet.
 
 Reach, derived not measured: at 2x with the ship slid to its bounds the camera
-frames ~570 px ahead, ~470 behind but only ~380 to the side — the narrow TATE
-axis is where a pursuer at `FOE_SEE` will still be missed.
+frames ~570 px ahead, ~470 behind but only ~380 to the side — so a pursuer
+detected at `FOE_SEE` off to the side is usually just the arrow. **Kept on
+purpose** (2026-09-15): the camera still zooms out for it, and the arrow says
+plainly "turn to catch it" — the player turns constantly anyway.
 
-Open: `m`, `F`, the hysteresis margin; whether zoom and slide keep separate ease
-rates in enemy mode (the slide can land before the zoom and drop the enemy out
-of frame for a moment); how a ship high on the screen looks against C3's star
-churn.
+Open: `CAM_M` (24), `CAM_MHYS` (16), `CAM_F` (250), `CAM_SSTEP` (4) and the
+servo's in-rate; how a ship high on the screen looks against C3's star churn.
 
-Measured (preview.py, 2026-09-15): `cam_foe` **3,300 cycles** with a target it
-cannot frame, `cam_arrow` **1,182** — 1.9% of a frame together. RAM 27 B
-(`$6FE2-$6FFC`, 11 of them state), code and tables 1,618 B in `CART_HIRAM` (the
-guess was 300 — the division, the two slides and the arrow's edge maths are
-most of it). In the 220-frame flight the level's UFO holds the camera from
-frame 1, and the worst frame went 76.5% → **82.5%** (frame 2: the camera plus a
-ZS rebuild as it starts zooming out). The real price is still C1's square law
-in a long fight at 2x.
+Measured (preview.py, 2026-09-15, servo version): `cam_foe` **3,026 cycles**
+with a target it cannot frame, `cam_arrow` **1,130** — 1.8% of a frame. RAM
+33 B (`$6FE2-$6FFF`, `$73A9-$73AC`), code and tables 1,405 B in `CART_HIRAM`:
+~960 the camera (the slew and signed min/max took back most of what dropping
+the division saved), ~250 the arrow's placement (171, since the clamp became
+its only test) and upload, 192 its art. In
+the 220-frame flight the level's UFO holds the camera from frame 1; the worst
+frame is **78.2%** (the division version 83.4%, no camera 76.5%). The real
+price is still C1's square law in a long fight at 2x.
 
 ---
 
