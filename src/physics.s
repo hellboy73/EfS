@@ -1217,8 +1217,16 @@ vel_sat:
 ; can take the ship to a dead stop and no further: being punched from 350 px/s
 ; forward into flying backwards is not a collision, it is a bug, and the player
 ; would have no idea what had happened.
+;
+; A RAM ENDS THE BOOST. While BOOSTN runs, do_ship ignores THRTL and flies the
+; flat TIER_BOOST speed, so a hit that took the throttle to rest took nothing
+; the player could see: the ship ploughed on at boost speed - re-hit every
+; frame, usually through a life and into the blink - and stopped dead only
+; when the boost ran out up to 1.5 s later. The sound already said the boost
+; was over (PRI_KLANG cuts the hiss, sfx.s); this makes the ship agree.
 ; -----------------------------------------------------------------------------
 throttle_hit:
+        stz     BOOSTN
 .if THRTL_HIT <> 128
         lda     COL_T0                  ; ...as much of it as THRTL_HIT asks
         sta     MAL                     ;   for
