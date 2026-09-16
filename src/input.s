@@ -1,10 +1,13 @@
 ; =============================================================================
 ; input.s - the joystick, and the only file that reads one
 ; =============================================================================
-; One stick. Joystick 1 steers and throttles on HELD bits, teleports on a
+; One stick - the one in the port whose FIRE started the game (JOYPORT,
+; screens.s), so a player on port 2 plays on port 2. It steers and throttles
+; on HELD bits, teleports on a
 ; DOUBLE CLICK of FIRE2 (a single click changes the weapon - laser.s), and
 ; boosts on a gesture read off its own throttle HELD bit - not a button at
-; all. Nothing else in the program looks at JOY1/JOY2:
+; all. Nothing else in the program looks at JOY1/JOY2 but the screens, the
+; game over's FIRE and thrust_sfx's raw thrust bit, all through JOYPORT:
 ; everything downstream reads the state this leaves behind - the heading, the
 ; throttle position, the boost timer.
 ;
@@ -31,11 +34,12 @@ do_input:
         ; by gameover.s straight off the hardware byte.
         lda     SHIPGONE
         bne     @dead
-        lda     JOY1
-        sta     JOYIN
-        lda     JOY1_PRESS
+        ldx     JOYPORT                 ; the port whose FIRE started the game -
+        lda     JOY1,x                  ;   0 or JOY2-JOY1, so one index reads
+        sta     JOYIN                   ;   either port's triple (screens.s)
+        lda     JOY1_PRESS,x
         sta     JOYINP
-        lda     JOY1_PREV
+        lda     JOY1_PREV,x
         sta     JOYINV
         bra     @stick
 @dead:  stz     JOYIN

@@ -133,12 +133,13 @@ state_tick:
         eor     #(GO_OVER ^ GO_FIRE)    ;   - the flip then always lands the same
         sta     OVWANT                  ;   distance before the row's own phase
 @fire:
-        lda     JOY1_PRESS
+        ldx     JOYPORT                 ; the port that has been playing
+        lda     JOY1_PRESS,x
         and     #JOY_FIRE
         beq     @done
-        lda     JOY1_PRESS              ; consume the edge, so the press that
+        lda     JOY1_PRESS,x            ; consume the edge, so the press that
         and     #<~JOY_FIRE             ;   restarts does not ALSO come out of
-        sta     JOY1_PRESS              ;   the new game's first gun frame
+        sta     JOY1_PRESS,x            ;   the new game's first gun frame
         jsr     game_start
 @done:  rts
 
@@ -242,6 +243,10 @@ GO_END:
 ; sector grid and free_init rebuilds the free stack, and the pool lives under
 ; the cartridge window.
 ; -----------------------------------------------------------------------------
+        .segment "CODE5"                ; CART_HIRAM, not HIDATA: it runs once a
+                                        ;   game, never from the IRQ, and bank 3
+                                        ;   (HIDATA + CODE3) ran out of room when
+                                        ;   the sticks started reading JOYPORT
 game_start:
         stz     GSTATE                  ; ...the game is a game again
         stz     SHIPGONE

@@ -624,7 +624,8 @@ thrust_sfx:
         beq     @accel                  ; ...changed to nothing: a release
         jsr     psst
 
-@accel: lda     JOY1                    ; ---- E, the main drive. The RAW stick
+@accel: ldx     JOYPORT                 ; (the playing port - screens.s)
+        lda     JOY1,x                  ; ---- E, the main drive. The RAW stick
         and     #JOY_UP                 ;   and not FLEW, which is also set by
         cmp     PSST_WA                 ;   a fast turn and by the boost - this
         beq     @brake                  ;   one is "the player asked for thrust"

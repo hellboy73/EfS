@@ -96,7 +96,16 @@ SC_SCRL     = HOF_END + 7       ; ...and how many px it has slid left, 0-7
 PF_WAITL    = HOF_END + 8       ; frames of title left before PUSH FIRE, 16-bit
 PF_WAITH    = HOF_END + 9
 PF_PH       = HOF_END + 10      ; ...then the blink's place, 0..PF_ON+PF_OFF-1
-SC_BUF      = HOF_END + 11      ; SC_WIN characters + NUL, handed to VTEXT
+JOYPORT     = HOF_END + 11      ; THE PLAYING PORT, as an offset from JOY1: 0 is
+                                ;   port 1, JOY2-JOY1 is port 2. Set by the FIRE
+                                ;   that starts a game, from either port, and
+                                ;   read by everything that reads a stick
+                                ;   (input.s, gameover.s, sfx.s) as JOY1,x -
+                                ;   CETAS's joy_port. Port 1 from power-on
+SCR_SKIP    = HOF_END + 12      ; nonzero: FIRE skipped the intro, so the title
+                                ;   is shown as soon as it has loaded
+SC_BUF      = HOF_END + 13      ; SC_WIN characters + NUL, handed to VTEXT
+        .assert JOY2 - JOY1 = 3 && JOY2_PRESS - JOY1_PRESS = 3 && JOY2_PREV - JOY1_PREV = 3, error, "screens.s: JOYPORT indexes the two ports' triples by one stride"
 SCR_END     = SC_BUF + SC_WIN + 1
         .assert SCR_END <= HIRAM_TOP, error, "screens.s: the screens' state runs out of KEEP"
         .assert SC_PLAY = 0, error, "screens.s: cart_frame tests SCR_STATE for zero"
@@ -115,6 +124,8 @@ scr_boot:
         lda     #SC_INTRO
         sta     SCR_STATE
         stz     SCR_PH
+        stz     JOYPORT                 ; port 1 until a FIRE says otherwise
+        stz     SCR_SKIP
         rts
 
 ; -----------------------------------------------------------------------------
@@ -162,7 +173,14 @@ intro_frame:
         jsr     API_GPU_VREG
         bra     @next
 
-@p4:    ldx     SCR_T                   ; step 4: SCR_T is the next word, and a
+@p4:    lda     JOY1_PRESS              ; FIRE on EITHER port skips the rest -
+        ora     JOY2_PRESS              ;   from here, once the logo is up, and
+        and     #JOY_FIRE               ;   not in the five frames before: those
+        beq     @words                  ;   have the logo's band pending, and the
+        lda     #1                      ;   title may not re-arm the rectangle
+        sta     SCR_SKIP                ;   under a band awaiting its replay
+        bra     @dark
+@words: ldx     SCR_T                   ; step 4: SCR_T is the next word, and a
         cpx     #3                      ;   word goes out once FRAME has reached
         bcs     @end                    ;   its cue - reached, not equalled, so a
         lda     FRAME                   ;   logo that landed late cannot make a
@@ -174,7 +192,7 @@ intro_frame:
 @end:   lda     FRAME
         cmp     #INTRO_END
         bcc     @ret
-        lda     #VR_BLIND_ON            ; 3 s: the screen goes dark, and the
+@dark:  lda     #VR_BLIND_ON            ; 3 s: the screen goes dark, and the
         jsr     API_GPU_VREG            ;   title streams in behind it
         lda     #SC_TLOAD
         sta     SCR_STATE
@@ -238,7 +256,9 @@ tload_frame:
         lda     SCR_T
         cmp     #SETTLE
         bcc     @ret
-        lda     FRAME+1                 ; ...and it is the chords' frame
+        lda     SCR_SKIP                ; ...and, unless FIRE skipped the intro,
+        bne     @show                   ;   it is the chords' frame
+        lda     FRAME+1
         bne     @show
         lda     FRAME
         cmp     #TITLE_SHOW
@@ -266,12 +286,18 @@ tload_frame:
 title_frame:
         jsr     marquee
         jsr     push_fire
-        lda     JOY1_PRESS
+        ldx     #0                      ; FIRE on either port - and the port it
+        lda     JOY1_PRESS              ;   came from is the one that plays
+        and     #JOY_FIRE               ;   (JOYPORT). Port 1 wins a tie
+        bne     @go
+        ldx     #JOY2 - JOY1
+        lda     JOY2_PRESS
         and     #JOY_FIRE
         beq     @ret
-        lda     JOY1_PRESS              ; consume the edge, or the press that
+@go:    stx     JOYPORT
+        lda     JOY1_PRESS,x            ; consume the edge, or the press that
         and     #<~JOY_FIRE             ;   starts the game also fires the gun
-        sta     JOY1_PRESS              ;   on its first frame
+        sta     JOY1_PRESS,x            ;   on its first frame
         jsr     API_VGM_STOP            ; the title's song is the title's (and
                                         ;   with MUSIC_ON = 0 this only silences
                                         ;   chips that are already silent - it
