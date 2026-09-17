@@ -14,14 +14,19 @@
 ;
 ; THE LASER. The shape's part 0 is the bar through its middle, and the beam is
 ; that bar carried on outward: from each end of it, in opposite directions,
-; always both at once, as two dotted lines (gpu_dotline_clip, half-res,
-; clipped). It fires only from its animation's FRAME 0 - the longest bar - and
-; burns PLS_FRAMES game frames with the animation FROZEN on that frame. Whether
-; it fires at all is decided on the FIRST game frame of frame 0's hold, and it
-; needs both:
+; always both at once. Each is ONE OPEN two-vertex DOT_POLYGON ($4C) at the bar's
+; own ANGLE, (end, 0) -> (127, 0) half-res, and the second is the same block at
+; ANGLE + 128 - so the GPU turns it exactly as it turns the bar, and CPU1 does
+; no rotation at all. 127 half-res is 254 full-res px of beam a side at any zoom.
+; It fires only from its animation's FRAME 0 - the longest bar - and burns
+; PLS_FRAMES game frames with the animation FROZEN on that frame. Whether it
+; fires is decided on the FIRST game frame of frame 0's hold, and it needs both:
 ;
 ;   - the pulsar on the screen (FOEON), and
-;   - the bar pointing at the ship: the ship's circle crosses the beam's line.
+;   - the ship DETECTED (FS_PURSUE, pls_watch: within FOE_SEE), and
+;   - the ship ALMOST on the beam: its circle, widened by PLS_AIM, crosses the
+;     beam's line within the beam's reach. It spins, so a shot lit on a near
+;     miss sweeps on toward the ship over the frames it burns.
 ;
 ; Once lit, it stays lit PLS_FRAMES whatever the spin does, and is put out if
 ; the pulsar leaves the screen. Its beam is the ship's laser in
@@ -34,16 +39,19 @@
 ; THE TEST IS ON THE SCREEN, like the ship's laser (laser.s): the targets are
 ; the visible list, FOEFX/FY and the ship's drawn centre, all with the shake in.
 ; A target hits when its circle, widened by PLS_HW, reaches the beam's LINE
-; (perpendicular distance) beyond the bar's own ends. Both are worked in
-; QUARTER-res px so every offset fits the quarter-square multiply's 127, and
-; the products are EXACT (f(a+b) - f(|a-b|), no >>7): the distance is compared
-; x127 rather than divided. A quarter px is 4 full-res; offsets are rounded to
-; it, and the circle is rounded UP, so the test errs toward a hit by a px or two.
+; (perpendicular distance) - and only that is tested (pls_hit). It is worked in
+; HALF-res px - the beam's own units, so an offset past 127 is past its end -
+; and the products are EXACT (f(a+b) - f(|a-b|), no >>7): the distance is
+; compared x127 rather than divided. Offsets are rounded to the half px and the
+; circle UP, so the test errs toward a hit by a px.
 ;
-; TELEPORT. A pulsar that takes a hit and survives it - a bullet, the ship's
-; laser, another pulsar's beam - jumps: its offset from the ship turned by
-; PLS_TPANG + 0..PLS_TPJIT brad either way (about a quarter turn), at the SAME
-; distance. foe_take_hit calls pls_teleport.
+; TELEPORT. A pulsar that takes a BULLET and survives it jumps - a hit of
+; SHOT_DMG or more. A beam's frame (the ship's laser, another pulsar's) is less
+; and only burns it: jumping out of the beam on its first frame made the laser
+; useless against it. The jump is its offset from the ship turned a
+; QUARTER TURN, either way at random, at the same distance. A quarter turn is a
+; swap and a negate, so there is no trig and no multiply in it. foe_take_hit
+; calls pls_teleport.
 ;
 ; WHERE IT LIVES. CODE6, stored in bank 6 behind the screens' code and run in
 ; CART_HIRAM after it (cart.cfg): bank 4, where CODE5 is, had 200 bytes left.
@@ -57,6 +65,8 @@ PLS_SPIN    = $0080             ; brad a frame, 8.8: half a brad, a turn in
                                 ;   ~8.5 s
 PLS_FRAMES  = 10                ; game frames one shot burns, its animation
                                 ;   frozen on frame 0 all the while
+PLS_AIM     = 24                ; full-res px added to the ship's circle when
+                                ;   it decides to fire - "almost on target"
 PLS_ARM     = 15                ; full-res px from its centre to each end of the
                                 ;   bar in frame 0 (enemies.s EN_PULSAR_S0,
                                 ;   +/-15): where the beam starts
@@ -64,14 +74,10 @@ PLS_HW      = LSR_HW            ; the beam's half-width for the hit test
 PLS_DMG     = LSR_DMG           ; hit points a lit frame to what it crosses
 PLS_SHIPDMG = 1                 ; ...and to the ship: 10 a shot, one ordinary
                                 ;   hit
-PLS_TPANG   = 48                ; a teleport turns it round the ship by this...
-PLS_TPJIT   = $1F               ; ...plus a random 0..this (a mask), brad: 68
-                                ;   to 111 degrees, either way
 
-        .assert (PLS_TPJIT & (PLS_TPJIT+1)) = 0, error, "pulsar.s: PLS_TPJIT is an AND mask"
-        .assert PLS_TPANG + PLS_TPJIT < 128, error, "pulsar.s: a teleport turn must stay under half a circle"
         .assert EN_PULSAR_FN >= 1, error, "pulsar.s: the pulsar fires on its frame 0"
         .assert FK_UFO = 0, error, "pulsar.s: foe_body leaves only KIND 0 level on the screen"
+        .assert LSR_DMG < SHOT_DMG && PLS_DMG < SHOT_DMG, error, "pulsar.s: foe_take_hit tells a beam from a bullet by SHOT_DMG - a beam frame that big would make it jump"
 
 ; --- state ---------------------------------------------------------------------
 ; Per foe, under the window beside foes.s's arrays (so only ever read inside
@@ -96,12 +102,10 @@ PLTXL       = $9586             ; the target's
 PLTXH       = $9587
 PLTYL       = $9588
 PLTYH       = $9589
-PLDX        = $958A             ; target - pulsar, quarter-res, signed byte
+PLDX        = $958A             ; target - pulsar, half-res, signed byte
 PLDY        = $958B
-PLKL        = $958C             ; the target's radius x127, quarter-res
+PLKL        = $958C             ; the target's radius x127, half-res
 PLKH        = $958D
-PLIKL       = $958E             ; the bar's half-length x127, quarter-res
-PLIKH       = $958F
 PLPL        = $9590             ; a distance being built, x127
 PLPH        = $9591
 PLML        = $9592             ; pls_mul's product
@@ -110,34 +114,13 @@ PLMA        = $9594             ; ...its operands
 PLMB        = $9595
 PLSG        = $9596             ; ...and the product's sign
 PLT0        = $9597
-PLHXL       = $9598             ; the centre in half-res, signed 16
-PLHXH       = $9599
-PLHYL       = $959A
-PLHYH       = $959B
-PLAH        = $959C             ; the bar's half-length, half-res
-PLIXL       = $959D             ; the bar's end offset, half-res, signed 16 -
-PLIXH       = $959E             ;   the beam's inner end...
-PLIYL       = $959F
-PLIYH       = $95A0
-PLOXL       = $95A1             ; ...and its outer end, 256 half-res px out:
-PLOXH       = $95A2             ;   past every corner of the screen from any
-PLOYL       = $95A3             ;   point on it
-PLOYH       = $95A4
-PTI         = $95A5             ; pls_teleport: the foe
-PTT0        = $95A6
-PTANG       = $95A7
-PTC         = $95A8
-PTS         = $95A9
-PTVXL       = $95AA             ; its offset from the ship, world 16-bit
-PTVXH       = $95AB
-PTVYL       = $95AC
-PTVYH       = $95AD
-PTXL        = $95AE             ; ...turned
-PTXH        = $95AF
-PTYL        = $95B0
-PTYH        = $95B1
+PTI         = $9598             ; pls_teleport: the foe
+PTVXL       = $9599             ; its offset from the ship, world 16-bit
+PTVXH       = $959A
+PTVYL       = $959B
+PTVYH       = $959C
         .assert FOEANGF = FOEANG + FOE_MAX && FOELSR = FSDMG + FSH_N, error, "pulsar.s: FOEANGF/FOELSR no longer sit in the gaps they were put in"
-        .assert FECAR < PLI && PTYH < $9600, error, "pulsar.s: the scratch runs into foes.s's or out of its page"
+        .assert FECAR < PLI && PTVYH < $9600, error, "pulsar.s: the scratch runs into foes.s's or out of its page"
 
         .pushseg
         .segment "CODE6"
@@ -229,27 +212,33 @@ pls_beams:
         lda     FOEON,x                 ; off the screen: dark, and the
         beq     @off                    ;   animation runs again
         lda     FOELSR,x
-        bne     @burn                   ; mid-shot: the frame is frozen on 0
+        bne     @fire                   ; mid-shot: the frame is frozen on 0
         ldy     FOEAST,x                ; on frame 0? (the playlist step's row
         lda     EN_ANIM+EN_PULSAR_ABASE,y ;   within the appearance is 0 only
         bne     @next                   ;   for frame 0)
         lda     FOEACD,x                ; ...its hold's FIRST frame decides
         cmp     #EN_PULSAR_AHOLD
         bne     @next
+        lda     FOEST,x                 ; ...if it has the ship in sight
+        cmp     #FS_PURSUE              ;   (pls_watch)...
+        bne     @next
         lda     SHIPGONE
         bne     @next
-        jsr     pls_setup
-        jsr     pls_shipt
+        jsr     pls_setup               ; ...and ALMOST on the beam: the ship's
+        jsr     pls_shipt               ;   circle widened by PLS_AIM, within
+        lda     PLR                     ;   the beam's reach. It spins, so a
+        clc                             ;   near miss on this frame can still
+        adc     #PLS_AIM                ;   cross it on a later one
+        sta     PLR
         jsr     pls_hit
-        bcc     @next                   ; not pointing at the ship: dark
+        bcc     @next                   ; not near enough: dark
         ldx     PLI
         lda     #PLS_FRAMES
         sta     FOELSR,x
         lda     #SE_LASER
         jsr     sfx_fire
-        bra     @fire
-@burn:  jsr     pls_setup
-@fire:  ldx     PLI
+@fire:  jsr     pls_setup
+        ldx     PLI
         dec     FOELSR,x                ; this frame spent: at 0 the animation
                                         ;   takes up from where it froze
         jsr     pls_draw
@@ -265,8 +254,9 @@ pls_beams:
         bra     @next
 @off:   stz     FOELSR,x
 @next:  dec     PLI
-        bpl     @lp
-        rts
+        bmi     :+
+        jmp     @lp
+:       rts
 
 ; -----------------------------------------------------------------------------
 ; pls_setup - PLI's beam: direction, centre, the bar's half-length.
@@ -297,15 +287,6 @@ pls_setup:
         sta     MQB
         jsr     qmul
         sta     PLARM
-        clc                             ; quarter-res, rounded, x127
-        adc     #2
-        lsr     a
-        lsr     a
-        jsr     pls_x127
-        lda     PLKL
-        sta     PLIKL
-        lda     PLKH
-        sta     PLIKH
         rts
 
 ; -----------------------------------------------------------------------------
@@ -457,11 +438,13 @@ pls_foes:
 ; pls_hit - does the circle PLTX/PLTY, radius PLR, reach PLI's beam? C SET = it
 ; does. Clobbers A, X, Y, T0, T1.
 ; -----------------------------------------------------------------------------
-; With d = target - centre and u = (PLC, PLS), all x127 in quarter-res px:
+; With d = target - centre and u = (PLC, PLS), all x127 in half-res px:
 ;   across = dy*c - dx*s     a hit needs |across| <= R
-;   along  = dx*c + dy*s     ...and |along| + R >= the bar's half-length
-; The far end is not tested: the beam runs 256 half-res px out, past every
-; corner of the screen, and both points are on it.
+; ACROSS ONLY. Where along the line the target is is not tested: the far end is
+; where pls_q gives up (an offset past 127 half-res on either axis is past the
+; beam's 127), and the near end - the bar's own - only matters to something
+; overlapping the pulsar's body, which foe_avoid keeps rocks and enemies out of
+; and the ship cannot be without ramming it.
 ; -----------------------------------------------------------------------------
 pls_hit:
         sec
@@ -484,10 +467,9 @@ pls_hit:
 @miss:  clc                             ; (here: within reach of every branch)
         rts
 :       sta     PLDY
-        lda     PLR                     ; R, quarter-res, rounded UP, x127
+        lda     PLR                     ; R, half-res, rounded UP, x127
         clc
-        adc     #3
-        lsr     a
+        adc     #1
         lsr     a
         jsr     pls_x127
         lda     PLDY                    ; across
@@ -506,47 +488,8 @@ pls_hit:
         sta     PLPL
         lda     PLPH
         sbc     PLMH
-        jsr     pls_abs
-        sec                             ; R - |across|: a borrow is a miss
-        lda     PLKL
-        sbc     PLPL
-        lda     PLKH
-        sbc     PLPH
-        bcc     @miss
-        lda     PLDX                    ; along
-        ldy     PLC
-        jsr     pls_mul
-        lda     PLML
-        sta     PLPL
-        lda     PLMH
-        sta     PLPH
-        lda     PLDY
-        ldy     PLS
-        jsr     pls_mul
-        clc
-        lda     PLPL
-        adc     PLML
-        sta     PLPL
-        lda     PLPH
-        adc     PLMH
-        jsr     pls_abs
-        clc                             ; |along| + R >= the half-length
-        lda     PLPL
-        adc     PLKL
-        sta     PLPL
-        lda     PLPH
-        adc     PLKH
-        sta     PLPH
-        lda     PLPL
-        cmp     PLIKL
-        lda     PLPH
-        sbc     PLIKH
-        rts                             ; C SET: past the bar's end - a hit
-
-; pls_abs - A = the high byte, PLPL the low of a signed 16 -> PLP = |it|.
-pls_abs:
-        sta     PLPH
-        bpl     @done
+        sta     PLPH                    ; |across|
+        bpl     :+
         sec
         lda     #$00
         sbc     PLPL
@@ -554,25 +497,25 @@ pls_abs:
         lda     #$00
         sbc     PLPH
         sta     PLPH
-@done:  rts
+:       lda     PLKL                    ; R - |across|: C SET (no borrow) is a
+        cmp     PLPL                    ;   hit
+        lda     PLKH
+        sbc     PLPH
+        rts
 
-; pls_q - A:T0 = a signed 16 offset in full-res px -> A = it in quarter-res,
-; rounded. C SET = outside -127..127, which is out of the beam's reach anyway.
+; pls_q - A:T0 = a signed 16 offset in full-res px -> A = it in half-res,
+; rounded. C SET = outside -127..127: past the beam's end.
 pls_q:
         sta     T1
         clc
         lda     T0
-        adc     #2
+        adc     #1
         sta     T0
         lda     T1
         adc     #$00
+        cmp     #$80                    ; >> 1, arithmetic
+        ror     a
         sta     T1
-        cmp     #$80                    ; >> 2, arithmetic
-        ror     T1
-        ror     T0
-        lda     T1
-        cmp     #$80
-        ror     T1
         ror     T0
         lda     T1
         beq     @pos
@@ -653,135 +596,61 @@ pls_mul:
 @done:  rts
 
 ; -----------------------------------------------------------------------------
-; pls_draw - the two dotted beams, half-res, clipped: from each end of the bar
-; out 256 half-res px, in opposite directions.
+; pls_draw - the two beams: one OPEN two-vertex DOT_POLYGON from the bar's end
+; out to 127 half-res, at the bar's angle - and the same block again half a
+; turn round. PBUF is foe_body's, free until it draws.
 ; -----------------------------------------------------------------------------
 pls_draw:
-        lda     PLCXH                   ; the centre, halved
-        cmp     #$80
+        lda     PLCXH                   ; the centre, halved: DOT_POLYGON is
+        cmp     #$80                    ;   half-res
         ror     a
-        sta     PLHXH
+        sta     PBUF+1
         lda     PLCXL
         ror     a
-        sta     PLHXL
+        sta     PBUF+0
         lda     PLCYH
         cmp     #$80
         ror     a
-        sta     PLHYH
+        sta     PBUF+3
         lda     PLCYL
         ror     a
-        sta     PLHYL
-        lda     PLARM                   ; the bar's end: half-length * (c, s)
+        sta     PBUF+2
+        lda     PLANG
+        sta     PBUF+4
+        lda     #128                    ; SCALE 1:1 - the end below is already
+        sta     PBUF+5                  ;   zoomed
+        lda     #$82                    ; OPEN, two vertices
+        sta     PBUF+6
+        lda     PLARM                   ; (the bar's end, 0)...
         lsr     a
-        sta     PLAH
-        lda     PLC
-        ldy     PLAH
-        jsr     pls_smq
-        ldx     #PLIXL - PLIXL
-        jsr     pls_sext
-        lda     PLS
-        ldy     PLAH
-        jsr     pls_smq
-        ldx     #PLIYL - PLIXL
-        jsr     pls_sext
-        lda     PLC                     ; the far end: 256 * (c, s) / 128
-        ldx     #PLOXL - PLIXL
-        jsr     pls_sext
-        asl     PLOXL
-        rol     PLOXH
-        lda     PLS
-        ldx     #PLOYL - PLIXL
-        jsr     pls_sext
-        asl     PLOYL
-        rol     PLOYH
-        jsr     pls_line                ; one way...
-        ldx     #6                      ; ...and, every offset negated, the other
-:       sec
-        lda     #$00
-        sbc     PLIXL,x
-        sta     PLIXL,x
-        lda     #$00
-        sbc     PLIXH,x
-        sta     PLIXH,x
-        dex
-        dex
-        bpl     :-
-        ; fall through
-
-; pls_line - centre + the inner offset to centre + the outer one.
-pls_line:
-        clc
-        lda     PLHXL
-        adc     PLIXL
+        sta     PBUF+7
+        stz     PBUF+8
+        lda     #127                    ; ...to (127, 0)
+        sta     PBUF+9
+        stz     PBUF+10
+        jsr     @one                    ; one way...
+        lda     PBUF+4                  ; ...and half a turn round, the other
+        eor     #$80
+        sta     PBUF+4
+@one:   lda     #<PBUF
         sta     OS_ARG+0
-        lda     PLHXH
-        adc     PLIXH
+        lda     #>PBUF
         sta     OS_ARG+1
-        clc
-        lda     PLHYL
-        adc     PLIYL
-        sta     OS_ARG+2
-        lda     PLHYH
-        adc     PLIYH
-        sta     OS_ARG+3
-        clc
-        lda     PLHXL
-        adc     PLOXL
-        sta     OS_ARG+4
-        lda     PLHXH
-        adc     PLOXH
-        sta     OS_ARG+5
-        clc
-        lda     PLHYL
-        adc     PLOYL
-        sta     OS_ARG+6
-        lda     PLHYH
-        adc     PLOYH
-        sta     OS_ARG+7
-        jmp     API_GPU_DOTLINE_CLIP    ; tail
-
-; pls_sext - A = a signed byte -> PLIXL+X / PLIXH+X, sign-extended.
-pls_sext:
-        sta     PLIXL,x
-        lda     #$00
-        bit     PLIXL,x
-        bpl     :+
-        lda     #$FF
-:       sta     PLIXH,x
-        rts
-
-; pls_smq - A = a signed byte, Y = a magnitude 0..127 -> A = A * Y / 128,
-; rounded, signed.
-pls_smq:
-        sty     MQB
-        sta     PLT0
-        tax
-        bpl     :+
-        eor     #$FF
-        inc     a
-:       sta     MQA
-        jsr     qmul
-        bit     PLT0
-        bpl     :+
-        eor     #$FF
-        inc     a
-:       rts
+        jmp     API_GPU_DOTPOLYGON      ; tail
 
 ; -----------------------------------------------------------------------------
 ; pls_teleport - X = a pulsar that took a hit and is still standing (foe_take_hit).
-; It jumps round the ship, keeping its distance. Preserves X.
+; It jumps a quarter turn round the ship, keeping its distance. Preserves X.
 ; -----------------------------------------------------------------------------
-; Its offset from the ship turned by a quarter turn, give or take, either way:
-;   x' = x cos - y sin,  y' = x sin + y cos
-; smul16q7 four times - once a hit, not once a frame. The Q0.7 trig's 127/128
-; shaves the distance by under 1% a jump.
+; d = pulsar - ship, negated on a random bit, then (x, y) -> (-y, x): a quarter
+; turn one way or, with d negated, the other.
 ; -----------------------------------------------------------------------------
 pls_teleport:
-        stx     PTI
         lda     SHIPGONE                ; no ship to keep a distance from
         beq     :+
         rts
-:       sec
+:       stx     PTI
+        sec
         lda     FOEXL,x
         sbc     SHXL
         sta     PTVXL
@@ -795,74 +664,36 @@ pls_teleport:
         lda     FOEYH,x
         sbc     SHYH
         sta     PTVYH
-        jsr     prng                    ; how far round, and which way
-        sta     PTT0
-        and     #PLS_TPJIT
-        clc
-        adc     #PLS_TPANG
-        bit     PTT0
-        bpl     :+
-        eor     #$FF
-        inc     a
-:       sta     PTANG
-        jsr     API_COS
-        sta     PTC
-        lda     PTANG
-        jsr     API_SIN
-        sta     PTS
-
-        lda     PTC                     ; x' = x cos...
-        ldx     #PTVXL - PTVXL
-        jsr     pt_mul
-        lda     MAL
-        sta     PTXL
-        lda     MAH
-        sta     PTXH
-        lda     PTS                     ; ...- y sin
-        ldx     #PTVYL - PTVXL
-        jsr     pt_mul
-        sec
-        lda     PTXL
-        sbc     MAL
-        sta     PTXL
-        lda     PTXH
-        sbc     MAH
-        sta     PTXH
-        lda     PTS                     ; y' = x sin...
-        ldx     #PTVXL - PTVXL
-        jsr     pt_mul
-        lda     MAL
-        sta     PTYL
-        lda     MAH
-        sta     PTYH
-        lda     PTC                     ; ...+ y cos
-        ldx     #PTVYL - PTVXL
-        jsr     pt_mul
-        clc
-        lda     PTYL
-        adc     MAL
-        sta     PTYL
-        lda     PTYH
-        adc     MAH
-        sta     PTYH
-
-        ldx     PTI                     ; the ship + the turned offset, and the
-        clc                             ;   post it holds is the new place too
+        jsr     prng                    ; which way round
+        bpl     @turn
+        ldx     #2                      ; the other: d negated
+:       sec
+        lda     #$00
+        sbc     PTVXL,x
+        sta     PTVXL,x
+        lda     #$00
+        sbc     PTVXH,x
+        sta     PTVXH,x
+        dex
+        dex
+        bpl     :-
+@turn:  ldx     PTI
+        sec                             ; x = ship - dy
         lda     SHXL
-        adc     PTXL
+        sbc     PTVYL
         sta     FOEXL,x
-        sta     FOEAXL,x
-        lda     SHXH
-        adc     PTXH
+        sta     FOEAXL,x                ; ...and the post it holds is the new
+        lda     SHXH                    ;   place too
+        sbc     PTVYH
         sta     FOEXH,x
         sta     FOEAXH,x
-        clc
+        clc                             ; y = ship + dx
         lda     SHYL
-        adc     PTYL
+        adc     PTVXL
         sta     FOEYL,x
         sta     FOEAYL,x
         lda     SHYH
-        adc     PTYH
+        adc     PTVXH
         sta     FOEYH,x
         sta     FOEAYH,x
         stz     FOEON,x                 ; not where this frame's screen point
@@ -875,14 +706,5 @@ pls_teleport:
         jsr     sfx_fire
         ldx     PTI
         rts
-
-; pt_mul - A = Q0.7, X = PTVXL/PTVYL's offset from PTVXL -> MA = that * A.
-pt_mul:
-        sta     MB
-        lda     PTVXL,x
-        sta     MAL
-        lda     PTVXH,x
-        sta     MAH
-        jmp     smul16q7                ; tail
 
         .popseg

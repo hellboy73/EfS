@@ -3604,6 +3604,8 @@ foe_alarm:
 ; left is simply the last - foe_kill, carry SET.
 ; -----------------------------------------------------------------------------
 foe_take_hit:
+        cmp     #SHOT_DMG               ; C SET: a bullet's worth or more - kept
+        php                             ;   for the pulsar's jump below
         eor     #$FF                    ; FOEHP - A, as FOEHP + ~A + 1: carry
         sec                             ;   CLEAR is a borrow
         adc     FOEHP,x
@@ -3612,13 +3614,16 @@ foe_take_hit:
         sta     FOEHP,x
         lda     #SE_ROCK_HIT
         jsr     sfx_fire
-        lda     FOEKIND,x               ; a pulsar that lives through a hit
-        cmp     #FK_PULSAR              ;   jumps (pulsar.s)
-        bne     :+
+        plp                             ; a pulsar that lives through a BULLET
+        bcc     :+                      ;   jumps (pulsar.s); a beam's frame -
+        lda     FOEKIND,x               ;   the laser's, another pulsar's - only
+        cmp     #FK_PULSAR              ;   burns it, or the beam could never
+        bne     :+                      ;   hold it long enough to matter
         jsr     pls_teleport
 :       clc
         rts
-@dead:  stz     FOEHP,x
+@dead:  plp
+        stz     FOEHP,x
         jsr     foe_kill
         sec
         rts

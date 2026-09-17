@@ -565,33 +565,44 @@ a frame, the sense by slot parity) **and turns with the world**: drawn at
 on the screen.
 
 **The laser** is part 0, the bar, carried on outward from both ends in opposite
-directions — two `gpu_dotline_clip` beams, 256 half-res px long, always both. It
-lights only from **animation frame 0**, burns `PLS_FRAMES` game frames with the
-animation frozen on that frame, and only if on the hold's first frame the pulsar is **on the
-screen** and its **bar points at the ship** (the ship's circle crosses the beam's
-line). Once lit it burns them all, unless the pulsar leaves the screen or jumps.
-It also has the spider's **sight** (`FS_PURSUE` inside `FOE_SEE`, lost past
-`FOE_LOSE`) — steering nothing, only so the camera frames it like the others.
+directions, always both: each beam is one OPEN two-vertex `DOT_POLYGON` (`$4C`),
+from the bar's end to 127 half-res px (254 full-res) at the bar's own `ANGLE`,
+the second at `ANGLE + 128` — the GPU turns it exactly as it turns the bar, and
+CPU1 rotates nothing. It lights only from **animation frame 0**, burns
+`PLS_FRAMES` game frames with the animation frozen on that frame, and it lights
+if, on the first game frame of frame 0's hold, the pulsar is **on the screen**,
+**has the ship in sight** (`FS_PURSUE`: within `FOE_SEE`, lost past `FOE_LOSE` —
+the spider's eyes, which is also what makes the camera frame it) and has the
+ship **almost on the beam**: the ship's circle widened by `PLS_AIM` crosses the
+beam's line within its reach. It spins, so a shot lit on a near miss sweeps on
+toward the ship. A lit beam goes out if the pulsar leaves the screen or jumps.
 
 **What it hits** is tested on the screen like the ship's laser: every rock on the
 visible list, every other enemy with `FOEON` (a mounted spider excepted), and the
-ship — each loses `LSR_DMG` a lit frame. The test is the target's circle (+
-`PLS_HW`) against the beam's line beyond the bar's ends, worked in quarter-res
-px with exact quarter-square products (compared ×127, never divided). `FOEKILL`
-is set around every hit: what it breaks or kills pays no score and no Saturnium.
+ship. Rocks and enemies lose `PLS_DMG` a lit frame, the ship `PLS_SHIPDMG`. The
+test is the target's circle (+ `PLS_HW`) against the beam's LINE — across
+only; where along it the target is, is not tested (the far end is where an
+offset leaves ±127, the near one only matters inside the pulsar's body) — in
+half-res px — the beam's own units, so an offset past 127 on
+either axis is past its end — with exact quarter-square products, compared ×127
+and never divided. `FOEKILL` is set around every hit: what it breaks or kills
+pays no score and no Saturnium.
 
-**The jump.** A pulsar that survives a hit — bullet, laser, another pulsar's beam
-— teleports: its offset from the ship is turned by `PLS_TPANG` + 0..`PLS_TPJIT`
-brad, either way, at the same distance (`smul16q7` ×4, once a hit). Its post
-moves with it, so a pulsar holding a post holds the new one.
+**The jump.** A pulsar that survives a **bullet** — a hit of `SHOT_DMG` or more
+(`foe_take_hit`) — teleports a **quarter turn** round the ship, either way at random, at the same
+distance: `(x, y) → (−y, x)` on its offset from the ship, negated first for the
+other way. No trig, no multiply. Its post moves with it. A beam's frame — the
+ship's laser (`LSR_DMG`), another pulsar's (`PLS_DMG`) — is smaller and only
+burns it: jumping out of the laser on its first frame made the laser useless
+against it, and now the gun drives it away while the laser finishes it.
 
 | name | meaning | value |
 |---|---|---|
 | `PLS_HP` | hit points | **50** — five bullets **(TBM)** |
 | `PLS_SPIN` | spin, brad a frame, 8.8 | **$0080** — half a brad, a turn in ~8.5 s **(TBM)** |
 | `PLS_ARM` | full-res px from the centre to each end of the frame-0 bar | **15** — `EN_PULSAR_S0` |
+| `PLS_AIM` | full-res px added to the ship's circle for the decision to fire | **24** **(TBM)** |
 | `PLS_HW` | the beam's half-width for the hit test | **`LSR_HW`** (2) |
 | `PLS_FRAMES` | game frames one shot burns, the animation frozen on frame 0 | **10** **(TBM)** |
 | `PLS_DMG` | hit points a lit frame to rocks and enemies it crosses | **`LSR_DMG`** (4) — 40 a shot **(TBM)** |
 | `PLS_SHIPDMG` | ...and to the ship | **1** — 10 a shot, one ordinary hit **(TBM)** |
-| `PLS_TPANG` + `PLS_TPJIT` | a jump's turn round the ship, brad | **48 + 0..31** — 68° to 111°, either way **(TBM)** |

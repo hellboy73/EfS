@@ -4420,9 +4420,10 @@ satn_bench()
 # Level 0 carries two. Here one is parked 100 px ahead of the ship with every
 # other enemy taken off, its bar turned (FOEANG) to point at the ship on the
 # frame its playlist enters frame 0 - the one frame that decides - and the
-# cart's own frames do the rest. The angle is worked out the way the GPU turns
-# the bar (MAD-65 gpu_os.s pg_vertex: the +dx end goes to cos, sin), from the
-# screen points the frame before left in RAM.
+# cart's own frames do the rest. The angle is worked out the way the GPU turns the bar
+# (MAD-65 gpu_os.s pg_vertex: the +dx end goes to cos, sin), from the screen
+# points the frame before left in RAM. Each beam is one OPEN two-vertex
+# DOT_POLYGON ($4C, N = $82) - nothing else in the game emits one.
 def pulsar_sym(name):
     """A $hhhh address, or a decimal constant, out of pulsar.s."""
     m = re.search(rf"^{re.escape(name)}\s*=\s*([$][0-9A-Fa-f]+|\d+)",
@@ -4483,7 +4484,7 @@ def pulsar_bench():
         for _ in range(n):
             cpu_mem[SHIPINV_A] = 0
             st = run_frame()
-            d = sum(1 for op, _ in decode(st) if op == 0x44)
+            d = sum(1 for op, pl in decode(st) if op == 0x4C and pl[6] == 0x82)
             out.append((int(d > 0), d, cpu_mem[SHIPHP_A]))
             frozen.append((d > 0, pul.order[ram(fa["FOEAST"])]))
         return out
@@ -4500,8 +4501,8 @@ def pulsar_bench():
     got = burst()
     lit = [l for l, _, _ in got]
     print(f"        pulsar 100 px ahead, on screen {on0}, bar aimed at the ship: lit {lit}, "
-          f"dotted lines {[d for _, d, _ in got]}, ship HP {hp0} -> {got[-1][2]}")
-    check(f"a pulsar pointing at the ship fires on frame 0, for exactly PLS_FRAMES ({PLS_FRAMES})",
+          f"beams {[d for _, d, _ in got]}, ship HP {hp0} -> {got[-1][2]}")
+    check(f"a pulsar aimed at the ship fires on frame 0, for exactly PLS_FRAMES ({PLS_FRAMES})",
           on0 == 1 and lit == [1] * PLS_FRAMES + [0] * (len(got) - PLS_FRAMES), f"lit {lit}")
     check("...its animation frozen on frame 0 the whole time",
           all(f == 0 for l, f in frozen if l), str(frozen))
@@ -4514,8 +4515,28 @@ def pulsar_bench():
     cpu_mem[SHIPHP_A] = hp0
     aim(0, extra=64)
     got = burst()
-    check("...and pointing a quarter turn off, it does not fire at all",
-          not any(l or d for l, d, _ in got), str([(l, d) for l, d, _ in got]))
+    check("...but pointing a quarter turn off, it does not fire at all",
+          not any(l for l, _, _ in got), str([(l, d) for l, d, _ in got]))
+
+    cpu_mem[SHIPHP_A] = hp0
+    aim(0, extra=10)
+    got = burst()
+    check("...and ALMOST on target - 10 brad off, clear of the ship itself - it does",
+          [l for l, _, _ in got] == [1] * PLS_FRAMES + [0] * 3,
+          str([(l, d) for l, d, _ in got]))
+
+    cpu_mem[SHIPHP_A] = hp0
+    put(0, FK_PULSAR, EA_PULSAR, PLS_HP, shx, shy + 12000)   # 750 px behind
+    for _ in range(3):
+        run_frame()
+    aim(0)
+    got = burst()
+    check("...and off the screen and out of sight, it does not fire at all",
+          ram(fa["FOEON"]) == 0 and not any(l for l, _, _ in got),
+          str([(l, d) for l, d, _ in got]))
+    put(0, FK_PULSAR, EA_PULSAR, PLS_HP, shx, shy - 1600)
+    for _ in range(3):
+        run_frame()
 
     aim(0)
     cpu_mem[fa["FOEACD"]] = 2                   # frame 0 arrives mid-count...
@@ -4526,7 +4547,7 @@ def pulsar_bench():
           not any(l or d for l, d, _ in got), str([(l, d) for l, d, _ in got]))
 
     # --- its beam hits another enemy, and pays nobody --------------------------
-    put(1, 0, _app["UFO"], FOE_HP, shx, shy - 2 * 1600)
+    put(1, 0, _app["UFO"], 3 * HIT_HP, shx, shy - 2 * 1600)   # foes.s FOE_HP
     for _ in range(2):
         run_frame()
     aim(0)
@@ -4562,16 +4583,33 @@ def pulsar_bench():
         jumps.append((round(turn), math.hypot(vx1, vy1) / math.hypot(vx0, vy0),
                       ram(fa["FOEHP"]), ram(FOEST_A)))
         run_frame()
+    cpu_mem[fa["FOEHP"]] = PLS_HP
     print(f"        eight hits it lives through: turns {[t for t, _, _, _ in jumps]} brad, "
           f"distance kept {min(r for _, r, _, _ in jumps):.3f}..{max(r for _, r, _, _ in jumps):.3f}")
-    check("a pulsar that survives a hit jumps round the ship, a quarter turn give or take",
-          all(48 - 2 <= abs(t) <= 48 + 31 + 2 for t, _, _, _ in jumps)
+    check("a pulsar that survives a hit jumps a quarter turn round the ship, either way",
+          all(abs(t) == 64 for t, _, _, _ in jumps)
           and {t > 0 for t, _, _, _ in jumps} == {True, False},
           str([t for t, _, _, _ in jumps]))
     check("...keeping its distance from the ship",
-          all(0.97 <= r <= 1.01 for _, r, _, _ in jumps), str([round(r, 3) for _, r, _, _ in jumps]))
+          all(0.999 <= r <= 1.001 for _, r, _, _ in jumps), str([round(r, 3) for _, r, _, _ in jumps]))
     check("...and takes the hit's damage, still alive",
           all(h == PLS_HP - HIT_HP and s != 0 for _, _, h, s in jumps), str(jumps))
+
+    burned = []
+    for n in range(12):                         # a laser beam's frames, not a bullet
+        p0 = foe_pos(0)
+        call(cpu, LBL["win_off"])
+        cpu.a, cpu.x = LSR_DMG, 0
+        try:
+            call(cpu, LBL["foe_take_hit"])
+        finally:
+            call(cpu, LBL["win_on"])
+        burned.append((foe_pos(0) == p0, ram(fa["FOEHP"])))
+    print(f"        twelve laser frames: stayed put {sum(s for s, _ in burned)}/12, "
+          f"HP {PLS_HP} -> {burned[-1][1]}")
+    check("...but a laser frame only burns it: no jump, LSR_DMG off every frame",
+          all(s for s, _ in burned) and [h for _, h in burned]
+          == [PLS_HP - LSR_DMG * (k + 1) for k in range(12)], str(burned))
 
 
 pulsar_bench()
