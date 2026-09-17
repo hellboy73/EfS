@@ -181,6 +181,13 @@ HUD_ON      = 0
 ; wants the counts again.
 DBG_CLASSES = 0
 
+; TEMPORARY, likewise: the ship's Saturnium (satn.s SATN) as two hex digits on
+; the IMAGE text layer, so charge and spend can be watched while flying. 0
+; takes every byte of it out.
+DBG_SATN      = 1
+DBG_SATN_ROW  = 3               ; below the message bar (IND_ROW)
+DBG_SATN_CELL = 0
+
 ; Which opcode draws a rock. All three are the SAME command - one closed figure
 ; per outline, with the centre, the angle, the scale and the RAW shape sent as
 ; data - and the GPU does the rotate, the scale and the clip. They differ only in
@@ -1311,7 +1318,11 @@ cart_frame:
                                         ;   it goes on computing them after the
                                         ;   ship stops being drawn precisely so
                                         ;   this can read them
-        jsr     do_radar                ; the contact lists - built BEFORE the HUD
+        jsr     do_satn                 ; Saturnium: the homing motes and the
+                                        ;   hull sparks, one DOT_PIXELS. AFTER
+                                        ;   do_flames for FLCX/FLCY too
+                                        ;   (satn.s)
+        jsr     do_radar               ; the contact lists - built BEFORE the HUD
                                         ;   because the HUD reads the count, and
                                         ;   emitted AFTER it because the list
                                         ;   order is the priority order
@@ -1443,6 +1454,13 @@ cart_frame:
                                         ; the FIRE2 click that chooses it. Its
                                         ; code is CODE4 (cart.cfg). After
                                         ; foes.s, whose UFO kill it reuses.
+        .include "satn.s"               ; Saturnium: the homing pool, the
+                                        ; counter and the hull sparks. CODE5.
+                                        ; After shots.s, whose puffs it reads.
+        .include "pulsar.s"             ; the pulsar: spin, a two-ended laser
+                                        ; on its frame 0, the teleport. CODE6,
+                                        ; after foes.s and laser.s, whose
+                                        ; tunables and hooks it uses.
         .include "cam.s"                ; the camera frames the nearest enemy,
                                         ; and an edge arrow points at one it
                                         ; cannot. CODE4, after laser.s.

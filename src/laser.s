@@ -124,8 +124,14 @@ LSRHN       = $6FE1             ; hits this frame, rocks and UFOs together - for
 ; -----------------------------------------------------------------------------
 wpn_trigger:
         lda     WEAPON
-        bne     lsr_fire
-        jmp     shot_fire               ; tail
+        beq     @gun
+        lda     LSRN                    ; the laser - and once its beam is dark
+        bne     lsr_fire                ;   with not another beam's worth of
+        lda     SATN                    ;   Saturnium in the hold, it hands
+        cmp     #SATN_LSR_COST          ;   back to the gun by itself: said and
+        bcs     lsr_fire                ;   heard as any change is (WEAPON is 1,
+        jsr     wpn_toggle              ;   so the toggle lands on 0), and a
+@gun:   jmp     shot_fire               ;   FIRE this frame is already a bullet
 
 ; lsr_fire - FIRE's edge lights the beam, unless it is already lit. The heading
 ; it is lit on is where its first frame's sweep starts, so that frame sweeps
@@ -136,6 +142,9 @@ lsr_fire:
         beq     @no
         lda     LSRN
         bne     @no                     ; burning: one beam at a time, as CETAS
+        lda     #SATN_LSR_COST          ; ...and it burns Saturnium: too little
+        jsr     satn_spend              ;   and the press does nothing at all
+        bcc     @no                     ;   (satn.s)
         lda     #LSR_FRAMES
         sta     LSRN
         lda     HEAD

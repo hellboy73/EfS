@@ -1,5 +1,5 @@
 ; =============================================================================
-; foes.s - the enemies. One kind so far: the UFO.
+; foes.s - the enemies: the UFO, the spider and the pulsar (pulsar.s).
 ; =============================================================================
 ; The UFO is the classic Asteroids saucer - the SHAPE is a homage (enemies.s),
 ; and it never turns: ANGLE 0, always drawn the way the editor shows it, while
@@ -72,10 +72,11 @@
 ; --- tunables - physics.md 9 is where these are argued; all of them are TBM --
 FOE_REC     = 7                 ; bytes a level spends on one enemy (levels.s)
 FK_UFO      = 0                 ; KIND 0 is the UFO...
-FK_SPIDER   = 1                 ; ...and KIND 1 the excavator. A kind nothing
-                                ;   knows how to fly is still skipped by
-                                ;   load_foes
-FK_N        = 2                 ; how many kinds have a behaviour
+FK_SPIDER   = 1                 ; ...KIND 1 the excavator...
+FK_PULSAR   = 2                 ; ...and KIND 2 the pulsar (pulsar.s). A kind
+                                ;   nothing knows how to fly is still skipped
+                                ;   by load_foes
+FK_N        = 3                 ; how many kinds have a behaviour
 FS_DEAD     = 0                 ; FOEST: an empty or destroyed slot
 FS_PATROL   = 1
 FS_PURSUE   = 2
@@ -496,6 +497,7 @@ do_foes:
         jsr     foe_hits
         jsr     lsr_foes                ; ...and the laser's beam, on the same
                                         ;   screen points (laser.s)
+        jsr     pls_beams               ; ...and the pulsars' (pulsar.s)
         jsr     foe_draw_all
         jsr     fsh_all
         jmp     fw_all
@@ -518,7 +520,9 @@ foe_think_all:
 :       lda     FOERAM,x
         beq     :+
         dec     FOERAM,x
-:       dec     FOEACD,x                ; ...and so does the animation step
+:       lda     FOELSR,x                ; ...and so does the animation step -
+        bne     @anim                   ;   unless a pulsar is firing, which
+        dec     FOEACD,x                ;   holds its frame 0 (pulsar.s)
         bne     @anim
         ldy     FOEAPP,x
         lda     EN_AHOLD,y
@@ -538,7 +542,8 @@ foe_think_all:
         jsr     foe_integrate           ;   its own velocity, and hits nothing
 :       jsr     foe_think
         bra     @next
-@free:  jsr     foe_think
+@free:  jsr     pls_spin                ; a pulsar turns (pulsar.s), every frame
+        jsr     foe_think
         ldx     FEI
         jsr     foe_integrate
 @next:  dec     FEI
@@ -591,7 +596,10 @@ foe_think:
 @go:    lda     FOEKIND,x
         cmp     #FK_SPIDER
         beq     spider_think
-        jsr     foe_seek
+        cmp     #FK_PULSAR              ; a pulsar patrols and never chases
+        bne     :+
+        jmp     pls_think
+:       jsr     foe_seek
         jsr     foe_steer
         jmp     foe_avoid
 
@@ -2086,8 +2094,14 @@ foe_body:
         sta     PBUF+2
         lda     FOEFYH,x
         sta     PBUF+3
-        lda     FOEANG,x                ; ANGLE: 0, or its rock's
-        sta     PBUF+4
+        lda     FOEANG,x                ; ANGLE: 0 for the UFO, which stays level
+        ldy     FOEKIND,x               ;   on SCREEN whatever the camera does; a
+        beq     @gotang                 ;   spider's is its rock's and a pulsar's
+                                        ;   its own spin, and that and the
+                                        ;   camera's rotation compose
+        sec                             ;   exactly as one_asteroid composes them,
+        sbc     HEAD                    ;   so a mounted spider turns with the
+@gotang:sta     PBUF+4                  ;   camera too
         lda     ZEASH                   ; SCALE: the eased zoom, as a rock
         sta     PBUF+5
         ldy     #$00
@@ -3598,7 +3612,11 @@ foe_take_hit:
         sta     FOEHP,x
         lda     #SE_ROCK_HIT
         jsr     sfx_fire
-        clc
+        lda     FOEKIND,x               ; a pulsar that lives through a hit
+        cmp     #FK_PULSAR              ;   jumps (pulsar.s)
+        bne     :+
+        jsr     pls_teleport
+:       clc
         rts
 @dead:  stz     FOEHP,x
         jsr     foe_kill
@@ -3617,9 +3635,11 @@ foe_kill:
         jsr     carrier_free            ; a spider's body goes back to the pool
         stz     FOEST,x                 ;   (X = FEI again on the way out)
         stz     FOEON,x
+        lda     FOEKILL                 ; a pulsar's beam killed it: nobody is
+        bne     :+                      ;   paid
         lda     #SCORE_FOE_KILL
         jsr     score_add
-        jsr     rock_boom
+:       jsr     rock_boom
         lda     #SHK_SHIFT_BREAK
         jsr     shake_arm
         ldx     FEI
@@ -3851,6 +3871,7 @@ load_foes:
 :       stz     FOEST,x
         stz     FOEON,x
         stz     FOESLP,x
+        stz     FOELSR,x                ; (pulsar.s) no beam carried over
         dex
         bpl     :-
         ldx     #FSH_N-1
@@ -4017,11 +4038,11 @@ foe_spawn:
 ; FOEKIND. The appearance is only a STARTING one: the spider changes its own
 ; when it comes off its rock, which is the whole reason the shape lookup is by
 ; appearance and not by kind.
-FOE_KAPP:   .byte   EA_UFO, EA_SPIDER
-FOE_KHP:    .byte   FOE_HP, SPD_HP
-FOE_KDMG:   .byte   FSH_DMG, SPD_DMG        ; what its bullet takes off
-FOE_KSPDL:  .byte   <SHOT_SPD, <SPD_SPD     ; ...and how fast the bullet flies
-FOE_KSPDH:  .byte   >SHOT_SPD, >SPD_SPD
+FOE_KAPP:   .byte   EA_UFO, EA_SPIDER, EA_PULSAR
+FOE_KHP:    .byte   FOE_HP, SPD_HP, PLS_HP
+FOE_KDMG:   .byte   FSH_DMG, SPD_DMG, FSH_DMG   ; what its bullet takes off
+FOE_KSPDL:  .byte   <SHOT_SPD, <SPD_SPD, <SHOT_SPD ; ...and how fast the bullet
+FOE_KSPDH:  .byte   >SHOT_SPD, >SPD_SPD, >SHOT_SPD ;   flies (a pulsar has no gun)
 
 ; A think period, as a shift, -> the phase mask and the acceleration it carries.
 FE_PMASK:   .byte   0, 1, 3, 7

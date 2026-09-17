@@ -311,6 +311,7 @@ game_start:
         jsr     shots_init              ; every gun and puff slot free - nothing
                                         ;   zeroes cartridge RAM for us
         jsr     lsr_reset               ; ...the gun chosen, the beam dark
+        jsr     satn_reset              ; ...no Saturnium, none in flight
         ldx     #START_LEVEL            ; ...and the field, the ship's place in
         jsr     load_level              ;   it and the sector grid, all out of
         jsr     radar_census            ;   levels.s. The radar's per-class rock

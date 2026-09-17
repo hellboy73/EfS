@@ -15,7 +15,7 @@
 ;
 ;   line  2   .......... a centred, transient message ..........
 ;   ...
-;   line 46   LIVES: 3  |xxxxxxxxxxxx|          <-- radar
+;   line 46   SHIPS: 3  |xxxxxxxxxxxx|          <-- radar
 ;   line 47   (blank)                            <-- radar
 ;   line 48   LEVEL: 1  SCORE: 0000120           <-- radar
 ;
@@ -96,7 +96,7 @@ HUD_RADAR_C0 = 24               ; the first cell the radar reaches into. Blips
                                 ;   194..201 - so cell 23 is the last safe one
 
 ; --- the left field, common to both rows -------------------------------------
-C_LABEL      = 0                ; "LIVES: " / "LEVEL: " then one digit
+C_LABEL      = 0                ; "SHIPS: " / "LEVEL: " then one digit
 C_LABEL_NUM  = 7
 C_RIGHT      = 10               ; ...and where the right-hand field starts, on
                                 ;   both rows: the hull bar on one, the score on
@@ -446,7 +446,7 @@ hud_row2:
 @skip:  rts
 
 ; -----------------------------------------------------------------------------
-; hud_build_row1 - "LIVES: n" and the hull bar, into HUD_L1.
+; hud_build_row1 - "SHIPS: n" and the hull bar, into HUD_L1.
 ; -----------------------------------------------------------------------------
 ; The bar is HP_PER_HP characters per hit point, left-aligned between two pipes,
 ; the rest left as the spaces hud_blank_l1 wrote - so a hull at 2 of 5 reads
@@ -456,7 +456,7 @@ hud_row2:
 ; -----------------------------------------------------------------------------
 hud_build_row1:
         jsr     hud_blank_l1
-        ldx     #0                      ; "LIVES: "
+        ldx     #0                      ; "SHIPS: "
         ldy     #C_LABEL
 @lab:   lda     STR_LIVES,x
         sta     HUD_L1,y

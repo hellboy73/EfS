@@ -551,3 +551,47 @@ both sides of a crossing has been hit on one of the two frames.
 | `LSR_SWK` | the sweep, 128·4·2π/256 per brad | **13** — 12.57 rounded up, 3% generous |
 | `LSR_DMAX` | brads a frame the sweep believes at most | **7** — bounds `qmul`; real turns are under 2 |
 | `LSR_DMG` | hit points a frame to everything crossed | **4** — two fifths of a bullet's `SHOT_DMG` (10); 80 a press. Paid pro rata: `LSR_SCORE` 4, `LSR_FOE_SCORE` 20 a frame **(TBM, B9)** |
+
+## 11. The pulsar — a spinning bar with a laser in each end
+
+Built (`src/pulsar.s`, CODE6 in CART_HIRAM). Every number below is still
+**(TBM)**. Level 0 carries two, near the ship's start.
+
+**Flight** is the UFO's patrol and nothing else: `foe_patrol`, `foe_steer`,
+`foe_avoid`, with **no pursuit** — `foe_seek` is never called, so it never
+sees the ship and never raises the alarm. **It spins** (`FOEANG` 8.8, `PLS_SPIN`
+a frame, the sense by slot parity) **and turns with the world**: drawn at
+`FOEANG − HEAD` like a mounted spider. The UFO stays the one enemy that is level
+on the screen.
+
+**The laser** is part 0, the bar, carried on outward from both ends in opposite
+directions — two `gpu_dotline_clip` beams, 256 half-res px long, always both. It
+lights only from **animation frame 0**, burns `PLS_FRAMES` game frames with the
+animation frozen on that frame, and only if on the hold's first frame the pulsar is **on the
+screen** and its **bar points at the ship** (the ship's circle crosses the beam's
+line). Once lit it burns them all, unless the pulsar leaves the screen or jumps.
+It also has the spider's **sight** (`FS_PURSUE` inside `FOE_SEE`, lost past
+`FOE_LOSE`) — steering nothing, only so the camera frames it like the others.
+
+**What it hits** is tested on the screen like the ship's laser: every rock on the
+visible list, every other enemy with `FOEON` (a mounted spider excepted), and the
+ship — each loses `LSR_DMG` a lit frame. The test is the target's circle (+
+`PLS_HW`) against the beam's line beyond the bar's ends, worked in quarter-res
+px with exact quarter-square products (compared ×127, never divided). `FOEKILL`
+is set around every hit: what it breaks or kills pays no score and no Saturnium.
+
+**The jump.** A pulsar that survives a hit — bullet, laser, another pulsar's beam
+— teleports: its offset from the ship is turned by `PLS_TPANG` + 0..`PLS_TPJIT`
+brad, either way, at the same distance (`smul16q7` ×4, once a hit). Its post
+moves with it, so a pulsar holding a post holds the new one.
+
+| name | meaning | value |
+|---|---|---|
+| `PLS_HP` | hit points | **50** — five bullets **(TBM)** |
+| `PLS_SPIN` | spin, brad a frame, 8.8 | **$0080** — half a brad, a turn in ~8.5 s **(TBM)** |
+| `PLS_ARM` | full-res px from the centre to each end of the frame-0 bar | **15** — `EN_PULSAR_S0` |
+| `PLS_HW` | the beam's half-width for the hit test | **`LSR_HW`** (2) |
+| `PLS_FRAMES` | game frames one shot burns, the animation frozen on frame 0 | **10** **(TBM)** |
+| `PLS_DMG` | hit points a lit frame to rocks and enemies it crosses | **`LSR_DMG`** (4) — 40 a shot **(TBM)** |
+| `PLS_SHIPDMG` | ...and to the ship | **1** — 10 a shot, one ordinary hit **(TBM)** |
+| `PLS_TPANG` + `PLS_TPJIT` | a jump's turn round the ship, brad | **48 + 0..31** — 68° to 111°, either way **(TBM)** |

@@ -1504,3 +1504,77 @@ These are settled and should not be re-opened without a reason:
     **The one balance change it makes** is the laser's, and it is B9's to
     judge: a press is 80, so the largest rock (50) goes in thirteen frames with
     the beam still lit for the halves it just made, and a UFO (30) lasts eight.
+26. **Camera lag stays at `SHOFF_LAG` = 4 (ship slide and zoom) and `CAMX_LAG` =
+    5 (turn lean).** Flown and confirmed comfortable at the top tier — not
+    nauseating, and not so slow it disconnects the throttle from the view.
+    Closes `open_questions.md` B3.
+27. **The ship never banks.** It stays drawn nose-up at every turn rate; the
+    sense of turning is carried entirely by the world's own rotation and the
+    camera's lean into a turn (34 below), not by tilting the ship's outline. No
+    bank-angle mechanic exists or is planned. Closes `open_questions.md` B4.
+28. **Heading stays at its natural 8.8 fractional resolution — no separate
+    coarse table.** The turn ladder (15-17 above) already needs the fraction
+    for its rate math, and with the ship always drawn nose-up the only place
+    resolution would show is the smoothness of the world's own rotation, which
+    reads fine at full resolution. Nothing coarser was ever built, so the
+    32-vs-256 choice needs no answer. Closes `open_questions.md` B5.
+29. **Firing does not slow the ship.** No recoil or impulse is taken off
+    `THRTL` or `SPD` on a shot. Closes `open_questions.md` B8.
+30. **The laser's numbers (24 above) are flown and judged, not just built.**
+    `LSR_DMG` = 4/frame, `LSR_FRAMES` = 20, no ammunition and no cooldown past
+    its own burn, `TPCLICK_FRAMES` = 18 switch latency — all confirmed in
+    play. Closes `open_questions.md` B9.
+31. **Zoom-out stops at 2x — 3x was judged and declined.** The visible-object
+    count scales as the square of the zoom, and 2x already reads well against
+    the legibility floor (32 below); going further was measured against what
+    it costs and not worth it. `ZCAP`'s hook for a performance-driven cap
+    stays, but nothing past 2x is a design target. Closes `open_questions.md`
+    C1.
+32. **A small asteroid stays legible in 1-bit at 300x400 at the 2x zoom-out
+    ceiling.** Checked by eye and confirmed. Closes `open_questions.md` C2.
+33. **Ship screen-Y range is 40 px below centre at rest, +126 px at +350, -40
+    px at full reverse, eased and linear in speed.** Flown and measured; 127
+    stays the hard ceiling (signed-byte offset). Closes `open_questions.md`
+    C3.
+34. **The camera's lean into a turn is +/-80 px at full lean and top speed
+    (`CAMX_TIER`, `CAMX_LAG` = 5, `CAMX_CLAMP` = 768), and the sign is correct
+    as flown.** Closes `open_questions.md` C5.
+35. **The camera-frames-nearest-enemy servo is flown and good.** `CAM_M` = 24,
+    `CAM_MHYS` = 16, `CAM_F` = 250, `CAM_SSTEP` = 4 and the servo's step rate
+    stand as final. Closes `open_questions.md` C6.
+36. **The flame sprite's step scheme is final.** `thrust.s`'s `FLAME_N` = 27
+    slot table stays as authored; no further pre-scaled sizes are being added
+    for flames or shots. Closes `open_questions.md` D2.
+37. **The star field is two parallax layers: `STAR_N` = 50 far stars at 1/4
+    parallax, `MOTE_N` = 10 near motes at twice ship speed, single pixels, no
+    streaks.** No further layers and no denser field. Closes
+    `open_questions.md` D4 and D10.
+38. **Stars and radar blips stay on the half-res, 2-pixel `DOT_PIXELS`
+    lattice.** The full-res `PIXEL` op does not earn its per-point cost;
+    half-res reads fine on real hardware. Closes `open_questions.md` D8.
+39. **Rocks stay full-res solid (`$4E POLYGON16`), not dotted.** Looked at
+    side by side, full-res solid reads clearly better despite losing the
+    dotted rim, and the extra GPU cost per vertex (1,873 cycles against 1,564
+    dotted) is worth it. What remains open about the shapes themselves
+    (authoring genuinely full-res outlines instead of the doubled half-res
+    tables) stays at `open_questions.md` D11, narrowed to that.
+40. **The radar's admission test and its 25,600-unit reach are flown and
+    judged, not just measured.** The catchment is a circle tested entirely in
+    world space before the `ROT[]` transform: a box pre-reject (`|dx|`/`|dy|`
+    against the radius, no multiply) followed by the precise round test
+    (`dx*dx + dy*dy` vs `R*R`, through the same quarter-square table star
+    occlusion uses) — a circle is rotation- and scale-invariant, so nothing
+    needs to clip a survivor afterward. Candidates come from a flat scan of
+    the object array with the class window (G8) tested first, not the sector
+    grid — right at 12,800 units (a 9x9 ring), wrong at 25,600 (a 15x15 ring
+    walks 88% of the world to skip 12% of it). The reach itself is 25,600
+    world units, covering 48% of the torus at no on-screen cost, bounded
+    above by the 32,768 point past which a wrap-correct signed subtract stops
+    being unambiguous. Closes `open_questions.md` G2.
+41. **The background-bitmap radar fallback was considered and rejected.** Its
+    mechanism turned out to be exactly what the radar's own furniture already
+    uses (`LOAD`, one 256-byte page at a time, obeying the two-frame rule),
+    which settled its real cost: a full redraw of the 100x100 corner is 20
+    pages, ~0.7 s — a scene transition, not a refresh rate. If the live
+    per-frame path ever needs relief, the lever is the class window (G8), not
+    a second rendering mode. Closes `open_questions.md` G6.

@@ -394,7 +394,8 @@ do_ship:
         lda     TPGO                    ; ...and only then, the teleport: it must
         beq     :+                      ;   land on THIS frame's position
         stz     TPGO
-        jsr     do_teleport
+        jsr     satn_teleport           ; do_teleport, if the hold has the
+                                        ;   Saturnium for it (satn.s)
 :       rts
 
 ; -----------------------------------------------------------------------------

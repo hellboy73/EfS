@@ -445,6 +445,28 @@ def foes_addr(name):
     return int(m.group(1), 16)
 
 
+def satn_sym(name):
+    """A $hhhh address, or a decimal constant, out of satn.s."""
+    m = re.search(rf"^{re.escape(name)}\s*=\s*([$][0-9A-Fa-f]+|\d+)",
+                  (SRC / "satn.s").read_text(), re.M)
+    if not m:
+        raise RuntimeError(f"{name} not found in satn.s")
+    v = m.group(1)
+    return int(v[1:], 16) if v.startswith("$") else int(v)
+
+
+SATN_A, SATDI_A = satn_sym("SATN"), satn_sym("SATDI")
+SATN_TP_COST = satn_sym("SATN_TP_COST")
+
+
+def satn_fund(price=SATN_TP_COST):
+    """A teleport and a laser beam cost Saturnium now (satn.s). The benches that
+    double-click FIRE2 or light the beam are testing the JUMP and the BEAM, so
+    they top the hold up to one's worth on the frame it is asked for - the gates
+    themselves have their own bench."""
+    cpu_mem[SATN_A] = max(ram(SATN_A), price)
+
+
 def foes_const(name):
     """A decimal constant out of foes.s."""
     m = re.search(rf"^{re.escape(name)}\s*=\s*(\d+)", (SRC / "foes.s").read_text(), re.M)
@@ -898,6 +920,7 @@ spin = []                               # OBJSPN for the whole field, per frame
 angle = []                              # ...and OBJANG:OBJANGF beside it
 EXPL_DOTS = shots_array("EXPL_DOTS")
 npuff = []                              # 1 on a frame that emitted a puff list
+nsatn = []                              # ...and Saturnium's motes and sparks
 explstate = []                          # (live, age, block group) per slot, per frame
 OBJHP = 0x7200
 CELLHD, OBJNXT, OBJSHP_A, OBJCEL = (
@@ -973,6 +996,8 @@ for f in range(FRAMES):
         joy1_press |= JOY_FIRE
     if f == TELEPORT_ARM_AT or f == TELEPORT_AT:  # FIRE2, DOUBLE-CLICKED:
         joy1_press |= JOY_FIRE2                   #   the first click arms the
+        if f == TELEPORT_AT:
+            satn_fund()
                                                    #   window, the second fires
                                                    #   the teleport (do_fire2)
     cpu_mem[JOY1_PRESS] = joy1_press
@@ -1024,6 +1049,7 @@ for f in range(FRAMES):
                 if dx * dx + dy * dy < rr * rr:
                     foe_inside.append((f, k, i, rr - int((dx * dx + dy * dy) ** 0.5)))
     npuff.append(1 if cpu_mem[EXN_A] else 0)
+    nsatn.append(1 if ram(SATDI_A) else 0)      # satn.s's list, after the puffs
     explstate.append([(cpu_mem[EXLIVE + i], cpu_mem[EXAGE + i], cpu_mem[EXSET + i])
                       for i in range(EXPL_N)])
     hp.append([cpu_mem[OBJHP + i] for i in range(NOBJ)])
@@ -1578,6 +1604,8 @@ REV_FRAMES = -(-(TIER_ZERO * 128) // THRTL_ACCEL)   # tier 3 -> 0, full astern
 for f in range(60):
     cpu_mem[JOY1] = JOY_DOWN if f < REV_FRAMES else 0
     cpu_mem[JOY1_PRESS] = JOY_FIRE2 if f in (43, 45) else 0  # ...then teleport,
+    if f == 45:
+        satn_fund()
                                                               #   double-clicked
     call(cpu, API_GPU_BEGIN)
     call(cpu, CART_FRAME)
@@ -2786,7 +2814,7 @@ if first_dots is not None and dots is not None:
 # =============================================================================
 # Four things worth proving, and one of them is the whole design: that a
 # CIRCULAR catchment in world space means a blip can never need clipping.
-rad_lists = [dotlists(frames[f])[npuff[f]:-2] for f in range(FRAMES)]
+rad_lists = [dotlists(frames[f])[npuff[f] + nsatn[f]:-2] for f in range(FRAMES)]
                                                         # the backdrop is the tail,
                                                         # and any puff is the head
 rad_pts = [[p for lst in ls for p in lst] for ls in rad_lists]
@@ -3210,7 +3238,7 @@ r1 = [t for _, _, ln, t in hud_cmds if ln == HUD_ROW1]
 r2 = [t for _, _, ln, t in hud_cmds if ln == HUD_ROW2]
 ind = [t.strip() for _, _, ln, t in hud_cmds if ln == IND_ROW]
 check("row 1 carries the lives and the hull bar",
-      bool(r1) and r1[0].startswith(f"LIVES: {hud_const('LIVES_START')}")
+      bool(r1) and r1[0].startswith(f"SHIPS: {hud_const('LIVES_START')}")
       and "|" in r1[0],
       f"first row 1 was {r1[0]!r}" if r1 else "row 1 never drew")
 SCORE_DIGITS = hud_const("SCORE_DIGITS")
@@ -3360,8 +3388,13 @@ for f in range(LZ_N):
     p = j & ~prevj & 0x0F
     if f in LZ_FIRE:
         p |= JOY_FIRE
+    satn_fund(satn_sym("SATN_LSR_COST"))       # every frame: an empty hold would
+                                                #   hand the laser back to the gun
     if f in LZ_CLICK:
         p |= JOY_FIRE2
+        satn_fund(SATN_TP_COST + satn_sym("SATN_LSR_COST"))  # a jump that still
+                                                #   leaves a beam, or the laser
+                                                #   would hand back to the gun
     cpu_mem[JOY1_PRESS] = p
     prevj = j
     if f == LZ_UFO_AT:                          # ahead is (sin H, -cos H)
@@ -4103,6 +4136,446 @@ check("its bullet does HALF the damage of a UFO's",
 check("...and flies at HALF a UFO bullet's speed",
       bool(s_spd) and bool(u_spd) and all(abs(2 * s - u) <= 6 for s in s_spd for u in u_spd),
       f"spider {_r3(s_spd)}, UFO {_r3(u_spd)}")
+
+# =============================================================================
+# SATURNIUM (satn.s) - the homing pool, the counter, the sparks, the gate
+# =============================================================================
+# A clean game with every UFO off the field, and one rock turned into DEBRIS
+# (class 4, one hit point) dead ahead of the ship and shot with the real gun,
+# so the kill goes the whole way: shot_hits, expl_spawn, rock_take_hit,
+# rock_destroy, satn_kill. Then the clamp on a second kill, the spark readout
+# at every tier boundary, and the teleport gate either side of its price.
+def satn_bench():
+    ZEASH_A = cart_addr("ZEASH")
+    SATPT, SATPXL, SATPXH, SATPYL, SATPYH = (
+        satn_sym(n) for n in ("SATPT", "SATPXL", "SATPXH", "SATPYL", "SATPYH"))
+    SATP_N, SATN_ADD, SATN_MAX = satn_sym("SATP_N"), satn_sym("SATN_ADD"), satn_sym("SATN_MAX")
+    LEN_SATN = int(_num((SRC / "sfx.s").read_text(), "LEN_SATN"))
+    EXPL_DOTS_N = shots_const("EXPL_DOTS_N")
+    VLEN_NOISE = cart_addr("VLEN") + 3                  # sfx.s: the noise claim
+    SATCNT_A = satn_sym("SATCNT")
+    SATR_R0, SATR_R1 = satn_sym("SATR_R0"), satn_sym("SATR_R1")
+    SATR_ZBIG, SATN_FULL = satn_sym("SATR_ZBIG"), satn_sym("SATN_FULL")
+    FLC = 0x7011                                        # thrust.s FLCXL..FLCYH
+    OBJTYPE_A, OBJSLP_A = cart_addr("OBJTYPE"), cart_addr("OBJSLP")
+    OBJXF_A, OBJYF_A = cart_addr("OBJXF"), cart_addr("OBJYF")
+    RKLIVE_A = int(re.search(r"^RKLIVE\s*=\s*[$]([0-9A-Fa-f]{4})",
+                             (SRC / "radar.s").read_text(), re.M).group(1), 16)
+    GOBJ_A = cart_addr("GOBJ")
+    TPCNT_A = ZP_ABS["TPCNT"]
+
+    def frame(press=0):
+        cpu_mem[JOY1_PREV] = cpu_mem[JOY1] = 0
+        cpu_mem[JOY1_PRESS] = press
+        call(cpu, API_GPU_BEGIN)
+        c = call(cpu, CART_FRAME)
+        call(cpu, API_GPU_END)
+        end = cpu_mem[0x04] | (cpu_mem[0x05] << 8)
+        return c, bytes(cpu_mem[PPRAM + i] for i in range(end - PPRAM + 1))
+
+    def ship():
+        return (cpu_mem[0x8B] | cpu_mem[0x8C] << 8, cpu_mem[0x8E] | cpu_mem[0x8F] << 8)
+
+    def centre():                                       # the hull, half-res
+        return ((cpu_mem[FLC] | cpu_mem[FLC + 1] << 8) // 2,
+                (cpu_mem[FLC + 2] | cpu_mem[FLC + 3] << 8) // 2)
+
+    def satn_list(stream):                              # after the puffs, if any
+        return dotlists(stream)[1 if cpu_mem[EXN_A] else 0] if ram(SATDI_A) else []
+
+    def pool():
+        return [i for i, t in enumerate(ram_block(SATPT, SATP_N)) if t]
+
+    def put_debris(dist, side=0):
+        """A live rock becomes a one-hit-point class 4, dist world units ahead
+        and side units to the right of the heading."""
+        i = next(i for i in range(NOBJ) if ram(OBJSHP_A + i) not in (SHP_DEAD, 4))
+        call(cpu, LBL["win_off"])
+        cpu_mem[GOBJ_A] = i
+        cpu.x = i
+        call(cpu, LBL["cell_unlink"])
+        call(cpu, LBL["win_on"])
+        cpu_mem[RKLIVE_A + ram(OBJSHP_A + i)] -= 1
+        cpu_mem[RKLIVE_A + 4] += 1
+        h = cpu_mem[0x83] * 2 * math.pi / 256
+        sx, sy = ship()
+        x = (sx + round(dist * math.sin(h) + side * math.cos(h))) & 0xFFFF
+        y = (sy - round(dist * math.cos(h) - side * math.sin(h))) & 0xFFFF
+        for a, v in ((OBJXL_A, x & 0xFF), (OBJXH_A, x >> 8), (OBJYL_A, y & 0xFF),
+                     (OBJYH_A, y >> 8), (OBJXF_A, 0), (OBJYF_A, 0), (OBJSHP_A, 4),
+                     (OBJTYPE_A, 0), (OBJHP, 1), (OBJSLP_A, 0), (OBJVXL_A, 0),
+                     (OBJVXH_A, 0), (OBJVYL_A, 0), (OBJVYH_A, 0)):
+            cpu_mem[a + i] = v
+        call(cpu, LBL["win_off"])
+        cpu.x = i
+        call(cpu, LBL["cell_link"])
+        call(cpu, LBL["win_on"])
+        return i
+
+    boot_cart()
+    for k in range(cpu_mem[0x6E1C]):                    # NFOE
+        cpu_mem[FOEST_A + k] = 0
+    for _ in range(3):
+        frame()
+    check("SATURNIUM: a new game starts with an empty hold and pool",
+          ram(SATN_A) == 0 and not pool())
+
+    tp0, s0 = cpu_mem[TPCNT_A], ship()
+    frame(JOY_FIRE2); frame(); frame(JOY_FIRE2); frame()
+    check("...a teleport with nothing in the hold does nothing at all",
+          cpu_mem[TPCNT_A] == tp0 and ram(SATN_A) == 0 and ship() == s0,
+          f"TPCNT {tp0} -> {cpu_mem[TPCNT_A]}, ship {s0} -> {ship()}")
+    for _ in range(20):
+        frame()
+
+    slot = put_debris(60 * 16)
+    log, killf, paths = [], None, {}
+    for f in range(90):
+        before = ram(SATN_A)
+        c, st = frame(JOY_FIRE if f == 0 else 0)
+        sx, sy = ship()
+        P = pool()
+        rel = {i: (_wd(ram(SATPXL + i) | ram(SATPXH + i) << 8, sx),
+                   _wd(ram(SATPYL + i) | ram(SATPYH + i) << 8, sy)) for i in P}
+        for i, xy in rel.items():
+            paths.setdefault(i, []).append(xy)
+        lst = satn_list(st)
+        cx, cy = centre()
+        ring = lst[len(lst) - ram(SATCNT_A):] if ram(SATN_A) else []
+        log.append(dict(f=f, satn=ram(SATN_A), n=len(P),
+                        dmax=max((max(map(abs, xy)) for xy in rel.values()), default=0),
+                        dots=len(lst), vlen=cpu_mem[VLEN_NOISE], cyc=c,
+                        rad=round(max((math.hypot(x - cx, y - cy) for x, y in ring),
+                                      default=0), 1)))
+        if killf is None and ram(OBJSHP_A + slot) == SHP_DEAD:
+            killf = f
+            check("...a class-4 killing blow pays exactly SATN_ADD",
+                  ram(SATN_A) - before == SATN_ADD, f"{before} -> {ram(SATN_A)}")
+            check("...and its puff becomes exactly EXPL_DOTS_N homing motes",
+                  len(P) == EXPL_DOTS_N and cpu_mem[EXN_A] == 0,
+                  f"{len(P)} motes, EXN {cpu_mem[EXN_A]}")
+        if killf is not None and f > killf and not P:
+            break
+    check("...the debris was killed by the gun", killf is not None)
+    if killf is None:
+        return
+    arr = log[killf + 1:]
+    print(f"        saturnium: killed on frame {killf}; after it, motes "
+          f"{[r['n'] for r in arr]}, max|ship - mote| {[r['dmax'] for r in arr]}")
+    landed = [r for a, r in zip(log[killf:], arr) if r["n"] < a["n"]]
+    quiet = [r for a, r in zip(log[killf:], arr) if r["n"] == a["n"]]
+    def bow(path):                                   # widest miss of the straight
+        (x0, y0), n = path[0], math.hypot(*path[0])  #   line to the ship, full-res px
+        return max(abs(x * y0 - y * x0) / n for x, y in path) / 16 if n else 0
+    bows = sorted(round(bow(pth)) for pth in paths.values())
+    print(f"        saturnium: each mote's widest bow off the straight line, px: {bows}")
+    check("...every mote reaches the ship within 45 frames, and arriving pays nothing more",
+          arr[-1]["n"] == 0 and len(arr) <= 45 and all(r["satn"] == SATN_ADD for r in arr),
+          f"{len(arr)} frames")
+    check("...the cloud swims in - its paths bow off the straight line - drawn all the way",
+          bows and min(bows) >= 4 and all(r["dots"] for r in arr if r["n"]), str(bows))
+    check("...the cloud's first landing whooshes once, and every landing pulses the ring",
+          bool(landed) and landed[0]["vlen"] == LEN_SATN
+          and all(r["vlen"] < LEN_SATN for r in landed[1:] if r["f"] < landed[0]["f"] + LEN_SATN)
+          and all(r["rad"] > max(q["rad"] for q in quiet) for r in landed),
+          f"arrivals (frame, noise claim, ring radius) {[(r['f'], r['vlen'], r['rad']) for r in landed]}, "
+          f"otherwise radius {sorted({q['rad'] for q in quiet})}")
+
+    cpu_mem[SATN_A] = SATN_MAX - SATN_ADD // 2
+    i = put_debris(60 * 16)
+    for f in range(30):
+        frame(JOY_FIRE if f == 0 else 0)
+        if ram(OBJSHP_A + i) == SHP_DEAD:
+            break
+    check("...and a kill near the ceiling clamps to SATN_MAX",
+          ram(OBJSHP_A + i) == SHP_DEAD and ram(SATN_A) == SATN_MAX, str(ram(SATN_A)))
+    for _ in range(60):
+        frame()
+
+    # A cloud that starts off to the side, or behind a ship that is turning at
+    # speed, must still LAND. The first accelerating cut was an undamped spring:
+    # the short axis overshot and swung for ever, and the motes orbited the
+    # ship. satn_kill is called straight on a rock that stays put - only its
+    # position is wanted - so the motes are born exactly as a kill makes them.
+    def cloud_lands(ahead, side, joy):
+        boot_cart()
+        for k in range(cpu_mem[0x6E1C]):
+            cpu_mem[FOEST_A + k] = 0
+        frame()
+        cpu_mem[SPL_P_A] = put_debris(ahead, side)
+        cpu_mem[FOEKILL_A] = 0
+        cart_call("satn_kill")
+        for f in range(90):
+            cpu_mem[JOY1_PREV] = cpu_mem[JOY1] = joy(f)
+            cpu_mem[JOY1_PRESS] = 0
+            call(cpu, API_GPU_BEGIN)
+            call(cpu, CART_FRAME)
+            call(cpu, API_GPU_END)
+            if not pool():
+                return f + 1
+        return None
+    SPL_P_A, FOEKILL_A = shots_const("SPL_P"), shots_const("FOEKILL")
+    lands = {"20 px ahead, 90 px aside, ship still": cloud_lands(20 * 16, 90 * 16, lambda f: 0),
+             "75 px behind, ship thrusting and turning": cloud_lands(-75 * 16, 20 * 16,
+                                                                   lambda f: JOY_UP | JOY_RIGHT)}
+    print("        saturnium clouds landed after (frames): "
+          + ", ".join(f"{k}: {v}" for k, v in lands.items()))
+    check("...a cloud lands wherever it starts and whatever the ship does - no orbit",
+          all(v is not None for v in lands.values()), str(lands))
+    boot_cart()                                 # a still ship and a settled zoom
+    for k in range(cpu_mem[0x6E1C]):            #   again, and no enemy to frame or
+        cpu_mem[FOEST_A + k] = 0                #   to hurt the ship, so the sparks
+    for _ in range(120):                        #   measure the charge and nothing
+        frame()                                 #   else
+
+    def ring(v, n):
+        """n frames at SATN v: (dots, (min, max) radius, LINE16s, octants) each."""
+        cpu_mem[SATN_A] = v
+        out = []
+        for _ in range(n):
+            _, st = frame()
+            cx, cy = centre()
+            lst = satn_list(st)
+            rr = [math.hypot(x - cx, y - cy) for x, y in lst]
+            octs = {int((math.atan2(y - cy, x - cx) + math.pi) / (math.pi / 4)) % 8
+                    for x, y in lst}
+            zs = 1.0 if cpu_mem[ZEASH_A] >= SATR_ZBIG else 0.75
+            out.append((len(lst), (round(min(rr, default=0) / zs, 1),
+                                   round(max(rr, default=0) / zs, 1)),
+                        len([q for op, q in decode(st) if op == 0x43]), octs))
+        return out
+    counts = {v: ring(v, 1)[0][0] for v in (0, 1, 7, 8, 49, 50, 99, 100, 150, 199, 200,
+                                            SATN_MAX)}
+    top = ring(SATN_MAX, 64)
+    full = ring(SATN_MAX - 1, 64)
+    below = ring(SATN_FULL - 1, 64)
+    radii = [q[1] for q in top + full + below]
+    print(f"        saturnium ring: sparks by SATN {counts}; radius over 192 frames "
+          f"{min(a for a, _ in radii)}..{max(b for _, b in radii)} half-res at 1:1; "
+          f"FULL rays by frame {[q[2] for q in top if q[2]]}")
+    check("...the ring: no sparks on an empty hold, and more alive at every tier",
+          counts[0] == 0 and counts[1] == counts[7] and counts[8] == counts[49]
+          and counts[99] == counts[50]
+          and counts[1] < counts[8] < counts[50] < counts[100] < counts[150] < counts[200]
+          and counts[199] == counts[150] and counts[200] == counts[SATN_MAX], str(counts))
+    check("...its sparks fly between SATR_R0 and SATR_R1, all the way round the circle",
+          all(SATR_R0 - 2 <= a and b <= SATR_R1 + 2 for a, b in radii)
+          and all(len(set().union(*(q[3] for q in top[k:k + 8]))) == 8 for k in range(0, 64, 8)),
+          f"radii {sorted(set(radii))[:4]}...")
+    check("...and at FULL it flashes 3 rays for two frames in every 32, never below it",
+          [q[2] for q in full].count(3) == 4 and sum(q[2] for q in full) == 12
+          and not any(q[2] for q in below),
+          f"{[q[2] for q in full]} / below {[q[2] for q in below]}")
+    check("...and brimming at SATN_MAX, a lone ray every 4 frames between the flashes",
+          [q[2] for q in top].count(3) == 4 and [q[2] for q in top].count(1) == 16
+          and sum(q[2] for q in top) == 28
+          and all(top[k][2] == 0 or top[k + 1][2] == 0 for k in range(63) if top[k][2] == 1),
+          str([q[2] for q in top]))
+
+    for _ in range(20):
+        frame()
+    for v, want in ((SATN_TP_COST - 1, (0, SATN_TP_COST - 1)), (SATN_TP_COST, (1, 0)),
+                    (SATN_MAX, (1, SATN_MAX - SATN_TP_COST))):
+        cpu_mem[SATN_A] = v
+        tp0 = cpu_mem[TPCNT_A]
+        frame(JOY_FIRE2); frame(); frame(JOY_FIRE2)
+        got = (cpu_mem[TPCNT_A] - tp0, ram(SATN_A))
+        check(f"...a teleport at SATN {v} {'is refused' if not want[0] else 'spends SATN_TP_COST'}",
+              got == want, f"(teleports, SATN) {got}, wanted {want}")
+        for _ in range(25):
+            frame()
+
+    WEAPON, LSRN = laser_sym("WEAPON"), laser_sym("LSRN")
+    LSR_COST = satn_sym("SATN_LSR_COST")
+    # ...and with the laser chosen: (lit, SATN) at the press, and once the beam
+    # is out the weapon is the laser only while a beam's worth is left - the
+    # beam can EARN it back, from the debris it cuts, so that is read, not
+    # assumed
+    for v, want in ((LSR_COST - 1, (False, LSR_COST - 1)), (LSR_COST, (True, 0)),
+                    (SATN_MAX, (True, SATN_MAX - LSR_COST))):
+        cpu_mem[WEAPON] = 1                     # the laser chosen, as FIRE2 would
+        cpu_mem[SATN_A] = v
+        frame(JOY_FIRE)
+        got = (cpu_mem[LSRN] > 0, ram(SATN_A))
+        for _ in range(40):
+            frame()
+        armed = (cpu_mem[WEAPON], ram(SATN_A))
+        check(f"...a laser beam at SATN {v} {'is refused' if not want[0] else 'spends SATN_LSR_COST'}"
+              f", and the laser stays armed after it only with a beam's worth left",
+              got == want and armed[0] == (1 if armed[1] >= LSR_COST else 0),
+              f"(lit, SATN) {got}, wanted {want}; after (WEAPON, SATN) {armed}")
+    cpu_mem[WEAPON], cpu_mem[SATN_A] = 1, LSR_COST - 1   # dry, dark, no press
+    frame()
+    check("...the laser with the hold run dry hands back to the gun by itself",
+          cpu_mem[WEAPON] == 0, f"WEAPON {cpu_mem[WEAPON]}")
+    cpu_mem[WEAPON] = 0
+
+
+satn_bench()
+
+
+# =============================================================================
+# The PULSAR - it aims, fires both ends for its frame-0 hold, and jumps when hit
+# =============================================================================
+# Level 0 carries two. Here one is parked 100 px ahead of the ship with every
+# other enemy taken off, its bar turned (FOEANG) to point at the ship on the
+# frame its playlist enters frame 0 - the one frame that decides - and the
+# cart's own frames do the rest. The angle is worked out the way the GPU turns
+# the bar (MAD-65 gpu_os.s pg_vertex: the +dx end goes to cos, sin), from the
+# screen points the frame before left in RAM.
+def pulsar_sym(name):
+    """A $hhhh address, or a decimal constant, out of pulsar.s."""
+    m = re.search(rf"^{re.escape(name)}\s*=\s*([$][0-9A-Fa-f]+|\d+)",
+                  (SRC / "pulsar.s").read_text(), re.M)
+    if not m:
+        raise RuntimeError(f"{name} not found in pulsar.s")
+    v = m.group(1)
+    return int(v[1:], 16) if v.startswith("$") else int(v)
+
+
+def pulsar_bench():
+    FK_PULSAR = foes_const("FK_PULSAR")
+    EA_PULSAR = _app["PULSAR"]
+    pul = next(e for e in _en_model.enemies if e.name == "PULSAR")
+    AHOLD, AN = pul.hold, len(pul.order)
+    PLS_HP = 5 * HIT_HP                         # pulsar.s: 5*HIT_HP
+    PLS_FRAMES = pulsar_sym("PLS_FRAMES")
+    FOELSR_A, FOEANGF_A = pulsar_sym("FOELSR"), pulsar_sym("FOEANGF")
+    SHIPHP_A, SHIPINV_A = cart_addr("SHIPHP"), cart_addr("SHIPINV")
+    SCORE_A = int(re.search(r"^SCORE\s*=\s*[$]([0-9A-Fa-f]{4})",
+                            (SRC / "hud_game.s").read_text(), re.M).group(1), 16)
+    fa = {n: foes_addr(n) for n in ("FOEAPP", "FOEHP", "FOEAST", "FOEACD", "FOEANG",
+                                     "FOEFXL", "FOEFXH", "FOEFYL", "FOEFYH", "FOEON")}
+
+    boot_cart()
+    lv = [ram(FOEST_A + k) for k in range(cpu_mem[0x6E1C])
+          if ram(FOEKIND_AD + k) == FK_PULSAR]
+    check("level 0 has two pulsars, loaded on patrol", lv == [1, 1], f"states {lv}")
+
+    def world(a, b):
+        return cpu_mem[a] | (cpu_mem[b] << 8)
+
+    def put(k, kind, app, hp, x, y):
+        foe_put(k, x & 0xFFFF, y & 0xFFFF)
+        cpu_mem[FOEKIND_AD + k] = kind
+        for n, v in (("FOEAPP", app), ("FOEHP", hp), ("FOEAST", 2), ("FOEACD", 50),
+                     ("FOEANG", 0)):
+            cpu_mem[fa[n] + k] = v
+        cpu_mem[FOEANGF_A + k] = 0
+        cpu_mem[FOELSR_A + k] = 0
+
+    def aim(k, extra=0):
+        """Turn pulsar k's bar at the ship, and put it one frame from frame 0."""
+        cx = s16(ram(fa["FOEFXL"] + k), ram(fa["FOEFXH"] + k))
+        cy = s16(ram(fa["FOEFYL"] + k), ram(fa["FOEFYH"] + k))
+        sx = 200 + sb8(cpu_mem[0xD0]) + sb8(cpu_mem[SHAKEX_A])
+        sy = FBCY_C + sb8(cpu_mem[0x0CA1]) + sb8(cpu_mem[SHAKEY_A])
+        a = round(math.atan2(sy - cy, sx - cx) * 128 / math.pi) & 0xFF
+        cpu_mem[fa["FOEANG"] + k] = (a + cpu_mem[0x83] + extra) & 0xFF
+        cpu_mem[FOEANGF_A + k] = 0
+        cpu_mem[fa["FOEAST"] + k] = AN - 1      # the last step...
+        cpu_mem[fa["FOEACD"] + k] = 1           # ...ending on the next frame
+
+    frozen = []
+
+    def burst(n=PLS_FRAMES + 3):
+        out = []
+        for _ in range(n):
+            cpu_mem[SHIPINV_A] = 0
+            st = run_frame()
+            d = sum(1 for op, _ in decode(st) if op == 0x44)
+            out.append((int(d > 0), d, cpu_mem[SHIPHP_A]))
+            frozen.append((d > 0, pul.order[ram(fa["FOEAST"])]))
+        return out
+
+    for k in range(cpu_mem[0x6E1C]):
+        cpu_mem[FOEST_A + k] = 0
+    shx, shy = world(0x8B, 0x8C), world(0x8E, 0x8F)      # SHXL/H, SHYL/H
+    put(0, FK_PULSAR, EA_PULSAR, PLS_HP, shx, shy - 1600)
+    for _ in range(3):
+        run_frame()
+    on0 = ram(fa["FOEON"])
+    aim(0)
+    hp0 = cpu_mem[SHIPHP_A]
+    got = burst()
+    lit = [l for l, _, _ in got]
+    print(f"        pulsar 100 px ahead, on screen {on0}, bar aimed at the ship: lit {lit}, "
+          f"dotted lines {[d for _, d, _ in got]}, ship HP {hp0} -> {got[-1][2]}")
+    check(f"a pulsar pointing at the ship fires on frame 0, for exactly PLS_FRAMES ({PLS_FRAMES})",
+          on0 == 1 and lit == [1] * PLS_FRAMES + [0] * (len(got) - PLS_FRAMES), f"lit {lit}")
+    check("...its animation frozen on frame 0 the whole time",
+          all(f == 0 for l, f in frozen if l), str(frozen))
+    check("...both ends at once: two dotted beams a lit frame, none dark",
+          all(d >= 2 for l, d, _ in got if l) and all(d == 0 for l, d, _ in got if not l),
+          str([(l, d) for l, d, _ in got]))
+    check("...and the beam burns the ship PLS_SHIPDMG a lit frame",
+          hp0 - got[-1][2] == PLS_FRAMES * pulsar_sym("PLS_SHIPDMG"), f"HP {hp0} -> {got[-1][2]}")
+
+    cpu_mem[SHIPHP_A] = hp0
+    aim(0, extra=64)
+    got = burst()
+    check("...and pointing a quarter turn off, it does not fire at all",
+          not any(l or d for l, d, _ in got), str([(l, d) for l, d, _ in got]))
+
+    aim(0)
+    cpu_mem[fa["FOEACD"]] = 2                   # frame 0 arrives mid-count...
+    cpu_mem[fa["FOEAST"]] = 1                   # ...on a step that is NOT frame 0
+    got = burst(3)
+    cpu_mem[SHIPHP_A] = hp0
+    check("...nor on any other frame of its animation",
+          not any(l or d for l, d, _ in got), str([(l, d) for l, d, _ in got]))
+
+    # --- its beam hits another enemy, and pays nobody --------------------------
+    put(1, 0, _app["UFO"], FOE_HP, shx, shy - 2 * 1600)
+    for _ in range(2):
+        run_frame()
+    aim(0)
+    score0 = bytes(cpu_mem[SCORE_A + i] for i in range(7))
+    uhp0 = ram(fa["FOEHP"] + 1)
+    burst()
+    cpu_mem[SHIPHP_A] = hp0
+    uhp1, ust = ram(fa["FOEHP"] + 1), ram(FOEST_A + 1)
+    score1 = bytes(cpu_mem[SCORE_A + i] for i in range(7))
+    print(f"        a UFO beyond it, on the beam's far side: HP {uhp0} -> {uhp1}, state {ust}, "
+          f"score {score0.decode()} -> {score1.decode()}")
+    check("the beam kills a UFO it crosses (40 against its 30), and scores nothing",
+          uhp1 == 0 and ust == 0 and score0 == score1,
+          f"HP {uhp0} -> {uhp1}, state {ust}, score {score0} -> {score1}")
+    cpu_mem[FOEST_A + 1] = 0
+
+    # --- a hit it survives: the jump ------------------------------------------
+    jumps = []
+    for n in range(8):
+        px, py = foe_pos(0)[1] << 8 | foe_pos(0)[0], foe_pos(0)[3] << 8 | foe_pos(0)[2]
+        vx0, vy0 = _wd(px, shx), _wd(py, shy)
+        cpu_mem[fa["FOEHP"]] = PLS_HP
+        call(cpu, LBL["win_off"])
+        cpu.a, cpu.x = HIT_HP, 0
+        try:
+            call(cpu, LBL["foe_take_hit"])
+        finally:
+            call(cpu, LBL["win_on"])
+        qx, qy = foe_pos(0)[1] << 8 | foe_pos(0)[0], foe_pos(0)[3] << 8 | foe_pos(0)[2]
+        vx1, vy1 = _wd(qx, shx), _wd(qy, shy)
+        turn = (math.atan2(vy1, vx1) - math.atan2(vy0, vx0)) * 128 / math.pi
+        turn = (turn + 128) % 256 - 128
+        jumps.append((round(turn), math.hypot(vx1, vy1) / math.hypot(vx0, vy0),
+                      ram(fa["FOEHP"]), ram(FOEST_A)))
+        run_frame()
+    print(f"        eight hits it lives through: turns {[t for t, _, _, _ in jumps]} brad, "
+          f"distance kept {min(r for _, r, _, _ in jumps):.3f}..{max(r for _, r, _, _ in jumps):.3f}")
+    check("a pulsar that survives a hit jumps round the ship, a quarter turn give or take",
+          all(48 - 2 <= abs(t) <= 48 + 31 + 2 for t, _, _, _ in jumps)
+          and {t > 0 for t, _, _, _ in jumps} == {True, False},
+          str([t for t, _, _, _ in jumps]))
+    check("...keeping its distance from the ship",
+          all(0.97 <= r <= 1.01 for _, r, _, _ in jumps), str([round(r, 3) for _, r, _, _ in jumps]))
+    check("...and takes the hit's damage, still alive",
+          all(h == PLS_HP - HIT_HP and s != 0 for _, _, h, s in jumps), str(jumps))
+
+
+pulsar_bench()
+
 
 # =============================================================================
 # preview.png — the framebuffer as the rotated monitor shows it

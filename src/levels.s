@@ -71,7 +71,7 @@
 ; LVL_FOEN records of SEVEN bytes, read once by foes.s load_foes:
 ;
 ;   XL, XH, YL, YH   the world position, 16-bit per axis
-;   KIND             0 = the UFO, the only kind with a behaviour so far. A kind
+;   KIND             0 = the UFO, 1 = the spider, 2 = the pulsar. A kind
 ;                    nothing knows how to fly is not loaded at all
 ;   HEADING          the patrol course, brad, the ship's own convention - 0 flies
 ;                    toward -Y, "up" in the editor, and 64 toward +X
@@ -139,6 +139,8 @@ LVL0_FOES:
         .byte   $0E, $0B, $F4, $28, 1, 0, 0       ; SPIDER at 2830, 10484, holding its post
         .byte   $E7, $B5, $8D, $03, 1, 0, 0       ; SPIDER at 46567, 909, holding its post
         .byte   $F2, $1D, $DF, $C1, 1, 0, 0       ; SPIDER at 7666, 49631, holding its post
+        .byte   $00, $8C, $00, $74, 2, 64, 40       ; PULSAR at 35840, 29696, course 64 at 40 px/s
+        .byte   $00, $72, $00, $7A, 2, 0, 0       ; PULSAR at 29184, 31232, holding its post
 LVL0_FOES_END:
 L0_ROCKN    = (LVL0_ROCKS_END - LVL0_ROCKS) / 6
 L0_FOEN     = (LVL0_FOES_END - LVL0_FOES) / 7

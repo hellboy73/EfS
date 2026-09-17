@@ -1750,7 +1750,10 @@ rock_destroy:
                                         ;   boom and the flash: being too small
                                         ;   to rattle the camera is not the same
                                         ;   as being silent and invisible
-        jsr     rock_kill               ; (its slot is what every other split is
+        jsr     satn_kill               ; ...and it pays Saturnium: its puff
+                                        ;   becomes motes that home on the
+                                        ;   ship (satn.s). Leaves X = SPL_P
+        jsr     rock_kill              ; (its slot is what every other split is
         lda     SPL_P                   ;  drawing on)
         jmp     rock_free
 @blocked:

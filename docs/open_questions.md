@@ -34,6 +34,40 @@ goes on. Whether that ever becomes mechanical (asymmetric wrap, seams, a visible
 fold) or stays pure flavour is a design call — mechanically it would cost the free
 wrap, so the bar is high.
 
+**A5. Levels split into lettered sectors (1-A/1-B/1-C, ...), joined by the
+tunnel; the story screen stays between numbered levels only (TBD, from a
+design conversation 2026-09-16).** Idea: each numbered level (`story.md`'s
+five) is made of two or three sub-areas instead of one continuous world. A
+sector differs from a level only in scale, not mechanism — A3 already settles
+that world size is per-level data, so a sector is just another instance of the
+same load with its own size and rock population, exactly the way today's five
+levels are already independent of each other.
+
+- **Sectors chain through the tunnel (H1), levels chain through the story
+  screen.** The transition 1-A -> 1-B -> 1-C is the in-between STAGE H1
+  already leaves open ("a mini-game, flying a tunnel") — reused as the
+  connective tissue between sectors rather than a rare treat between full
+  levels. The transition between numbered levels (1 -> 2, etc.) keeps the
+  bitmap-plus-briefing H1 already describes. This is a budget decision as much
+  as a pacing one: H1 already prices a story bitmap at roughly two banks each,
+  so multiplying five numbered levels into lettered sub-levels must not
+  multiply the bitmap count, or F2/F3's bank budget breaks. Only the numbered
+  transitions get art; sector transitions get the tunnel and nothing else.
+- **The tunnel itself carries no death.** Discussed alongside this: hitting an
+  obstacle in the tunnel does not kill, only costs that run's bonus (a
+  multiplier, or the Saturnium collected during the passage, F7) — a bonus
+  round is its own justification by genre convention; "the ship's systems take
+  over for the crossing" is the one-line in-fiction reading if one is wanted,
+  reusing the shield's existing diegetic idiom rather than inventing new lore.
+- **1-A is where the game teaches one small thing at a time.** Stated intent:
+  the first sector of the first level should be short, with few rocks, and
+  introduce one system at a time (e.g. F7's Saturnium collection) rather than
+  opening with everything at once.
+
+Open: how many sectors per level (does it vary the way world size already does
+per A3?), whether a sector transition needs any text at all or is silent, and
+how the tunnel's own reward (F7) is tuned per sector versus per full level.
+
 ---
 
 ## B. Ship handling — the benches are built, now it has to be flown
@@ -84,103 +118,9 @@ Two mechanics ride on top, and neither has been judged yet:
 Open: the eleven values, the throttle's ramp rate, whether boost and teleport
 belong in the game at all, and the double-click/lockout timings above.
 
-**B3. Camera lag constant (TBM — narrowed to one number).** Half of this question
-is answered: the ship's screen slide and the zoom **do** share a constant. Both
-ease by `1/(2^SHOFF_LAG)` of the remaining gap each frame with `SHOFF_LAG = 4`,
-i.e. 1/16, and the camera's lean into a turn (C5) eases the same way on its own
-constant, `CAMX_LAG = 5`. What is left is flying it: too fast is nauseating, too
-slow disconnects the throttle from the view.
-
-**B8. Does firing slow the ship (TBD)?** Each shot could take a little speed off
-— recoil, or simply a cost for shooting. It is cheap to try: the gun already
-knows the ship's velocity at the moment of the shot (`shots.s shot_fire` copies
-`VELX`/`VELY` into the bullet), so the same place can subtract from it. Two
-things have to be decided together with the number:
-
-- **Where it is taken from.** `do_ship` rebuilds `VELX`/`VELY` from the throttle
-  every frame, so an impulse written into them is gone by the next one. It has
-  to come off the THROTTLE (`THRTL`) to survive, which makes it a real cost the
-  player has to fly back up from — or off `SPD` for one frame, which makes it a
-  visual hitch and nothing more.
-- **Whether it can reverse.** At a standstill, firing repeatedly should probably
-  not push the ship backwards.
-
-Worth flying against B1's speed table rather than settled on paper: at 6 slots
-and one shot per press the rate is already bounded, so the question is whether a
-burst should read as *costing* something.
-
-**B9. The laser's numbers, and what it should cost (TBM).** The weapon itself is
-settled (design_technical 11.24); its balance is not, and nothing about it has
-been flown yet. What is open:
-
-- **Is it too strong?** One press is 20 frames at `LSR_DMG` = 4 a frame — 80
-  hit points, eight bullets' worth — on everything the beam touches, with no
-  ammunition and no cooldown past its own burn (hit points are in tenths of a
-  hit since design_technical 11.25). The largest rock (50) goes in thirteen
-  frames and the beam is still lit for the halves it just made; a UFO (30)
-  lasts eight frames. CETAS gates its
-  laser behind a pickup and 50 rounds; this one is free. `LSR_DMG`, `LSR_FRAMES`
-  (CETAS's 20), a cooldown or a charge count like `BOOST_AVAIL` are the levers.
-- **Feedback at the contact.** A non-fatal laser hit throws no puff — a bullet's
-  puff sits on its tip, and the beam has no tip; the six puff slots would be full
-  in a frame anyway. What is heard is `SE_ROCK_HIT` restarted every frame, which
-  reads as a buzz. Both to judge in madsim.
-- **The switch's latency.** A single FIRE2 click lands `TPCLICK_FRAMES` (18,
-  ~300 ms) after the press, because the double click owns the button. B1 has the
-  same number open for the teleport.
-- **The GPU side.** One `HDOT_LINE` a frame, the cheapest line op the GPU has
-  (~10–14x a dotted line of the same span, per the MAD-65 guide), and not
-  measured with madsim's F3 meter.
-
-**B4. Visual bank angle while turning (TBD).** How much the ship tilts, and whether
-it is a sprite swap (cheap, a handful of frames) or a real small rotation.
-
-**B5. 32 headings or 256 (TBD).** The design assumes 32. The bench deliberately
-runs at 256 — *with a fraction*, since the turn ladder is quarter-brad
-(`design_technical.md` 11.15), so the heading is 8.8 and the world is rotated by
-its integer part. With the ship always drawn nose-up, the only place the choice
-shows is the smoothness of the world's rotation. If 32 is not visibly steppy it
-is free; if it is, the design should say 256.
-
-The fractional heading is a separate matter and does not settle this: it exists to
-make the *rate* selectable in quarter-brad steps, and would still be wanted at 32.
-
 ---
 
 ## C. Camera and zoom
-
-**C1. Zoom range (TBM — 2x is in and flying, and 3x is no longer blocked).**
-Reference zoom is 16 units/px at standstill. The camera ramps to **2x out at the
-top tier**, eased, and the whole curve is one line (`ZOOM_RZ`), so 3x or a later
-ramp is an edit and not a rewrite. What that costs is measured: the visible-object
-count scales as the **square** of the zoom, so 2x out means ~4x the objects
-through the cull.
-
-The slot cap is now `NOBJ = 120`. It was 250 while rocks were dotted half-res
-figures, and what took it down was the move to full-res solid outlines (D11) as
-much as the zoom.
-
-The blocker this entry used to name is gone: "3x would be ~9x and needs the
-spatial bucketing of E1 first" — the bucketing is built (E2), so 3x is now a
-measurement rather than a prerequisite. Constrained by C2.
-
-**C2. Legibility floor (TBM).** At maximum zoom-out, is a small asteroid still
-readable in 1-bit at 300 x 400? This sets the hard limit on C1 and is a
-look-at-the-screen decision, not a calculation.
-
-**C3. Ship screen-Y range (TBM).** Built in proto 01: **40 px below centre at
-rest** (20% of the half-height — dead centre gives as much screen behind as
-ahead, and ahead is where you are going), +126 at +350, -40 at full reverse,
-eased. Needs flying to settle whether the range is right and whether it should be
-linear in speed (it is now) or weighted toward the fast end.
-
-Two things the proto pinned down. **127 is a hard ceiling**, not a taste
-judgement: the offset is a signed byte and the first cut ran to 140, wrapped, and
-threw the ship to the top of the screen. And the offset is not free — the star
-and mote camera point rides `SHOFF` ahead of the ship, so lowering the ship pushes
-that sample nearer the star layer's 128-unit reach and measurably increases the
-churn at the park boundary (wrong-way star sweeps went from 8 to 13 in 1,900).
-Small, but it is the reason a bigger rest offset is not simply better.
 
 **C4. Zoom quantisation (ANSWERED in the bench — and the mix is deliberate).** The
 bench runs exactly the mixed scheme this question was worried about, and it looks
@@ -202,163 +142,17 @@ pre-scaled sprite set exists (D2) its steps are coarser than either of these, an
 whether a snapped sprite beside a continuous outline reads wrong is a
 look-at-the-screen decision.
 
-**C5. How hard the camera leans into a turn (TBM).** The camera lags a turning
-ship, which slides the ship sideways across the screen: target cross-offset =
-turn velocity x `CAMX_TIER` (Q0.7, per tier), eased with `CAMX_LAG = 5`, with the
-turn velocity clamped at `CAMX_CLAMP = 768` (3.0 brad/frame) so the speed coupling
-cannot push it past what the arithmetic holds. That puts the target at **+/-80
-full-res px** at full lean and top speed. The first cut was a quarter of that and
-read as almost nothing, the second a half — and all three leaned just as hard
-standing still, which is where it looked wrong, hence the per-tier gain that is
-zero at rest. Reverse leans too: the camera lags whichever way you are going.
-
-The reason this is a question and not a taste judgement is the **cull**. The world
-pivots on the ship (4.2), so sliding the ship across the screen moves the pivot
-with it. The cross-axis reach goes from 150 + 96 to 150 + 80 + 96, the worst-case
-vector from 483 to 534 px, and both cull tables are regenerated from that number —
-a 4.7% bigger `CULL_R` is **9.6% more area through the precise cull**. Leaning
-harder is not free.
-
-Open: whether +/-80 is right, and the **sign** — which way it leans is the only
-thing about it that was ever a guess.
-
-**C6. Camera frames the nearest enemy (BUILT 2026-09-15 — the numbers are TBM).**
-Built as below: `src/cam.s` (CODE5, the first code in `CART_HIRAM`), state at
-`$6FE2-$6FFF` and `$73A9-$73AC`, the arrow art out of `tools/arrowgen.py`, and three scenes in
-`tools/preview.py` (near behind, far behind, far aside). What is still open is
-the tuning list at the end of this entry. The rules, agreed 2026-09-15:
-
-* **The nearest enemy only.** Not a set, not a bounding box. Candidates are
-  enemies in pursuit (`FS_PURSUE` — the ENEMY DETECTED state), not `FS_MOUNTED`.
-  The pick runs at the top of `do_ship`, which is inside the `win_off` bracket
-  FOEST needs, and leaves a slot number in ordinary RAM. Hysteresis:
-  switch to a new nearest only when it is closer by a clear margin, or the old
-  one died / lost the chase.
-* **Enemy first, defaults only without one.** With no target the camera is
-  exactly today's `ZOOM_RZ[tier]` / `SHIP_OFF[tier]` / lean. With a target those
-  are the starting point, and the camera only ever zooms OUT from them — never
-  tighter than the tier's own zoom. An enemy already in frame changes nothing.
-* **Zoom first, then move.** Moving the ship on the screen eats the view ahead,
-  so it is the last resort. Per frame, in view space (enemy offset from
-  `view_xform`, ship at the TIER's screen place, never its slid one):
-  1. The zoom is a **servo over `ZQ_LADDER` rungs**, not a computed value (it
-     was four divisions a frame, and the answer jittered a count at a time
-     under the ease). The enemy's distance on the screen at the TARGET rung is
-     held against the room to that edge, per axis: past the tight margin
-     (`CAM_M`) on either axis the target steps one rung wider every frame;
-     inside the loose one (`CAM_M + CAM_MHYS`) on both it steps one rung back
-     in every 4 frames; between, it holds. Never tighter than the tier, never
-     wider than `ZCAP`. Measured at the target and not at `ZOOMH`, or the servo
-     winds up while the ease catches it.
-  2. Only once the servo sits at `ZCAP`: slide the ship away from the enemy by
-     the remainder, clamped to the **screen bounds** below. The along target is
-     **slewed** `CAM_SSTEP` px a frame, so taking, swapping or losing a target
-     never throws the ship; the tier's own moves pass straight through.
-  When the target is GONE (killed, lost), the zoom's way home to the tier runs
-  at `ZOOM_LAG + 1` — half the pace (`CAMZLAG`) — until it lands: at the tier's
-  own rate a kill on the edge of a 2x frame snapped to 1:1 before the wreck
-  could be seen (flown 2026-09-15).
-  3. Still does not fit: the enemy stays off screen, and a **blinking arrow on
-     the screen edge** points at it — on ALL four edges, sides, ahead and
-     behind. **Exactly one arrow, ever**: only for the camera's target (the
-     nearest enemy), and shown whenever it is off the screen — not only once
-     steps 1-2 give up, which flown came too late: the camera eases, so an
-     enemy it will frame is still off screen for the second that takes.
-     Its blink starts LIT on the frame the target is taken, so the arrow comes
-     up with ENEMY DETECTED. (The room across is measured from the centre line
-     rather than the lean the camera itself moves — that fed back and hunted.)
-     Other enemies off screen get nothing; the radar has them. The arrow is a
-     **sprite with an overlay** (`tools/arrowgen.py`). Its place is the enemy's
-     own screen position (`zoom_fb`), clamped onto the screen — and the clamp is
-     the whole test: nothing clamped, no arrow; the edge it clamped to picks the
-     frame and holds the tip. Past a CORNER the top/bottom arrow wins, and the
-     coordinate along the edge is held `ARW_CM` in from the ends, so the arrow
-     is always whole rather than half off the corner (asked for 2026-09-15). Four orientations
-     pre-rotated (TATE: assets carry their rotation), or eight if the corners
-     read wrong with four. Blink off the frame counter, so ~0 B RAM. It may
-     sit over the HUD rows and the radar on purpose: the overlay plane is what
-     keeps it readable on any ground, so the edge is the screen's own.
-  The result replaces the TARGETS of the existing eases — the ease, the rung
-  quantiser, the cull window and the star sample point stay as they are.
-* **Screen bounds for the ship.** Along: `S_max` is today's 126 (signed-byte
-  ceiling). `S_min`, how far UP the ship may go, should be DERIVED from the zoom
-  rather than fixed: "always see at least `F` px ahead in the world" gives
-  `S_min = F*RZ/128 - 200` (F = 250 lets it reach ~75 px above centre at 2x, but
-  at 1:1 it must stay at least 50 px BELOW centre — which is why zoom comes
-  first: zooming out is what buys the room to slide). Across: the existing lean
-  budget the cull was sized for — lean and enemy slide share it, clamped as one.
-  That budget is **80 px**: `ZOOM_CULLR` at RZ 128 is 8,544 units = 534 px, the
-  worst-case reach with the full lean; the "499 px, +20" comment under the table
-  in main.s predates it. (Built as a bound on the lean target, `cam_lean`.)
-* **`ZCAP` is the hook for a performance safety net, later.** One byte, the
-  widest `ZQ_LADDER` RUNG allowed: 0 = 2x, where the ladder and `ZOOM_CULLR`
-  end. The intent is that when frame
-  load is too high, zoom-out AND speed get capped regardless of enemies, by
-  writing this cap (and a speed equivalent). Not designed yet.
-
-Reach, derived not measured: at 2x with the ship slid to its bounds the camera
-frames ~570 px ahead, ~470 behind but only ~380 to the side — so a pursuer
-detected at `FOE_SEE` off to the side is usually just the arrow. **Kept on
-purpose** (2026-09-15): the camera still zooms out for it, and the arrow says
-plainly "turn to catch it" — the player turns constantly anyway.
-
-Open: `CAM_M` (24), `CAM_MHYS` (16), `CAM_F` (250), `CAM_SSTEP` (4) and the
-servo's in-rate; how a ship high on the screen looks against C3's star churn.
-
-Measured (preview.py, 2026-09-15, servo version): `cam_foe` **3,026 cycles**
-with a target it cannot frame, `cam_arrow` **1,130** — 1.8% of a frame. RAM
-33 B (`$6FE2-$6FFF`, `$73A9-$73AC`), code and tables 1,405 B in `CART_HIRAM`:
-~960 the camera (the slew and signed min/max took back most of what dropping
-the division saved), ~250 the arrow's placement (171, since the clamp became
-its only test) and upload, 192 its art. In
-the 220-frame flight the level's UFO holds the camera from frame 1; the worst
-frame is **78.2%** (the division version 83.4%, no camera 76.5%). The real
-price is still C1's square law in a long fight at 2x.
-
 ---
 
 ## D. Rendering
-
-**D2. Number of pre-scaled sprite steps (TBD).** Settled that sprites are not a
-level-of-detail fallback for the ship or for rocks — both stay vector at every
-on-screen size, closing D1 (see `design_technical.md` 11.9). Sprites are for art
-that is not an outline: **thruster flames and shots**, player and enemy. Flames
-will be authored at several sizes so the right one is picked for the current
-zoom level; how many steps, and whether shots need more than one size, is still
-open.
-
-**D8. Star size and lattice (TBD).** `DOT_PIXELS` draws single pixels but takes
-half-res coordinates, so stars land only on even framebuffer pixels - a 2-pixel
-lattice, which is also the finest step the field can scroll by. `PIXEL` ($40)
-would give full-res placement at 5 PPRAM bytes per star and one dispatch each,
-against 2 bytes in a single batched call. Only worth it if the lattice reads as
-chunky on a real screen.
-
-This is no longer only about stars: the radar's blips ride the same primitive and
-the same lattice (G3), so whatever is decided here decides how a contact reads
-too — and the radar has less room to lose, since a blip is a single point where a
-star is one of eighty-eight.
 
 **D9. Star layer size (SETTLED — park, do not fold).** A 256 × 256 layer rotates
 to a view radius of up to 181, which does not fit the byte the view position is
 stored in; folded stars are drawn at the wrong screen edge sweeping against the
 turn. Stars that do not fit are now parked (all are off-screen anyway) and a
 refresh un-parks them before the field scrolls past the 27-pixel margin. See
-`design_technical.md` 5.3. What stays open is whether a *denser* layer is wanted
-(see D4) — that is a separate question from this one.
-
-**D10. Mote count and look (TBD).** The near layer runs `MOTE_N = 10` specks
-(about 5 on screen) at twice the ship's speed. They are single pixels, exactly
-like stars, and are told apart only by how fast they move — a short streak would
-read as speed more strongly but costs a line instead of a point. 4x was tried and
-is too fast: at the top tier it moves them ~12 half-res pixels a frame, and specks
-that quick stop reading as depth and start reading as noise. Open: how many, and
-whether they should be streaks.
-
-**D4. Star layers (TBM).** How many parallax layers, how many stars per layer, and
-their parallax factors. Cost is one `DOT_PIXELS` call per layer plus the point-list
-build. PPRAM cost is 2 bytes per *visible* star, so the star count is bounded by
-the 2 KB list as well as by CPU.
+`design_technical.md` 5.3. Whether a denser layer is wanted is closed with D4 —
+see `design_technical.md` 11.37.
 
 **D5. HUD layer (SETTLED — background, one line per two frames).** Measured in
 proto 01: `TEXT`/`VTEXT` write whole cells including the background, so an
@@ -407,28 +201,12 @@ Closed since: whether the suppression radius and the **collision radius** are
 literally the same number. They are — `design_technical.md` 11.12 — and the bench
 asserts it (`SHAPE_OCC` is read by both).
 
-**D11. What opcode draws a rock (TBM — full-res solid is in, and it cost half the
-field).** `ROCK_FAMILY` picks between `$4C DOT_POLYGON` (dotted, half-res), `$4D
-POLYGON` (solid, half-res) and `$4E POLYGON16` (solid, full-res). The bench ships
-**2**, and the trade is not the one it looks like.
-
-What full-res buys is mostly the **centre**, not the raster: at half-res a rock's
-screen position is the full-res one `>> 1`, so it steps two pixels at a time and a
-slow drift stutters — the same defect that was found on the ship and fixed with
-`LINE16`. What it takes away is the **dotted rim**, because there is no dotted
-full-res figure — and a dotted rim was chosen deliberately once, as the thing that
-reads as "rock" and as the reason a rock gets a suppression disc rather than an
-occluder box. So this is an art decision riding on a resolution one, and it should
-be looked at rather than assumed.
-
-The price is in the budget and it is not small: `AST_VCOST` is 1,564 GPU cycles a
-vertex dotted, 1,749 solid half-res, **1,873 solid full-res**. Both valves are
-derived from it (`AST_BUDGET`, `AST_MAX`), so changing family re-derives them —
-but `NOBJ` is hand-set, and 120 is where full-res solid put it (C1).
-
-Also open, and cheaper than it sounds: the shapes are still the **half-res tables
-doubled** (`SHAPE_16X`), which is an exact scale-up that lands every vertex on an
-even full-res pixel. A genuinely full-res shape cannot be derived — it has to be
+**D11. Genuinely full-res authored rock shapes (TBD — narrowed).** The opcode
+choice itself is closed (full-res solid, `$4E POLYGON16` — `design_technical.md`
+11.40): looked at side by side, it reads clearly better than the dotted rim it
+replaced. What is left is that the shapes are still the **half-res tables
+doubled** (`SHAPE_16X`), an exact scale-up that lands every vertex on an even
+full-res pixel. A genuinely full-res shape cannot be derived — it has to be
 authored — and it matters most on `SHP16`, where one half-res pixel is a quarter
 of the whole rock.
 
@@ -577,8 +355,10 @@ and what a kill does. Shape representation is 11.20 and simulation lifetime
 11.21. Still open:
 
 - **How many more kinds, and what they do.** `KIND` 0 is the UFO, and
-  `load_foes` skips any kind nothing knows how to fly. The WORM's outline is
-  authored in `enemies.s` and has no behaviour.
+  `load_foes` skips any kind nothing knows how to fly. Built so far: the UFO,
+  the spider and the PULSAR (`src/pulsar.s`, physics.md 11: a patrol with no
+  chase, a spin, a two-ended laser on its frame 0 when it points at the ship,
+  a jump round the ship when hit). Whether the pulsar ever pursues is open.
 - **Animating parts** — a turret tracking, a barrel recoiling. The UFO's parts
   never move relative to each other; only its wreck moves them.
 - **The GPU side of an enemy (TBM).** Two POLYGON16 commands a UFO, one a bullet,
@@ -685,12 +465,87 @@ into to collect. Two examples sketched so far:
 - **Shield.** Raises resistance to collisions and to enemy fire while active, and
   for as long as it lasts is drawn as a `dot_circle` around the ship — a
   diegetic readout of "shield is up" that costs no HUD text.
+- **Magnetism (TBD, from a design conversation 2026-09-16).** Instead of
+  requiring the player to fly the sprite down exactly, a pickup within some
+  radius of the ship drifts toward it on its own. Reasoning: a 2-button
+  joystick has no fine cursor-like control, so demanding a precise pass over a
+  small icon is friction the input doesn't afford. Mechanically this is F7's
+  homing-dust behaviour applied to a discrete sprite instead of a point-cloud
+  particle — same "drift toward the ship" update, different thing being moved.
+  Open: the pull radius, whether it competes with or replaces F7's own
+  particles for CPU time when both are on screen, and whether an uncollected
+  pickup should still be able to drift out of world bounds via the wrap while
+  chasing the ship.
 
 Nothing is designed yet: which rock sizes can drop something and how often, how
 long an uncollected pickup sits in the world, the shield's duration and exactly
 what "resistance" reduces (damage taken, or collision impulse, or both), the
 laser's ammo count, and the pickup sprites themselves — new art rather than
 vector shapes, which ties to D2's sprite-step work.
+
+**F7. Saturnium dust — a continuous energy resource from the smallest size
+class only, separate from "clear the field" (TBD, from a design conversation
+2026-09-16).** The idea: split "destroy the rocks" into two objectives that pay
+out differently, instead of one shared counter.
+
+- **Level completion stays exactly as F1 has it** — `rocks_left` over classes
+  0-3, a percentage of the larger clusters, untouched by this. Nothing here
+  changes what finishes a level.
+- **Only the smallest class (4, already debris — design_technical.md 11.6,
+  already excluded from `rocks_left` because the game removes it off-camera on
+  its own, F1) pays a resource.** The larger classes pay nothing. That makes
+  finishing off debris the one thing worth doing to it, and closes off farming
+  by over-fragmenting a big rock for reward, since none of the intermediate
+  classes it passes through on the way down pay anything. It also turns E9's
+  performance worry (leftover debris crowding a cascade) into a player
+  incentive to clean it up, alongside E10's engine-side safety net rather than
+  instead of it.
+- **Delivered physically, not as a menu pickup.** Not F6's collectible sprite —
+  the existing hit-puff (`expl_at`) on a debris kill would live longer and home
+  toward the ship, reusing the point-cloud pattern already shared by stars,
+  motes and radar blips (`DOT_PIXELS`) rather than becoming a full physics
+  object. A "thunk" (sound plus a visible pulse) fires on the frame it reaches
+  the ship. Needs its own small capped pool, separate from the existing hit-puff
+  slots (which stay one-frame effects for ordinary hits); overflow during a
+  cascade is dropped silently, matching the project's existing overflow
+  convention (`VIS_MAX`, PPRAM).
+- **Spent on teleport and the laser.** Feeds the charge B1 already flags as an
+  open hook ("a later collected, limited-charge boost/teleport" — `BOOST_AVAIL`
+  is hardcoded to 1 today) and gives B9's open laser-cost question an answer
+  that is not CETAS's separate ammo count: the beam draws from the same pool
+  instead of, or alongside, it. Not decided whether teleport and laser share one
+  pool or use two.
+- **Read out as sparks on the hull, not a HUD number.** Charge shown as
+  needle-like sparks/rays around the ship, denser at higher charge — the same
+  diegetic-readout idiom already used for the shield (`dot_circle`, F6), so it
+  costs no HUD text and no new HUD row (D5 is already tight).
+
+Open: the exchange rate and every number in this (all TBM once something is
+built), whether debris left alone truly self-clears at no cost to the player
+(in which case ignoring it is a free choice, not a hazard), how the "clear the
+big clusters" percentage for level completion is chosen, and whether the spark
+readout needs its own GPU/VRAM budget check alongside the shield's.
+
+**F8. New weapon ideas from a design conversation, 2026-09-16 (TBD).**
+
+- **The laser's source: a laser-wielding enemy kind.** F6 already wants the
+  laser "found rather than free"; this settles *from what* — a still-undesigned
+  enemy kind (E6) that itself fights with a laser drops it on death. Ties E6
+  (new enemy kind), F6 (the pickup mechanism) and B9 (the laser's cost, still
+  entirely open) into one thread instead of three separate ones.
+- **EMP — a weapon against enemies only, deliberately not against rocks.**
+  Kills or disables enemies in an area; does not damage asteroids. Reasoning
+  discussed: the roster should not overlap in what each piece is good at —
+  blaster/laser work on both rocks and enemies, EMP is enemies-only, the
+  shield is defence, teleport is mobility. An EMP that also cracked rocks
+  would just be a better blaster and blur that.
+- **A spread-shot upgrade for the blaster — flagged with a real constraint,
+  not yet a number.** More pellets fired in a wider fan. B8 already notes the
+  player's shot pool is 6 slots; a target of ~15 pellets in flight at once is
+  2.5x that, and costs GPU vertex budget on top of it (C1's cull is already
+  tight at 120 objects and 2x zoom). Needs measuring in madsim before any
+  pellet count is promised — a fan of 4-5 pellets was suggested as a cheaper
+  starting point to test the feel before spending the budget on more.
 
 ---
 
@@ -703,67 +558,6 @@ that tracks the camera's zoom reciprocal. Rotation is still shared with the
 main camera transform (the same per-frame `ROT[]` tables from
 `design_technical.md` 4.5a); only the scale step differs, and it's simpler
 than the camera's because it never changes.
-
-**G2. Data admission — by radius, entirely in world space, before the
-transform (TBD — shape decided, exact radius still TBM).** The radar's
-catchment is now a **circle** (G4), and a circle is rotation- and
-scale-invariant: whether a point ends up inside it does not depend on the
-camera heading or on the radar's (fixed) scale, only on its raw world-space
-distance from the ship. That means the admission test can run **before**
-any `ROT[]` rotation, and once a point passes it, no separate post-transform
-clip is needed at all — the earlier plan of a rotate-then-clip-to-a-box pass
-is dropped along with the rectangle.
-
-The test itself reuses the pattern already used for star occlusion (5.4): a
-cheap **box pre-reject** (compare `|dx|` and `|dy|` independently against the
-radius, no multiply — the same coarse reject as 4.5b) throws out nearly
-everything, then a **precise round test** (`dx*dx + dy*dy` vs `R*R`, via the
-quarter-square table already built for rotation — `x*x = f(2x)`, so this is
-two lookups and a compare, not a real multiply) confirms what's left. Only
-survivors get rotated and scaled for display.
-
-**The candidates do NOT come from the sector grid, and that is a reversal.**
-This entry used to say the grid (6.3/6.2) was the natural source, walking a ring
-of cells around the ship's own. That was right at a reach of 12,800, where the
-ring is 9 x 9 of a 16 x 16 grid. It is wrong at 25,600, where the ring is
-**15 x 15** - the index would be walking 88% of the world to avoid looking at
-12% of it, and paying per-cell overhead for the privilege. A spatial index earns
-its keep when the query is small against the world; this query is not, any more.
-
-What replaced it is a flat scan of the object array with the **class window
-tested first** (G8) - one subtract and one compare, and five sixths of the field
-ends there before its position has even been read. Measured, the flat scan with
-the window costs less than the cell ring did at half the reach.
-
-**The radius itself is a performance knob, not a fixed number yet.** It will
-be tuned down until the frame budget is comfortable. It should **not**
-literally reuse any of the engine's existing cull thresholds — the per-sector
-cull window (6.3) and the per-object cull radius (4.4, a 9-entry table that
-scales as `128/RZ`) are both deliberately zoom-dependent, which is exactly
-what G1 opted the radar out of; reusing either would make the radar's reach
-breathe with the camera again, and reusing anything close to a screen's
-worth of world units is pointless anyway — that's already visible without a
-radar.
-
-**The reach is 25,600 world units, and the class window is what pays for it.**
-12,800 was the first cut and it read as short: the instrument told you about a
-neighbourhood when what you want from a radar is a region. Doubling it took the
-covered area from 12% of the world to **48%** - a circle of 25,600 in a 65,536
-torus is very nearly half of everywhere - and it cost nothing on screen,
-because radius and footprint are only related through the scale: `RAD_SH` went
-from 1 to 2 and the box stayed at the 100 x 100 G4 settled on.
-
-What it did cost is objects, and that is answered by **G8**: the instrument
-shows only the two largest size classes that still exist. Between them, the
-reach doubled and the frame got *cheaper* per contact considered.
-
-Two things bound any further doubling. 25,600 is 78% of the **32,768** at which
-a wrap-correct signed subtract stops being unambiguous, so there is one more
-step in this and not two. And `RAD_RH` is 100 in high-byte units, where the box
-test needs `2*RAD_RH+1` to fit an unsigned byte and the round test needs
-`2*RAD_RH` to index the quarter-square table - both assert at assembly time.
-
-**(TBM - flown, but not judged.)**
 
 *Correction carried from the previous round:* the physics-active set is
 **not** larger than the camera's cull window (6.1 ties "frozen vs simulated"
@@ -852,23 +646,6 @@ Three things fell out of building it that the entry did not anticipate:
   one cell wider than the blip radius, because the two axes round independently
   and a contact on the rim at 45 degrees lands just outside a disc of exactly
   that radius.
-
-**G6. Fallback: background-bitmap radar at a lower refresh (TBD, backup idea —
-and its mechanism is now proven).** The radar does not need 60 Hz. If the live
-per-frame `DOT_PIXELS` path ever busts the budget, the alternative is CPU1
-rasterising the *contacts* into a RAM bitmap and uploading that, refreshed less
-often than every frame.
-
-Both of the things this entry said needed checking are now answered, because
-G5's furniture uses exactly that path. **The primitive is `LOAD`** (`$30`), one
-256-byte page at a time into pages `$C0-$FF`. **And it does obey the two-frame
-rule**, so the achievable refresh is one page every other frame — and a 100 x
-100 corner is 20 pages, not one. That settles the fallback's real cost: a full
-redraw of the contact layer would be ~0.7 s, which is not a refresh rate, it is
-a scene transition.
-
-So the fallback is weaker than it looked. If the live path ever needs relief,
-the lever to reach for first is the class window (G8), not this.
 
 **G7. Graceful degradation under load — biggest first, decided on CPU1 (TBD).**
 If the radius (G2) admits more contacts than there are slots for, the **largest

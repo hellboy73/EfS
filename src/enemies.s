@@ -164,21 +164,6 @@ EN_UFO_S10:    .byte   130,     0,   <-16,     0,   <-20
 ; f3p4
 EN_UFO_S11:    .byte   130,     0,    20,     0,    16
 
-; ---- WORM ----
-EN_WORM_PN     = 1      ; parts, the same in every frame
-EN_WORM_PW     = 1      ; ...of which the LEADING ones become wreck pieces
-EN_WORM_FN     = 1      ; authored frames
-EN_WORM_AN     = 1      ; playlist steps - any number
-EN_WORM_AHOLD  = 8      ; game frames one step lasts
-EN_WORM_R      = 7      ; collision circle, collision units: radius 14 full-res px
-EN_WORM_RBASE  = 20      ; its first row in EN_PLO/EN_PHI...
-EN_WORM_ABASE  = 4      ; ...and its first step in EN_ANIM
-; f0p0
-EN_WORM_S0:    .byte    12,     0,   <-15,    14,   <-9,     7,   <-5,    16
-               .byte     0,     7,     5,    14,     9,     0,    15,   <-14
-               .byte     9,   <-7,     5,   <-16,     0,   <-7,   <-5,   <-14
-               .byte   <-9
-
 ; ---- SPIDER ----
 EN_SPIDER_PN     = 5      ; parts, the same in every frame
 EN_SPIDER_PW     = 5      ; ...of which the LEADING ones become wreck pieces
@@ -186,8 +171,8 @@ EN_SPIDER_FN     = 3      ; authored frames
 EN_SPIDER_AN     = 5      ; playlist steps - any number
 EN_SPIDER_AHOLD  = 6      ; game frames one step lasts
 EN_SPIDER_R      = 8      ; collision circle, collision units: radius 16 full-res px
-EN_SPIDER_RBASE  = 21      ; its first row in EN_PLO/EN_PHI...
-EN_SPIDER_ABASE  = 5      ; ...and its first step in EN_ANIM
+EN_SPIDER_RBASE  = 20      ; its first row in EN_PLO/EN_PHI...
+EN_SPIDER_ABASE  = 4      ; ...and its first step in EN_ANIM
 ; f0p0
 EN_SPIDER_S0:  .byte    12,    20,   <-8,    18,   <-2,    14,     2,     8
                .byte     4,     2,     2,   <-2,   <-2,   <-4,   <-8,   <-2
@@ -235,8 +220,8 @@ EN_SPIDER_FLOAT_FN     = 4      ; authored frames
 EN_SPIDER_FLOAT_AN     = 4      ; playlist steps - any number
 EN_SPIDER_FLOAT_AHOLD  = 8      ; game frames one step lasts
 EN_SPIDER_FLOAT_R      = 8      ; collision circle, collision units: radius 16 full-res px
-EN_SPIDER_FLOAT_RBASE  = 36      ; its first row in EN_PLO/EN_PHI...
-EN_SPIDER_FLOAT_ABASE  = 10      ; ...and its first step in EN_ANIM
+EN_SPIDER_FLOAT_RBASE  = 35      ; its first row in EN_PLO/EN_PHI...
+EN_SPIDER_FLOAT_ABASE  = 9      ; ...and its first step in EN_ANIM
 ; f0p0, f1p0, f2p0, f3p0
 EN_SPIDER_FLOAT_S0: .byte    12,    12,     0,    10,     6,     6,    10,     0
                .byte    12,   <-6,    10,   <-10,     6,   <-12,     0,   <-10
@@ -275,56 +260,102 @@ EN_SPIDER_FLOAT_S15: .byte   131,   <-6,    10,   <-12,    16,   <-5,    22
 ; f3p4
 EN_SPIDER_FLOAT_S16: .byte   131,     6,    10,    11,    18,    19,    18
 
+; ---- PULSAR ----
+EN_PULSAR_PN     = 3      ; parts, the same in every frame
+EN_PULSAR_PW     = 3      ; ...of which the LEADING ones become wreck pieces
+EN_PULSAR_FN     = 5      ; authored frames
+EN_PULSAR_AN     = 8      ; playlist steps - any number
+EN_PULSAR_AHOLD  = 3      ; game frames one step lasts
+EN_PULSAR_R      = 8      ; collision circle, collision units: radius 16 full-res px
+EN_PULSAR_RBASE  = 55      ; its first row in EN_PLO/EN_PHI...
+EN_PULSAR_ABASE  = 13      ; ...and its first step in EN_ANIM
+; f0p0
+EN_PULSAR_S0:  .byte   130,   <-13,     0,    13,     0
+; f0p1
+EN_PULSAR_S1:  .byte     3,   <-18,   <-2,     0,   <-11,    19,   <-2
+; f0p2
+EN_PULSAR_S2:  .byte     3,   <-18,     2,    19,     2,     0,    11
+; f1p0
+EN_PULSAR_S3:  .byte   130,   <-12,     0,    12,     0
+; f1p1
+EN_PULSAR_S4:  .byte     3,   <-18,   <-5,     0,   <-14,    19,   <-5
+; f1p2
+EN_PULSAR_S5:  .byte     3,   <-18,     5,    19,     5,     0,    14
+; f2p0
+EN_PULSAR_S6:  .byte   130,   <-10,     0,    10,     0
+; f2p1
+EN_PULSAR_S7:  .byte     3,   <-18,   <-7,     0,   <-16,    19,   <-7
+; f2p2
+EN_PULSAR_S8:  .byte     3,   <-18,     7,    19,     7,     0,    16
+; f3p0
+EN_PULSAR_S9:  .byte   130,   <-9,     0,     9,     0
+; f3p1
+EN_PULSAR_S10: .byte     3,   <-18,   <-8,     0,   <-17,    19,   <-8
+; f3p2
+EN_PULSAR_S11: .byte     3,   <-18,     8,    19,     8,     0,    17
+; f4p0
+EN_PULSAR_S12: .byte   130,   <-8,     0,     8,     0
+; f4p1
+EN_PULSAR_S13: .byte     3,   <-18,   <-9,     0,   <-18,    19,   <-9
+; f4p2
+EN_PULSAR_S14: .byte     3,   <-18,     9,    19,     9,     0,    18
+
 ; ---- the appearance table ----
 ; Which shape a foe wears is one byte, EA_*, and every table below is
 ; indexed by it. A behaviour KIND picks an appearance; two appearances
 ; can belong to one kind.
 EA_UFO            = 0
-EA_WORM           = 1
-EA_SPIDER         = 2
-EA_SPIDER_FLOAT   = 3
+EA_SPIDER         = 1
+EA_SPIDER_FLOAT   = 2
+EA_PULSAR         = 3
 EN_APPN = 4      ; how many appearances there are
 EN_PWMAX = 5      ; the most wreck pieces one appearance throws - foes.s asserts FW_N covers it
 ; parts per frame
-EN_PN:         .byte EN_UFO_PN, EN_WORM_PN, EN_SPIDER_PN, EN_SPIDER_FLOAT_PN
+EN_PN:         .byte EN_UFO_PN, EN_SPIDER_PN, EN_SPIDER_FLOAT_PN, EN_PULSAR_PN
 ; ...of which become wreck pieces
-EN_PW:         .byte EN_UFO_PW, EN_WORM_PW, EN_SPIDER_PW, EN_SPIDER_FLOAT_PW
+EN_PW:         .byte EN_UFO_PW, EN_SPIDER_PW, EN_SPIDER_FLOAT_PW, EN_PULSAR_PW
 ; playlist steps
-EN_AN:         .byte EN_UFO_AN, EN_WORM_AN, EN_SPIDER_AN, EN_SPIDER_FLOAT_AN
+EN_AN:         .byte EN_UFO_AN, EN_SPIDER_AN, EN_SPIDER_FLOAT_AN, EN_PULSAR_AN
 ; game frames a step lasts
-EN_AHOLD:      .byte EN_UFO_AHOLD, EN_WORM_AHOLD, EN_SPIDER_AHOLD, EN_SPIDER_FLOAT_AHOLD
+EN_AHOLD:      .byte EN_UFO_AHOLD, EN_SPIDER_AHOLD, EN_SPIDER_FLOAT_AHOLD, EN_PULSAR_AHOLD
 ; collision circle, collision units
-EN_R:          .byte EN_UFO_R, EN_WORM_R, EN_SPIDER_R, EN_SPIDER_FLOAT_R
+EN_R:          .byte EN_UFO_R, EN_SPIDER_R, EN_SPIDER_FLOAT_R, EN_PULSAR_R
 ; first row in EN_PLO/EN_PHI
-EN_RBASE:      .byte EN_UFO_RBASE, EN_WORM_RBASE, EN_SPIDER_RBASE, EN_SPIDER_FLOAT_RBASE
+EN_RBASE:      .byte EN_UFO_RBASE, EN_SPIDER_RBASE, EN_SPIDER_FLOAT_RBASE, EN_PULSAR_RBASE
 ; first step in EN_ANIM
-EN_ABASE:      .byte EN_UFO_ABASE, EN_WORM_ABASE, EN_SPIDER_ABASE, EN_SPIDER_FLOAT_ABASE
+EN_ABASE:      .byte EN_UFO_ABASE, EN_SPIDER_ABASE, EN_SPIDER_FLOAT_ABASE, EN_PULSAR_ABASE
 ; every playlist, end to end: step -> the frame's ROW within its own
 ;   appearance, already multiplied by the part count
-EN_ANIM:       .byte 0*EN_UFO_PN, 1*EN_UFO_PN, 2*EN_UFO_PN, 3*EN_UFO_PN, 0*EN_WORM_PN
-               .byte 0*EN_SPIDER_PN, 0*EN_SPIDER_PN, 1*EN_SPIDER_PN, 2*EN_SPIDER_PN, 1*EN_SPIDER_PN
-               .byte 0*EN_SPIDER_FLOAT_PN, 1*EN_SPIDER_FLOAT_PN, 2*EN_SPIDER_FLOAT_PN, 3*EN_SPIDER_FLOAT_PN
+EN_ANIM:       .byte 0*EN_UFO_PN, 1*EN_UFO_PN, 2*EN_UFO_PN, 3*EN_UFO_PN, 0*EN_SPIDER_PN
+               .byte 0*EN_SPIDER_PN, 1*EN_SPIDER_PN, 2*EN_SPIDER_PN, 1*EN_SPIDER_PN, 0*EN_SPIDER_FLOAT_PN
+               .byte 1*EN_SPIDER_FLOAT_PN, 2*EN_SPIDER_FLOAT_PN, 3*EN_SPIDER_FLOAT_PN, 0*EN_PULSAR_PN, 1*EN_PULSAR_PN
+               .byte 2*EN_PULSAR_PN, 3*EN_PULSAR_PN, 4*EN_PULSAR_PN, 3*EN_PULSAR_PN, 2*EN_PULSAR_PN
+               .byte 1*EN_PULSAR_PN
 ; every row, end to end, frame-major within each appearance
 EN_PLO:        .byte <EN_UFO_S0, <EN_UFO_S1, <EN_UFO_S2, <EN_UFO_S3, <EN_UFO_S4, <EN_UFO_S0
                .byte <EN_UFO_S1, <EN_UFO_S5, <EN_UFO_S6, <EN_UFO_S4, <EN_UFO_S0, <EN_UFO_S1
                .byte <EN_UFO_S7, <EN_UFO_S8, <EN_UFO_S4, <EN_UFO_S0, <EN_UFO_S1, <EN_UFO_S9
-               .byte <EN_UFO_S10, <EN_UFO_S11, <EN_WORM_S0, <EN_SPIDER_S0, <EN_SPIDER_S1, <EN_SPIDER_S2
-               .byte <EN_SPIDER_S3, <EN_SPIDER_S4, <EN_SPIDER_S5, <EN_SPIDER_S6, <EN_SPIDER_S7, <EN_SPIDER_S8
-               .byte <EN_SPIDER_S9, <EN_SPIDER_S10, <EN_SPIDER_S11, <EN_SPIDER_S12, <EN_SPIDER_S13, <EN_SPIDER_S14
-               .byte <EN_SPIDER_FLOAT_S0, <EN_SPIDER_FLOAT_S1, <EN_SPIDER_FLOAT_S2, <EN_SPIDER_FLOAT_S3, <EN_SPIDER_FLOAT_S4, <EN_SPIDER_FLOAT_S0
-               .byte <EN_SPIDER_FLOAT_S5, <EN_SPIDER_FLOAT_S6, <EN_SPIDER_FLOAT_S7, <EN_SPIDER_FLOAT_S8, <EN_SPIDER_FLOAT_S0, <EN_SPIDER_FLOAT_S9
-               .byte <EN_SPIDER_FLOAT_S10, <EN_SPIDER_FLOAT_S11, <EN_SPIDER_FLOAT_S12, <EN_SPIDER_FLOAT_S0, <EN_SPIDER_FLOAT_S13, <EN_SPIDER_FLOAT_S14
-               .byte <EN_SPIDER_FLOAT_S15, <EN_SPIDER_FLOAT_S16
+               .byte <EN_UFO_S10, <EN_UFO_S11, <EN_SPIDER_S0, <EN_SPIDER_S1, <EN_SPIDER_S2, <EN_SPIDER_S3
+               .byte <EN_SPIDER_S4, <EN_SPIDER_S5, <EN_SPIDER_S6, <EN_SPIDER_S7, <EN_SPIDER_S8, <EN_SPIDER_S9
+               .byte <EN_SPIDER_S10, <EN_SPIDER_S11, <EN_SPIDER_S12, <EN_SPIDER_S13, <EN_SPIDER_S14, <EN_SPIDER_FLOAT_S0
+               .byte <EN_SPIDER_FLOAT_S1, <EN_SPIDER_FLOAT_S2, <EN_SPIDER_FLOAT_S3, <EN_SPIDER_FLOAT_S4, <EN_SPIDER_FLOAT_S0, <EN_SPIDER_FLOAT_S5
+               .byte <EN_SPIDER_FLOAT_S6, <EN_SPIDER_FLOAT_S7, <EN_SPIDER_FLOAT_S8, <EN_SPIDER_FLOAT_S0, <EN_SPIDER_FLOAT_S9, <EN_SPIDER_FLOAT_S10
+               .byte <EN_SPIDER_FLOAT_S11, <EN_SPIDER_FLOAT_S12, <EN_SPIDER_FLOAT_S0, <EN_SPIDER_FLOAT_S13, <EN_SPIDER_FLOAT_S14, <EN_SPIDER_FLOAT_S15
+               .byte <EN_SPIDER_FLOAT_S16, <EN_PULSAR_S0, <EN_PULSAR_S1, <EN_PULSAR_S2, <EN_PULSAR_S3, <EN_PULSAR_S4
+               .byte <EN_PULSAR_S5, <EN_PULSAR_S6, <EN_PULSAR_S7, <EN_PULSAR_S8, <EN_PULSAR_S9, <EN_PULSAR_S10
+               .byte <EN_PULSAR_S11, <EN_PULSAR_S12, <EN_PULSAR_S13, <EN_PULSAR_S14
 EN_PHI:        .byte >EN_UFO_S0, >EN_UFO_S1, >EN_UFO_S2, >EN_UFO_S3, >EN_UFO_S4, >EN_UFO_S0
                .byte >EN_UFO_S1, >EN_UFO_S5, >EN_UFO_S6, >EN_UFO_S4, >EN_UFO_S0, >EN_UFO_S1
                .byte >EN_UFO_S7, >EN_UFO_S8, >EN_UFO_S4, >EN_UFO_S0, >EN_UFO_S1, >EN_UFO_S9
-               .byte >EN_UFO_S10, >EN_UFO_S11, >EN_WORM_S0, >EN_SPIDER_S0, >EN_SPIDER_S1, >EN_SPIDER_S2
-               .byte >EN_SPIDER_S3, >EN_SPIDER_S4, >EN_SPIDER_S5, >EN_SPIDER_S6, >EN_SPIDER_S7, >EN_SPIDER_S8
-               .byte >EN_SPIDER_S9, >EN_SPIDER_S10, >EN_SPIDER_S11, >EN_SPIDER_S12, >EN_SPIDER_S13, >EN_SPIDER_S14
-               .byte >EN_SPIDER_FLOAT_S0, >EN_SPIDER_FLOAT_S1, >EN_SPIDER_FLOAT_S2, >EN_SPIDER_FLOAT_S3, >EN_SPIDER_FLOAT_S4, >EN_SPIDER_FLOAT_S0
-               .byte >EN_SPIDER_FLOAT_S5, >EN_SPIDER_FLOAT_S6, >EN_SPIDER_FLOAT_S7, >EN_SPIDER_FLOAT_S8, >EN_SPIDER_FLOAT_S0, >EN_SPIDER_FLOAT_S9
-               .byte >EN_SPIDER_FLOAT_S10, >EN_SPIDER_FLOAT_S11, >EN_SPIDER_FLOAT_S12, >EN_SPIDER_FLOAT_S0, >EN_SPIDER_FLOAT_S13, >EN_SPIDER_FLOAT_S14
-               .byte >EN_SPIDER_FLOAT_S15, >EN_SPIDER_FLOAT_S16
+               .byte >EN_UFO_S10, >EN_UFO_S11, >EN_SPIDER_S0, >EN_SPIDER_S1, >EN_SPIDER_S2, >EN_SPIDER_S3
+               .byte >EN_SPIDER_S4, >EN_SPIDER_S5, >EN_SPIDER_S6, >EN_SPIDER_S7, >EN_SPIDER_S8, >EN_SPIDER_S9
+               .byte >EN_SPIDER_S10, >EN_SPIDER_S11, >EN_SPIDER_S12, >EN_SPIDER_S13, >EN_SPIDER_S14, >EN_SPIDER_FLOAT_S0
+               .byte >EN_SPIDER_FLOAT_S1, >EN_SPIDER_FLOAT_S2, >EN_SPIDER_FLOAT_S3, >EN_SPIDER_FLOAT_S4, >EN_SPIDER_FLOAT_S0, >EN_SPIDER_FLOAT_S5
+               .byte >EN_SPIDER_FLOAT_S6, >EN_SPIDER_FLOAT_S7, >EN_SPIDER_FLOAT_S8, >EN_SPIDER_FLOAT_S0, >EN_SPIDER_FLOAT_S9, >EN_SPIDER_FLOAT_S10
+               .byte >EN_SPIDER_FLOAT_S11, >EN_SPIDER_FLOAT_S12, >EN_SPIDER_FLOAT_S0, >EN_SPIDER_FLOAT_S13, >EN_SPIDER_FLOAT_S14, >EN_SPIDER_FLOAT_S15
+               .byte >EN_SPIDER_FLOAT_S16, >EN_PULSAR_S0, >EN_PULSAR_S1, >EN_PULSAR_S2, >EN_PULSAR_S3, >EN_PULSAR_S4
+               .byte >EN_PULSAR_S5, >EN_PULSAR_S6, >EN_PULSAR_S7, >EN_PULSAR_S8, >EN_PULSAR_S9, >EN_PULSAR_S10
+               .byte >EN_PULSAR_S11, >EN_PULSAR_S12, >EN_PULSAR_S13, >EN_PULSAR_S14
 ; === END GENERATED ===
 
         .popseg
