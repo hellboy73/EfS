@@ -253,6 +253,7 @@ game_start:
         sta     CURLEV                  ;   is zeroed for us
         stz     SATN                    ; ...and an empty hold: a NEW GAME's,
         stz     SATARM                  ;   where a sector keeps what it had
+        stz     LSRHAVE                 ; ...and no laser, until one is found
         ; fall through
 
 ; -----------------------------------------------------------------------------

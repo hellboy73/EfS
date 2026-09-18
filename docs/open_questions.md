@@ -457,37 +457,15 @@ continued mark). Open: what the mark looks like, what
 the ENDING LOST says when the continue is declined, and the score thresholds
 for **a ship for points**.
 
-**F6. Rock-dropped pickups — collectible sprites, unscaled and animated (TBD).**
-Idea: some rocks, when broken apart, release a pickup into the world as a small
-sprite — not a vector shape, an unscaled animated icon — that the player flies
-into to collect. Two examples sketched so far:
+**F6. Pickups — the open parts of `design_technical.md` 11.47 (TBD).**
+Settled 2026-09-18: the laser drops from a killed pulsar only while the player
+lacks it, its ammunition is Saturnium; the shield drops from every killed
+spider; pickups home and are absorbed like Saturnium; two-frame sprites; the
+laser and Saturnium survive a lost ship and a sector, a continue resets both;
+a pickup stays until taken, 2 slots, a third replaces the older; rocks marked
+in the level editor drop the shield too; Saturnium's pull at any distance, reusing `satn.s`. Open:
 
-- **Laser, found rather than free.** The laser would no longer be available from
-  the start: it has to be picked up first, and then carries a limited ammunition
-  count. This directly reopens B9, which already names CETAS's
-  gated-behind-a-pickup-and-50-rounds laser as the path this engine chose *not*
-  to take ("this one is free") — the two entries need to be settled together.
-- **Shield — BUILT, `design_technical.md` 11.43** (`src/shield.s`), all but
-  its pickup: `shield_on` is the door the pickup will use, and only the
-  trainer opens it for now. Open: the pickup itself, with the rest of this
-  entry.
-- **Magnetism (TBD, from a design conversation 2026-09-16).** Instead of
-  requiring the player to fly the sprite down exactly, a pickup within some
-  radius of the ship drifts toward it on its own. Reasoning: a 2-button
-  joystick has no fine cursor-like control, so demanding a precise pass over a
-  small icon is friction the input doesn't afford. Mechanically this is F7's
-  homing-dust behaviour applied to a discrete sprite instead of a point-cloud
-  particle — same "drift toward the ship" update, different thing being moved.
-  Open: the pull radius, whether it competes with or replaces F7's own
-  particles for CPU time when both are on screen, and whether an uncollected
-  pickup should still be able to drift out of world bounds via the wrap while
-  chasing the ship.
-
-Nothing is designed yet: which rock sizes can drop something and how often, how
-long an uncollected pickup sits in the world, the shield's duration and exactly
-what "resistance" reduces (damage taken, or collision impulse, or both), the
-laser's ammo count, and the pickup sprites themselves — new art rather than
-vector shapes, which ties to D2's sprite-step work.
+- **The two sprites' art** — ties to D2's sprite-step work.
 
 **F7. Saturnium dust — a continuous energy resource from the smallest size
 class only, separate from "clear the field" (TBD, from a design conversation
@@ -534,11 +512,8 @@ readout needs its own GPU/VRAM budget check alongside the shield's.
 
 **F8. New weapon ideas from a design conversation, 2026-09-16 (TBD).**
 
-- **The laser's source: a laser-wielding enemy kind.** F6 already wants the
-  laser "found rather than free"; this settles *from what* — a still-undesigned
-  enemy kind (E6) that itself fights with a laser drops it on death. Ties E6
-  (new enemy kind), F6 (the pickup mechanism) and B9 (the laser's cost, still
-  entirely open) into one thread instead of three separate ones.
+- **The laser's source — SETTLED, `design_technical.md` 11.47:** the
+  pulsar (`src/pulsar.s`) drops it on death, while the player lacks it.
 - **EMP — BUILT, `design_technical.md` 11.42** (`src/emp.s`, 2026-09-18):
   FIRE1 + FIRE2, 200 Saturnium, a `DOT_CIRCLE` off the hull growing 16 px a
   frame for 31 frames, and every enemy inside the radar's round test at `2n`

@@ -1189,8 +1189,9 @@ cart_frame:
 :
 .endif
         lda     FLSTEP                  ; same shape, for the flames - see
-        cmp     #$06                    ;   upload_flames_step - and then the
-        bcs     :+                      ;   enemy arrows' page (cam.s). The
+        cmp     #PK_ART_STEP + PK_PAGES ;   upload_flames_step - and then the
+        bcs     :+                      ;   enemy arrows' page and the pickups'
+                                        ;   (cam.s, pickup.s). The
         jsr     upload_art_step         ;   ship is a vector outline, but its
                                         ;   flames are sprites regardless.
 :
@@ -1508,6 +1509,9 @@ cart_frame:
                                         ; it, and SECTOR COMPLETED. CODE6, after
                                         ; shield.s (its state follows that
                                         ; file's) and screens.s (SC_SECTOR)
+        .include "pickup.s"             ; the laser and the shield, dropped by
+                                        ; a kill and homing like Saturnium.
+                                        ; CODE6, its art in MSGDATA
         .include "sfx.s"                ; the sound effects and the explosion
                                         ; flash. A HIDATA file end to end - the
                                         ; SFX engine reads the step programs

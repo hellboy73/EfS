@@ -38,7 +38,7 @@
 ;
 ; ARRIVAL is a box, |dx| and |dy| both under SATP_ARR, tested before the step.
 ; What arrived is told by the TAG: bits 7-6 of the slot byte are what it is
-; (SPT_SATN, a Saturnium mote; SPT_PICKUP reserved for F6's sprites), bits 5-0
+; (SPT_SATN, a Saturnium mote; SPT_LASER / SPT_SHIELD, pickup.s's), bits 5-0
 ; its age, saturating. A zero byte is a free slot, which is why no tag is 00.
 ; A landing pulses the ring out past its outer radius for a frame; the FIRST landing of a cloud
 ; also sounds the whoosh (SE_SATN), and SATWC holds it off for the length of
@@ -118,7 +118,8 @@ SATP_ARR    = 192               ; arrival box, world units a side-half: 12
                                 ;   full-res px at 1:1 - inside the hull
 SATP_AGE    = $3F               ; the age field of the slot byte
 SPT_SATN    = $40               ; tags. Never $00: that is a free slot
-SPT_PICKUP  = $80               ;   (reserved - F6's pickup sprites)
+SPT_LASER   = $80               ;   ...and the pickups (pickup.s): bit 7 set,
+SPT_SHIELD  = $C0               ;   drawn as a sprite by pk_draw
 SPT_MASK    = $C0
 SATP_ACC    = 7                 ; the pull is d >> this: 9 units/frame^2 from
                                 ;   80 px away, and it fades as the mote closes
@@ -204,6 +205,7 @@ SATP_END    = SATRN + 3
 ; one DOT_PIXELS for both.
 ; -----------------------------------------------------------------------------
 do_satn:
+        jsr     pk_tick                 ; the pickups' animation clock
         stz     SATDI
         lda     SATWC
         beq     :+
@@ -362,7 +364,12 @@ do_satn:
         sta     PYH
         jsr     view_xform
         jsr     zoom_fb
-        lda     FXH                     ; half-res, and on the screen or not
+        ldx     SATI                    ; a pickup is a sprite (pickup.s)
+        lda     SATPT,x
+        bpl     :+
+        jsr     pk_draw
+        bra     @nextx
+:       lda     FXH                     ; half-res, and on the screen or not
         cmp     #$80                    ;   drawn at all
         ror     a
         bne     @nextx
@@ -838,12 +845,14 @@ satp_clip:
         rts
 
 ; A = the arrived slot's byte. A Saturnium mote was already paid for at the
-; kill: this is the feedback, and nothing else. Clobbers everything.
+; kill: this is the feedback, and nothing else; a pickup is pk_arrive's.
+; Clobbers everything.
 satp_arrive:
         and     #SPT_MASK
         cmp     #SPT_SATN
-        bne     @done                   ; SPT_PICKUP: a later stage's
-        lda     #$01                    ; the ring breathes out for a frame
+        beq     :+
+        jmp     pk_arrive               ; a pickup: what it is (pickup.s)
+:       lda     #$01                    ; the ring breathes out for a frame
         sta     SATHMP
         lda     SATWC                   ; ...and the cloud's first landing
         bne     @done                   ;   whooshes, once

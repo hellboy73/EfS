@@ -28,6 +28,10 @@ API_GPU_DOTCIRCLE   = $FF27     ; OS_ARG+0 = CX (0-199), +1 = CY (0-149), +2 = R
                                 ;   clipped (the slower path). The EMP (emp.s)
 API_GPU_SPRITE      = $FF2A     ; OS_ARG+0 = SPR_ID, +1..2 = X16, +3..4 = Y16
 API_GPU_LOAD        = $FF39     ; OS_ARG+0 = GPU page MSB, +1..2 = ptr -> 256 bytes
+API_GPU_LOAD_CART   = $FF9C     ; OS_ARG+0 = cart bank, +1..2 = window address,
+                                ;   +3 = GPU page: one LOAD page read straight
+                                ;   out of the cartridge. Carry SET = no PPRAM
+                                ;   left this frame (pickup.s)
 API_GPU_CLEARBG     = $FF3C     ; (no args) clear the VRAM background
 API_GPU_HDOTLINE    = $FFB1     ; OS_ARG+0..2 = X1,Y,X2, half-res bytes - a
                                 ;   byte-aligned horizontal dotted rule ($49):

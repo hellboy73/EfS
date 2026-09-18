@@ -1677,6 +1677,7 @@ These are settled and should not be re-opened without a reason:
 
     **No pickup yet**: `shield_on` (full 30 s again if already up) is the
     pickup's door; the TRAINER's DOWN on the second pad opens it for now.
+    The pickup is decided (every killed spider drops it, 47), not built.
 
     **Measured** (`tools/preview.py`'s shield bench): raised by the trainer,
     one circle a frame about the hull, R per zoom as above, a hit of 10 paying
@@ -1875,3 +1876,60 @@ These are settled and should not be re-opened without a reason:
       bonus pickup, and it opens the gate: a new mission kind beside
       `MS_ROCKS`/`MS_FOES`/`MS_OPEN`. A **wreck** may stay behind, a
       second figure authored in the editor.
+47. **Pickups: dropped by a kill, absorbed like Saturnium, two-frame sprites.**
+    Decided 2026-09-18 (the user), not built; the open parts are
+    `open_questions.md` F6.
+
+    **Two pickups, each from its own enemy.**
+    * **The laser drops from a killed PULSAR** (`src/pulsar.s`), the enemy
+      that itself fights with lasers (F8) — **but only while the player does
+      not have the laser yet.** A pulsar killed by a player who already has
+      it drops nothing. Until it is picked up the laser (24) cannot be chosen:
+      FIRE2's single click stays on the gun.
+    * **The shield drops from EVERY killed spider** (`FK_SPIDER`, physics.md
+      9.1). It is the door `shield_on` (43) was left open for, and it
+      replaces the trainer's DOWN as the way in. **Chosen rocks drop it
+      too**, marked one by one in the level editor.
+
+    **"Has the laser" means TAKEN.** A laser dropped and still lying in the
+    world does not count, so the next pulsar killed drops another: at most
+    two in space at once, one per slot.
+
+    **The laser's ammunition is Saturnium** — no separate round count, as
+    CETAS has. That is the pool the laser already burns (`SATN_LSR_COST`,
+    `satn.s`), so finding the laser only unlocks it.
+
+    **What keeps it.** A **lost ship** keeps the laser and the Saturnium. A
+    **sector passed** keeps everything, plus whatever the tunnel changes
+    (45). A **continue** takes the Saturnium and every extra weapon back to a
+    new game's (45), so the laser has to be found again.
+
+    **A pickup stays until it is taken** — no timeout. At most **2 at once**
+    (two slots); a third drop **replaces the older** of the two.
+
+    **Not caught, absorbed.** A pickup is not flown over exactly: it homes on
+    the ship by itself and is taken on arrival, the way Saturnium dust is
+    (F7) and the lifepod is (46), **with Saturnium's own pull** (`satn.s`,
+    `SATP_ACC`): at any distance, from the frame it drops, so it is home in
+    under half a second and never really lies in the world. Chosen because
+    code space is short and this reuses `satn.s`'s steering rather than
+    adding a second. The 2 slots are a safety net for a burst — two pulsars
+    killed together by one EMP (42) drop two lasers at once. A 2-button stick has no fine control to
+    demand a precise pass over a small icon.
+
+    **What it looks like.** **One sprite for every pickup**, laser and
+    shield alike (`assets/png/bonusmid1.png`, `bonusmid2.png`): 32x32 with
+    an overlay, two GPU pages, never scaled, so it is the same size at every zoom, and
+    **two frames flipped every 10 game frames** (`PK_HOLD`). It is drawn in
+    the hardware's axes, like the enemy arrow, so it is not turned for TATE.
+
+    **Built 2026-09-18, `src/pickup.s`** (CODE6), all but the rocks marked
+    in the editor. A pickup is a slot of `satn.s`'s pool with another tag
+    (`SPT_LASER`/`SPT_SHIELD`), held to slots 0 and 1. `foe_kill` drops it
+    (`pk_drop`), `do_satn` steers it like a mote and draws it as a sprite
+    (`pk_draw`), and its arrival sets `LSRHAVE` (LASER ACQUIRED) or calls
+    `shield_on`. The art (`tools/pickupgen.py` → `src/pickups_art.s`) is read
+    straight out of the MSGDATA bank by `gpu_load_cart`, as the seventh
+    art-upload step, so it costs no CPU RAM. A kill by a pulsar's beam
+    (`FOEKILL`) drops nothing, just as it pays nothing. The trainer's LEFT
+    gives the laser.

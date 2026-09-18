@@ -156,10 +156,16 @@ lsr_fire:
 ; -----------------------------------------------------------------------------
 ; wpn_toggle - input.s do_fire2's confirmed single click: the other weapon, said
 ; on the message bar and heard as a click. A beam already burning is left to
-; burn out - it was fired, the way a bullet in flight is not recalled.
+; burn out - it was fired, the way a bullet in flight is not recalled. Until a
+; laser has been picked up (pickup.s LSRHAVE) a click TO it does nothing; one
+; back to the gun always works.
 ; -----------------------------------------------------------------------------
 wpn_toggle:
         lda     WEAPON
+        ora     LSRHAVE
+        bne     :+
+        rts
+:       lda     WEAPON
         eor     #$01
         sta     WEAPON
         clc                             ; IM_GUN / IM_LASER, WEAPON the offset

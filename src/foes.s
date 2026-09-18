@@ -3665,6 +3665,7 @@ foe_kill:
         lda     FOEYH,x
         sta     EXTYH
         jsr     expl_at
+        jsr     pk_drop                 ; ...and what it leaves (pickup.s)
         ; fall through into the wreck
 
 ; -----------------------------------------------------------------------------

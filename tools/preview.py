@@ -3398,6 +3398,10 @@ def grid_ok():
 boot_cart()
 for k in range(cpu_mem[0x6E1C]):                # NFOE: every UFO off the field
     cpu_mem[FOEST_A + k] = 0
+LSRHAVE_A = int(re.search(r"^LSRHAVE\s*=\s*[$]([0-9A-Fa-f]{4})",
+                          (SRC / "pickup.s").read_text(), re.M).group(1), 16)
+cpu_mem[LSRHAVE_A] = 1                          # the laser in hand, as if a pulsar
+                                                #   had dropped it (pickup.s)
 lz = []
 prevj = 0
 for f in range(LZ_N):

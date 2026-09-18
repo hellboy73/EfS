@@ -12,6 +12,7 @@
 ;   UP      the hold fills: SATN = SATN_MAX (satn.s) - held
 ;   DOWN    the shield goes up for its 30 s (shield.s shield_on) - on the press
 ;   RIGHT   the exit gate opens, mission or not (gate.s gate_open) - on the press
+;   LEFT    the laser is in hand, as if picked up (pickup.s LSRHAVE) - on the press
 ;
 ; Runs from cart_frame after do_input, inside the bracket: SATN lives under the
 ; window.
@@ -38,6 +39,10 @@ trainer_tick:
         phx
         jsr     gate_open               ; RIGHT: the exit gate
         plx
+:       lda     JOY1_PRESS,x
+        and     #JOY_LEFT
+        beq     :+
+        sta     LSRHAVE                 ; LEFT: the laser (any nonzero will do)
 :       lda     JOY1_PRESS,x
         and     #JOY_DOWN
         beq     @done

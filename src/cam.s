@@ -708,7 +708,8 @@ ac_done:
         rts
 
 ; -----------------------------------------------------------------------------
-; upload_art_step - the flames' five LOAD pages, then the arrows' one.
+; upload_art_step - the flames' five LOAD pages, the arrows' one, and then the
+; pickups' (pickup.s pk_upload).
 ; -----------------------------------------------------------------------------
 upload_art_step:
         lda     FLSTEP
@@ -716,7 +717,10 @@ upload_art_step:
         bcs     :+
         jmp     upload_flames_step
 :       inc     FLSTEP
-        lda     #ARW_PAGE
+        cmp     #PK_ART_STEP - 1        ; the arrows' step, then the pickup's
+        beq     :+
+        jmp     pk_upload
+:       lda     #ARW_PAGE
         sta     OS_ARG+0
         lda     #<arrows_data
         sta     OS_ARG+1
@@ -725,7 +729,8 @@ upload_art_step:
         jmp     API_GPU_LOAD
 
 ; arrow_defs - X = the definition page upload_flames_step is staging (0 TYPE,
-; 1 PTR_LSB, 2 PTR_MSB, 3 HEIGHT): the arrows' four slots into DEFPG. Keeps X.
+; 1 PTR_LSB, 2 PTR_MSB, 3 HEIGHT): the arrows' four slots into DEFPG, and the
+; pickups' four behind them (pickup.s pk_defs). Keeps X.
 arrow_defs:
         phx
         txa
@@ -740,7 +745,7 @@ arrow_defs:
         cpy     #$04
         bne     :-
         plx
-        rts
+        jmp     pk_defs                 ; tail
 
 ARW_DEF:
         .byte   ARW_RIGHT_TYPE, ARW_LEFT_TYPE, ARW_UP_TYPE, ARW_DOWN_TYPE

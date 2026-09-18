@@ -21,9 +21,11 @@ MODULES = src/math.s src/input.s src/camera.s src/ship.s src/thrust.s \
           src/hud_game.s src/gameover.s src/debris.s src/radar.s \
           src/shots.s src/foes.s src/laser.s src/sfx.s src/window.s \
           src/music.s src/satn.s src/cam.s src/hiscore.s src/screens.s \
-          src/pulsar.s src/emp.s src/shield.s src/trainer.s src/gate.s
+          src/pulsar.s src/emp.s src/shield.s src/trainer.s src/gate.s \
+          src/pickup.s
 DATA    = src/shapes.s src/enemies.s src/levels.s src/radar_bg.s src/ship32.s \
-          src/flames.s src/arrows.s src/screens_art.s src/scroller_text.s
+          src/flames.s src/arrows.s src/screens_art.s src/scroller_text.s \
+          src/pickups_art.s
 
 # The song. vgmstrip.py removes the VGM header and the GD3 tag - vgm_play does
 # no header parsing, it executes commands from the address it is given - and
@@ -65,6 +67,13 @@ LOGO_PNG  = assets/png/bitmaps/MAD65_logo.png
 TITLE_PNG = assets/png/bitmaps/efs_title_scr.png
 src/screens_art.s: $(LOGO_PNG) $(TITLE_PNG) tools/artgen.py tools/bggen.py
 	python tools/artgen.py $@ LOGO=$(LOGO_PNG)@22,160/128 TITLE=$(TITLE_PNG)@0,0/15
+
+# The pickup's sprite, both frames (pickup.s). Tracked output, like arrows.s.
+# PICKUP_SET picks the pair, assets/png/<set>1.png and <set>2.png.
+PICKUP_SET = bonusmid
+PICKUP_PNG = assets/png/$(PICKUP_SET)1.png assets/png/$(PICKUP_SET)2.png
+src/pickups_art.s: $(PICKUP_PNG) tools/pickupgen.py tools/sprgen.py Makefile
+	python tools/pickupgen.py $(PICKUP_SET)
 
 # ...and the .inc is a CO-PRODUCT of that same run, not a second one.
 assets/vgm/%_stream.inc: assets/vgm/%_stream.bin ;
