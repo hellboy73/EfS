@@ -73,7 +73,7 @@ Then they are gone.
 
 The operators assume it is a software problem.
 
-One of the eight crewed survey ships is sent out.
+One of the five crewed survey ships is sent out.
 
 Its task is to clear the next area and check the anomalies.
 
@@ -99,7 +99,7 @@ Some of the objects always appear near the Saturnium deposits.
 
 The scanners begin registering brief pulses whose source cannot be located.
 
-The eight survey ships are given a new assignment.
+The five survey ships are given a new assignment.
 
 **Find the source of the anomaly.**
 

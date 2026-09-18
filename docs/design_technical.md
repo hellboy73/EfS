@@ -777,11 +777,11 @@ The campaign is **5 levels** — MINING ZONE, SENSOR ANOMALY, CONTACT, HUNT,
 ESCAPE — needing three mission types: **clear the field**, **survive / traverse**,
 and **reach the exit alive**. See [`story.md`](story.md) for the per-level content
 and for the engine features the fiction commits us to (cloaked-but-simulated
-enemies, detection-and-pursuit AI, deliberately unreliable instruments, per-level
-world size).
+enemies, detection-and-pursuit AI, deliberately unreliable instruments). Each
+level is **three sectors** of one fixed world size — see 11.45.
 
 A level is defined by a **mission plan**: what has to be true before the exit opens.
-The level plan also sets the world size, the initial population, the size-class
+The level plan also sets the initial population, the size-class
 mix, the enemy roster, physics parameter overrides and the music.
 
 Level scripts are data, read straight out of the cartridge window (the CETAS
@@ -794,7 +794,7 @@ Per level it carries a **count per size class** — which the loader scatters ov
 the torus from a per-level LFSR seed, so a field is random in shape but identical
 on every run — plus **hand-placed rocks** for set-pieces, **enemy positions**
 (carried but not yet read; see `open_questions.md` E6), and the ship's start.
-World size, physics overrides and music are still to come, and go in the same
+Physics overrides and music are still to come, and go in the same
 per-level tables. Nothing about a level is a literal in that file: the tables are
 built out of named constants and the per-level totals are summed from them, so
 the assembler refuses to build a level asking for more rocks than there are
@@ -1739,3 +1739,94 @@ These are settled and should not be re-opened without a reason:
     **Where it lives**: code, `levels.s` and the strings in CODE6 (CART_HIRAM,
     **391 B left** there after it); 36 B of state under the window behind
     `shield.s`'s; `EA_GATE`'s tables in RODATA (UPPER, 73 B left).
+
+45. **The campaign's shape: 5 levels x 3 sectors, 5 ships, one flow of
+    states.** Decided 2026-09-18 (the user); settles `open_questions.md` A3,
+    A5 and the structural half of H1. Nothing of it is built beyond what H1
+    and 11.44 already list.
+
+    **A level is a chapter, a sector is a board.** Five levels (`story.md`),
+    **three sectors each, fixed** — 15 boards, numbered `1-1` .. `5-3`. The
+    briefing belongs to the level; the gate (11.44) ends a sector. **Every
+    sector is the same size** — the one 16-bit torus (3.1), because the wrap
+    is free and a per-level world size would cost it. What the script calls
+    "a far larger area" in levels 4 and 5 is made out of what a sector
+    already has: a gate placed far from the start, a denser or more hostile
+    population, and instruments that lie (E8) — not a bigger map.
+
+    **The flow:**
+
+    ```
+    POWER-ON -> INTRO (once) -> TITLE <-> ATTRACT
+      FIRE -> PROLOGUE (story_intro.md, typewriter, FIRE skips)
+        per level:  BRIEFING (picture + prose)
+          per sector: START BANNER -> PLAY -> gate -> TUNNEL
+        (after x-3 the TUNNEL comes first, then the next level's BRIEFING)
+      after 5-3            -> ENDING WON  -> HISCORE -> TITLE
+      last ship lost       -> CONTINUE? --yes--> the same sector, reset
+                                        --no---> ENDING LOST -> HISCORE -> TITLE
+    ```
+
+    **The BRIEFING is a picture over prose**, not a full-screen bitmap: the
+    picture takes the top half to a third of the screen, the level's text
+    (`story_levels.md`) runs under it. That halves-or-better the banks a
+    picture costs (H1's RLE bands), five of them in all — one per level,
+    none per sector.
+
+    **The START BANNER** is one or two lines over the field for ~2 s:
+    `SECTOR 1-2` and the mission (`CLEAR THE LARGE ROCKS`, `DESTROY ALL
+    HOSTILES`, `REACH THE EXIT GATE`), read from the sector's `MISN`.
+
+    **RADIO MESSAGES** are one HUD line during play, from the HUD-message
+    bank: Control and the other ships talking, triggered by events (a foe
+    decloaking, the gate opening, a ship lost) and by the sector's script.
+    It is the way the story is told *in* flight rather than only between
+    boards. Open: the line's place on the HUD, how long one stays, and the
+    trigger set — `open_questions.md` H5.
+
+    **Lives are the five survey ships**, SRV-T01..T05 (`story_levels.md`);
+    `LIVES_START` is already 5. Losing one hands over to the next callsign
+    (a radio line: `SRV-T01 LOST - T02 TAKING OVER`). A ship lost in a
+    sector can be won back in the tunnel that follows it, and only there.
+    Ships lost in earlier sectors come back only as **a ship for points** (an
+    extra life at score thresholds; the thresholds are TBD). The count never
+    goes above five.
+
+    **The TUNNEL follows every sector** and replaces `SC_SECTOR`'s frame. It
+    is about a minute long and nobody dies in it. A 300 x 300 window at the
+    top holds the flight: forward through space in 3D, rocks coming at the
+    camera. Under it are the instruments and the radio, which gives the
+    debrief of the sector just flown and the brief for the next: a summary
+    and what to do. It is also where the ship gets ready for the next
+    sector. It is pseudo-3D: the ship
+    flies forward inside an invisible tube it cannot leave. The **joystick
+    alone** leans it in eight directions within a limited range, to catch or
+    dodge what comes at it, and **springs back to the centre** when the stick
+    is let go. No button does anything. The minute's stream of rocks,
+    Saturnium and pods is **generated from a per-level seed**, like a
+    sector's scatter (`levels.s`), so it is the same on every run. The
+    instruments under the window show the Saturnium, the ships, the sector's
+    summary (score, time, kills) and the radio text. There are two things to
+    catch:
+    * **lifepods**, one for each ship lost in *this* sector (so at most four,
+      since the fifth ship lost goes to CONTINUE instead). Catching one
+      returns that ship. A rock hit never takes a caught pod back.
+    * **Saturnium**, carried into the next sector (EMP, and later the laser
+      and teleport).
+    **Any rock hit costs all the Saturnium collected in this passage**,
+    never the ship and never a pod. This is the first setting, to be re-tuned
+    once it is flown. What is left open is `open_questions.md` H6.
+
+    **No codes, and every game starts at 1-1.** The MAD-65 has no keyboard,
+    so a code could not be entered. What replaces it is CETAS's continue
+    (`CETAS/src/gameover.s`): when the fifth ship is lost, a CONTINUE screen
+    with a countdown offers to **fly the same sector again with everything
+    reset: score 0, five ships, the weapons and the Saturnium back to a new
+    game's**. The story can be finished that way, and the hiscore table
+    stays honest because a continued score starts from zero. Continues are
+    **unlimited**, and **FIRE2** takes one (as in CETAS, so that a reflexive
+    shot cannot). The hiscore table takes **the best score of any run in the
+    game, not the last run's**. The continue window is **10 s** and starts
+    once its text is fully shown (as in CETAS). It records the sector reached (`3-2`) beside
+    the score, and marks an entry whose game was continued. The ENDINGS
+    replacing the GAME OVER banner are agreed but deferred.

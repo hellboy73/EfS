@@ -74,14 +74,14 @@ and a chase behaviour, and explicitly permits avoidance instead of combat. So th
 enemy AI needs at least: patrol, detect, pursue, lose-track. That is the shape of
 the enemy roster for open question E6.
 
-**5. Escalating area size.** Levels 4 and 5 are described as far larger than the
-earlier ones. World size is per-level data (open question A3), so this is free —
-but it means A1 must be settled as a *baseline* with room to grow, not a fixed
-constant.
+**5. Escalating area size — read as difficulty, not map size.** Every sector
+is the same torus (`design_technical.md` 11.45); "far larger" in levels 4 and 5
+is a far gate, more hunters and lying instruments.
 
-**6. Five crewed ships.** Five survey ships launch from Titan and are lost across the
-campaign. That is a natural fit for lives, or for a between-level "ships remaining"
-count, and it gives the game-over screen its meaning. **(TBD)**
+**6. Five crewed ships — they are the lives.** SRV-T01..T05; losing one hands
+over to the next callsign, and the tunnel can bring back a crew lost in that
+sector. Losing the fifth offers a CONTINUE, and declining it is the lost ending
+(`design_technical.md` 11.45).
 
 ---
 

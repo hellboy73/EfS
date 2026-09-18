@@ -23,10 +23,9 @@ to test: ~15-20 s corner to corner.
 then an X on the radar and the enemy arrow's sprite pointing at it. Still open
 there: the primitive (`GATE_DOT`) and whether it animates or spins.
 
-**A3. World size per level (TBD).** The script wants levels 4 and 5 to be *much*
-larger than the early ones, so the answer is already "it varies" — world size is
-per-level data. What this changes is A1: the baseline must be chosen with room to
-grow, not as a fixed constant.
+**A3. World size per level — settled 2026-09-18, moved to `design_technical.md`
+11.45: there is none.** Every sector is the same 16-bit torus; "a larger area"
+in levels 4-5 is a far gate, a harder population and lying instruments.
 
 **A4. Does the wrap change across the campaign (TBD)?** The fiction frames the
 looping region as a Saturnium space-folding anomaly that gets stranger as the game
@@ -34,39 +33,11 @@ goes on. Whether that ever becomes mechanical (asymmetric wrap, seams, a visible
 fold) or stays pure flavour is a design call — mechanically it would cost the free
 wrap, so the bar is high.
 
-**A5. Levels split into lettered sectors (1-A/1-B/1-C, ...), joined by the
-tunnel; the story screen stays between numbered levels only (TBD, from a
-design conversation 2026-09-16).** Idea: each numbered level (`story.md`'s
-five) is made of two or three sub-areas instead of one continuous world. A
-sector differs from a level only in scale, not mechanism — A3 already settles
-that world size is per-level data, so a sector is just another instance of the
-same load with its own size and rock population, exactly the way today's five
-levels are already independent of each other.
-
-- **Sectors chain through the tunnel (H1), levels chain through the story
-  screen.** The transition 1-A -> 1-B -> 1-C is the in-between STAGE H1
-  already leaves open ("a mini-game, flying a tunnel") — reused as the
-  connective tissue between sectors rather than a rare treat between full
-  levels. The transition between numbered levels (1 -> 2, etc.) keeps the
-  bitmap-plus-briefing H1 already describes. This is a budget decision as much
-  as a pacing one: H1 already prices a story bitmap at roughly two banks each,
-  so multiplying five numbered levels into lettered sub-levels must not
-  multiply the bitmap count, or F2/F3's bank budget breaks. Only the numbered
-  transitions get art; sector transitions get the tunnel and nothing else.
-- **The tunnel itself carries no death.** Discussed alongside this: hitting an
-  obstacle in the tunnel does not kill, only costs that run's bonus (a
-  multiplier, or the Saturnium collected during the passage, F7) — a bonus
-  round is its own justification by genre convention; "the ship's systems take
-  over for the crossing" is the one-line in-fiction reading if one is wanted,
-  reusing the shield's existing diegetic idiom rather than inventing new lore.
-- **1-A is where the game teaches one small thing at a time.** Stated intent:
-  the first sector of the first level should be short, with few rocks, and
-  introduce one system at a time (e.g. F7's Saturnium collection) rather than
-  opening with everything at once.
-
-Open: how many sectors per level (does it vary the way world size already does
-per A3?), whether a sector transition needs any text at all or is silent, and
-how the tunnel's own reward (F7) is tuned per sector versus per full level.
+**A5. Levels split into sectors — settled 2026-09-18, moved to
+`design_technical.md` 11.45.** Three sectors per level, fixed, numbered `1-1` ..
+`5-3`; the briefing (picture + prose) only between levels, the tunnel between
+sectors. Still open from the old entry, and now H1's: what the tunnel pays out,
+and 1-1 as the sector that teaches one thing at a time.
 
 ---
 
@@ -458,8 +429,12 @@ Two things have to be settled before it is used, and neither has been measured:
 512 KB part (the bank register reaches 1 MB, so it costs nothing in hardware) or
 fewer/shorter tracks.
 
-**F4. Save / continue / high score (TBD).** The console has no persistent storage;
-decide what a "campaign" means across a power cycle (level codes?).
+**F4. Save / continue / high score — settled 2026-09-18, moved to
+`design_technical.md` 11.45** (no codes; unlimited continues on FIRE2, with
+everything reset; the table keeps the game's best run, its sector and a
+continued mark). Open: what the mark looks like, what
+the ENDING LOST says when the continue is declined, and the score thresholds
+for **a ship for points**.
 
 **F6. Rock-dropped pickups — collectible sprites, unscaled and animated (TBD).**
 Idea: some rocks, when broken apart, release a pickup into the world as a small
@@ -782,7 +757,7 @@ them once rather than the game-over one alone.
   power-on as a stand-in (`MUSIC_ON` = 1, banks 7-8). Still open: game over
   goes straight back into a game rather than to the title, and a frame of the
   title picture shows under the first frame of flight.
-* **Open, not ruled out:** a short in-between STAGE after some levels — a
+* **Decided 2026-09-18: the tunnel comes after EVERY sector** (11.45), short, and it cannot kill — see H6 for what is in it. Superseded wording: a short in-between STAGE after some levels — a
   mini-game, flying a tunnel. If it comes it is its own state with its own
   code, so it is one more overlay, not resident code, and it has to be weighed
   against the same `CART_HIRAM` room as the screens.
@@ -847,3 +822,33 @@ one. The thing in the way is that the probe hardcoded `ship_die`'s address,
 which moves on every build, and `preview.py`'s whole discipline is to parse
 addresses out of the source instead. Either export the handful of labels a bench
 needs, or have the Makefile emit a label file beside `map.txt`.
+
+**H5. Radio messages (decided 2026-09-18, not built — `design_technical.md`
+11.45).** One HUD line of Control and the other ships talking during play,
+strings in the HUD-message bank. Open: where the line sits beside the two HUD
+rows and the radar, how long a message stays and whether it types itself out,
+whether two can queue, and the triggers — events (a foe decloaks, the gate
+opens, a ship is lost and the next callsign takes over) and per-sector script
+lines, which ties it to the per-sector data in `levels.s`.
+
+**H6. The tunnel — what it is is settled (`design_technical.md` 11.45), its
+numbers are not (TBD/TBM).** After every sector (after x-3, before the level
+briefing): about a minute, no death, a 300 x 300 pseudo-3D window with the
+instruments and the radio's debrief/brief under it. The joystick leans the ship
+in eight directions inside an invisible tube, and no button does anything.
+There is one lifepod for each ship lost in this sector. A rock hit costs all
+the Saturnium collected in this passage, never a pod. Open:
+
+* The lean (it springs back to the centre, 11.45): its range, and how fast
+  it leans and returns (TBM).
+* The seeded generator (11.45): how it makes sure a pod is always reachable,
+  and the density per level.
+* Whether "all the Saturnium" is too harsh once flown (first setting, 11.45).
+* Per-level variety as foreshadowing (candidate): L1 clean ice, L2 a
+  silhouette that flickers and is gone, L3 wrecks of SRVs, L4 shadows pacing
+  the ship, L5 the tunnel folding back on itself.
+* Its music.
+* **Cost (TBM):** perspective is a 1/z table, rocks are the GPU's scaled
+  shapes, the stars `DOT_PIXELS`; the code is a SWAP overlay (H1). A 300 x 300
+  window also means only part of the screen is redrawn, so the clear or the
+  background layer may be cheaper than in flight.
