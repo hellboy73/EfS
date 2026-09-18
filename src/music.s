@@ -38,9 +38,10 @@
 ; =============================================================================
 
 MUSIC_ON    = 1                 ; 0 = no song, no banks, no player calls
-MUSIC_BANK  = 7                 ; the stream's first bank. Banks 0-6 are the
+MUSIC_BANK  = 8                 ; the stream's first bank. Banks 0-6 are the
                                 ;   code, the tables, COLD and the screens'
-                                ;   pictures - see cart.cfg
+                                ;   pictures, and bank 7 is MSGDATA - see
+                                ;   cart.cfg
 MUSIC_BANKS = 2                 ; ...and how many it takes. TEMPORARY: the song
                                 ;   is the title-theme sketch
                                 ;   (efs_title_theme_sketch_rearranged10.vgm,

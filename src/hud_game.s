@@ -167,6 +167,34 @@ IM_SHIELD_ON = 8                ; the shield went up (shield.s)...
 IM_SHIELD_OFF= 9                ; ...and has 4 s left
 IM_GATE      = 10               ; the mission is done (gate.s)
 
+; -----------------------------------------------------------------------------
+; msg_open / msg_close - borrow the window for MSGDATA, the HUD/indicator text.
+; -----------------------------------------------------------------------------
+; Every label ("SHIPS: ", "LEVEL: ", "SCORE: ") and indicator message (below,
+; and in shield.s/emp.s/gate.s) lives in MSGDATA (cart.cfg, bank MSG_BANK) and
+; is read straight out of the $8000-$9FFF window - the same trick do_explosions
+; (shots.s) uses for EXPL_OFF out of COLD - instead of sitting resident in RAM
+; that three other areas were spending on it. Occasional only: a row rebuild or
+; a new indicator starting, never a per-frame walk, so the window's wait states
+; cost nothing measurable here. Save/select/restore through CART_SHADOW, same
+; as window.s's win_off/win_on, so a borrow nests correctly with whatever else
+; is holding the window.
+; -----------------------------------------------------------------------------
+MSG_BANK    = 7                 ; cart.cfg: the MSGDATA segment
+MSGSAVE     = $73AE             ; the bank byte msg_open borrowed the window
+                                ;   from. $73AE-$73BF is free - window.s's
+                                ;   WINSAVE starts at $73C0
+
+msg_open:
+        lda     CART_SHADOW
+        sta     MSGSAVE
+        lda     #MSG_BANK | CART_EN
+        jmp     API_CART_BANK
+
+msg_close:
+        lda     MSGSAVE
+        jmp     API_CART_BANK
+
 ; --- RAM ---------------------------------------------------------------------
 ; $7030-$70FF was the last clear stretch of the page thrust.s and shots.s share
 ; (the flames end at $701E, the shots' per-bullet trig at $702F). The four line
@@ -460,6 +488,7 @@ hud_row2:
 ; -----------------------------------------------------------------------------
 hud_build_row1:
         jsr     hud_blank_l1
+        jsr     msg_open
         ldx     #0                      ; "SHIPS: "
         ldy     #C_LABEL
 @lab:   lda     STR_LIVES,x
@@ -468,6 +497,7 @@ hud_build_row1:
         inx
         cpx     #7
         bne     @lab
+        jsr     msg_close
         lda     LIVES
         clc
         adc     #'0'
@@ -552,6 +582,8 @@ hud_bar_fill:
 ; bar on the row above.
 ; -----------------------------------------------------------------------------
 hud_build_row2:
+        jsr     msg_open                ; covers both labels below - "per region
+                                        ;   of code, not per access" (window.s)
         ldx     #0                      ; "LEVEL: "
         ldy     #C_LABEL
 @lab:   lda     STR_LEVEL,x
@@ -578,6 +610,7 @@ hud_build_row2:
         inx
         cpx     #7
         bne     @lab2
+        jsr     msg_close
         ldx     #0                      ; ...and the digits, verbatim
         ldy     #C_SCORE_NUM
 @dig:   lda     SCORE,x
@@ -854,7 +887,9 @@ ind_next:
         sta     HUD_PTR
         lda     IND_HI,x
         sta     HUD_PTR+1
+        jsr     msg_open
         jsr     ind_build               ; centred into IND_BUF
+        jsr     msg_close
         jmp     ind_emit                ; tail
 
 ; -----------------------------------------------------------------------------
@@ -945,9 +980,14 @@ score_add:
 ; The strings
 ; =============================================================================
 ; Fixed-length labels (the builders copy an exact count, so no NUL is needed) and
-; NUL-terminated messages (ind_build measures them).
+; NUL-terminated messages (ind_build measures them). All of it lives in MSGDATA
+; (cart.cfg, bank MSG_BANK) now, not RAM: read straight out of the window by
+; msg_open/msg_close, bracketing every place that touches one of these labels.
+; IND_LO/IND_HI stay here in RODATA - they are only ever read BEFORE the window
+; is borrowed (ind_next builds HUD_PTR from them first), and at 22 bytes for
+; the pair, moving them would not have bought anything back.
 ; =============================================================================
-        .segment "RODATA"
+        .segment "MSGDATA"
 
 STR_LEVEL:  .byte   "LEVEL: "
 STR_SCORE:  .byte   "SCORE: "
@@ -961,8 +1001,10 @@ IM_ENEMY_S: .byte   "ENEMY DETECTED", 0
 IM_GUN_S:   .byte   "BLASTER ARMED", 0
 IM_LASER_S: .byte   "LASER ARMED", 0
 
-; IM_EMP_NA_S is in emp.s (CODE6), the shield's two in shield.s (CODE2) and
-; IM_GATE_S in gate.s (CODE6): UPPER, where these are, is full
+        .segment "RODATA"
+
+; IM_EMP_NA_S is in emp.s, the shield's two in shield.s and IM_GATE_S in
+; gate.s - all four MSGDATA now, same as the ones above
 IND_LO:     .byte   <IM_HULL_S, <IM_CRIT_S, <IM_LEVEL_S, <IM_LIFE_S, <IM_ENEMY_S
             .byte   <IM_GUN_S, <IM_LASER_S, <IM_EMP_NA_S, <IM_SHIELD_ON_S
             .byte   <IM_SHIELD_OFF_S, <IM_GATE_S

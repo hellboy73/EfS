@@ -562,7 +562,10 @@ GX_DX:  .byte   0,  1,  2, <-1, <-2,  1,  2, <-1, <-2
 GX_DY:  .byte   0,  1,  2, <-1, <-2, <-1, <-2,  1,  2
         .assert GX_DY - GX_DX = GTR_N, error, "gate.s: GTR_N no longer counts the X's dots"
 
+        .segment "MSGDATA"          ; was CODE6 - see hud_game.s's
+                                    ;   msg_open/msg_close
 IM_GATE_S:  .byte   "EXIT GATE OPEN", 0
+        .segment "CODE6"
 
 ; -----------------------------------------------------------------------------
 ; sector_frame - the whole frame while SCR_STATE is SC_SECTOR (screens.s).

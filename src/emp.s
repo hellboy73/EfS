@@ -238,6 +238,8 @@ se_emp:
         .byte   $FF                     ; 31 frames = EMP_FRAMES
         .assert EMP_FRAMES = 31, error, "emp.s: se_emp is authored to EMP_FRAMES = 31"
 
+        .segment "MSGDATA"          ; was CODE6 - see hud_game.s's
+                                    ;   msg_open/msg_close
 IM_EMP_NA_S: .byte  "EMP NOT AVAILABLE", 0
 
         .popseg

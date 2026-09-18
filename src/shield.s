@@ -150,6 +150,9 @@ do_shield:
         jmp     API_GPU_DOTCIRCLE       ; tail
 @done:  rts
 
+        .segment "MSGDATA"          ; was CODE2 - the run area, spending its
+                                    ;   tightest budget on two strings; see
+                                    ;   hud_game.s's msg_open/msg_close
 IM_SHIELD_ON_S:  .byte  "SHIELD ENABLED", 0
 IM_SHIELD_OFF_S: .byte  "SHIELD WEARS OFF", 0
 
