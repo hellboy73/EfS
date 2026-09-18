@@ -18,10 +18,10 @@ what matters is **how long it takes to cross the world at cruise speed** — the
 target is a number of seconds that feels like a place, not a corridor. First guess
 to test: ~15-20 s corner to corner.
 
-**A2. Exit mechanism (TBD).** How the player leaves once the mission is done.
-Options: a gate object that appears at a fixed world location; an exit corridor in
-a signalled direction; simply "fly in direction D for N seconds". Affects HUD
-(needs a pointer/compass) and level scripting.
+**A2. Exit mechanism — settled 2026-09-18, moved to `design_technical.md`
+11.44.** A gate at a fixed world location, invisible until the mission is done,
+then an X on the radar and the enemy arrow's sprite pointing at it. Still open
+there: the primitive (`GATE_DOT`) and whether it animates or spins.
 
 **A3. World size per level (TBD).** The script wants levels 4 and 5 to be *much*
 larger than the early ones, so the answer is already "it varies" — world size is
@@ -397,6 +397,15 @@ smallest class is debris and is excluded (`design_technical.md` 11.6), because
 counting it would make the remaining work jump *upwards* every time the player
 destroyed something and the game itself removes it off camera. Nothing reads the
 number yet; it is there so that all three mission types read the same one.
+
+**Built 2026-09-18, with the exit gate (`design_technical.md` 11.44):** what
+OPENS a sector is per-level data, `levels.s`'s `Lx_MISN` / `Lx_MPAR`, set in
+the level editor. Three kinds so far: `MS_ROCKS` — every rock of classes
+0..MPAR gone (read straight off `RKLIVE`, level 0 asks for the 192s),
+`MS_FOES` — every placed enemy dead, `MS_OPEN` — open from the start ("reach
+the exit alive"). Still open: **survive / traverse** (a clock, or a distance),
+what the HUD shows of the mission's progress beyond CLEAR THE SECTOR and EXIT
+GATE OPEN, and whether a level ever needs two conditions at once.
 
 **F2. Bank map (TBD — but the SIZE is settled: 256 KB).** The draft in
 `design_technical.md` section 10 is a guess. Real allocation follows real asset
@@ -777,6 +786,18 @@ them once rather than the game-over one alone.
   mini-game, flying a tunnel. If it comes it is its own state with its own
   code, so it is one more overlay, not resident code, and it has to be weighed
   against the same `CART_HIRAM` room as the screens.
+* **Built 2026-09-18: `SC_SECTOR`, the tunnel's placeholder** (`src/gate.s
+  sector_frame`). Flying into the exit gate is SECTOR COMPLETED on black, FIRE
+  after 1.5 s, and FIRE is `level_begin` — the next sector with the score, the
+  ships and the Saturnium carried. The tunnel replaces this state's frame and
+  nothing else. **Proposed, not decided:** it is built in `src/` as its own
+  state and file, not as a separate program (CLAUDE.md: no `proto/04`), with a
+  build switch that boots straight into it for testing, and a `preview.py`
+  bench; its code is a SWAP overlay — while it flies, nothing of the field's
+  code in `CART_HIRAM` (CODE5/CODE6) is needed, so the tunnel is copied over it
+  and the resident code copied back before the next sector loads, and the
+  object pool under the window is free scratch for it, since `level_begin`
+  rebuilds the field afterwards anyway.
 
 **H2. The wreck's numbers (TBM, and being flown).** `DEBRIS_FRAMES` 120,
 `DEBRIS_K` 11, `DEBRIS_JIT` 32, `DEBRIS_SPIN` 2 (`src/debris.s`). It has already

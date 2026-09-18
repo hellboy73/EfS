@@ -165,6 +165,7 @@ IM_LASER     = 6                ; ...or the laser
 IM_EMP_NA    = 7                ; FIRE1+FIRE2 with too little Saturnium (emp.s)
 IM_SHIELD_ON = 8                ; the shield went up (shield.s)...
 IM_SHIELD_OFF= 9                ; ...and has 4 s left
+IM_GATE      = 10               ; the mission is done (gate.s)
 
 ; --- RAM ---------------------------------------------------------------------
 ; $7030-$70FF was the last clear stretch of the page thrust.s and shots.s share
@@ -960,13 +961,13 @@ IM_ENEMY_S: .byte   "ENEMY DETECTED", 0
 IM_GUN_S:   .byte   "BLASTER ARMED", 0
 IM_LASER_S: .byte   "LASER ARMED", 0
 
-; IM_EMP_NA_S is in emp.s (CODE6) and the shield's two in shield.s (CODE2):
-; UPPER, where these are, is full
+; IM_EMP_NA_S is in emp.s (CODE6), the shield's two in shield.s (CODE2) and
+; IM_GATE_S in gate.s (CODE6): UPPER, where these are, is full
 IND_LO:     .byte   <IM_HULL_S, <IM_CRIT_S, <IM_LEVEL_S, <IM_LIFE_S, <IM_ENEMY_S
             .byte   <IM_GUN_S, <IM_LASER_S, <IM_EMP_NA_S, <IM_SHIELD_ON_S
-            .byte   <IM_SHIELD_OFF_S
+            .byte   <IM_SHIELD_OFF_S, <IM_GATE_S
 IND_HI:     .byte   >IM_HULL_S, >IM_CRIT_S, >IM_LEVEL_S, >IM_LIFE_S, >IM_ENEMY_S
             .byte   >IM_GUN_S, >IM_LASER_S, >IM_EMP_NA_S, >IM_SHIELD_ON_S
-            .byte   >IM_SHIELD_OFF_S
+            .byte   >IM_SHIELD_OFF_S, >IM_GATE_S
 
         .segment "CODE2"

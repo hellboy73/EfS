@@ -1324,6 +1324,12 @@ cart_frame:
                                         ; screen centre emit_ship just placed
         jsr     cam_arrow               ; the arrow at the edge, for an enemy
                                         ;   the camera could not frame (cam.s)
+        jsr     do_gate                 ; the exit gate: is the mission done,
+                                        ;   has the ship flown in - then the X,
+                                        ;   its arrow and its radar mark
+                                        ;   (gate.s). AFTER cam_arrow, whose
+                                        ;   edge-arrow code it borrows and
+                                        ;   whose blink it takes turns with
         jsr     do_debris               ; ...and, when there is no ship left to
                                         ;   hang them on, the four pieces of it
                                         ;   (debris.s). AFTER do_flames, not
@@ -1498,6 +1504,10 @@ cart_frame:
         .include "screens.s"            ; the intro, the title and the line into
                                         ; the game. UICODE (bank 6), in
                                         ; CART_HIRAM after CODE5.
+        .include "gate.s"               ; the exit gate, the mission that opens
+                                        ; it, and SECTOR COMPLETED. CODE6, after
+                                        ; shield.s (its state follows that
+                                        ; file's) and screens.s (SC_SECTOR)
         .include "sfx.s"                ; the sound effects and the explosion
                                         ; flash. A HIDATA file end to end - the
                                         ; SFX engine reads the step programs
@@ -1534,8 +1544,14 @@ cart_frame:
                                          ; that file's header and tools/shape_editor.py
                                         ; (enemies.s is NOT here - it moved
                                         ; above the code, see the note there)
-        .include "levels.s"             ; ...and every level's opening state. See
-                                         ; that file's header and tools/level_editor.py
+        .pushseg                        ; ...and every level's opening state. See
+        .segment "CODE6"                ; that file's header and
+        .include "levels.s"             ; tools/level_editor.py. CODE6 and not
+        .popseg                         ; RODATA: UPPER ran out when the exit
+                                        ; gate (gate.s) joined enemies.s's
+                                        ; tables, and nothing reads a level but
+                                        ; load_level, load_foes and gate.s, once
+                                        ; a sector - CART_HIRAM is always mapped
         .include "radar_bg.s"           ; the radar's ring and ship icon as a
                                         ; background bitmap - GENERATED from
                                         ; assets/png/radar100.png by

@@ -636,6 +636,8 @@ cam_arrow:
         lda     CAMVH
         sta     VYH
         jsr     zoom_fb
+; arrow_fb - the same arrow for any FX/FY: gate.s points at the exit with it.
+arrow_fb:
         ldx     #FYL - FXL              ; across: 0 on, 1 past fb-y 0 (RIGHT),
         jsr     arw_clamp               ;   2 past fb-y 299 (LEFT)
         sta     CAMG+1

@@ -145,12 +145,14 @@ def decode(stream):
         if op == 0x20:                          # CLEAR_BG
             out.append((op, b""))
             i += 1
-        elif op in (0x12, 0x13):                # VIDEO_REG: BG_REG on / off, no
+        elif 0x10 <= op <= 0x15:                # VIDEO_REG: BG_REG on / off, no
             out.append((op, b""))               #   args. sfx.s's explosion flash
             i += 1                              #   emits these, first in the
                                                 #   frame - so a run where a rock
                                                 #   actually comes apart used to
-                                                #   desync the whole list here
+                                                #   desync the whole list here.
+                                                #   $14/$15 are the blinder, which
+                                                #   SECTOR COMPLETED throws (gate.s)
         elif op in (0x45, 0x4A, 0x47):          # DOT_LINES / LINES / DOT_PIXELS:
             n = stream[i + 1]                   #   N, then N (+1 for a chain)
             k = n if op == 0x47 else n + 1      #   coordinate pairs
@@ -810,6 +812,9 @@ def asm_consts(*files):
 SCR = asm_consts("hud_game.s", "hiscore.s", "screens.s")
 
 
+_BOOT_LVL = []
+
+
 def boot_cart():
     """The cartridge's init, and then straight into the flight. Power-on is the
     intro and the title now (src/screens.s), and every run in this bench is a
@@ -818,6 +823,19 @@ def boot_cart():
     always had, command for command."""
     call(cpu, CART_INIT)
     cpu_mem[SCR["SCR_STATE"]] = SCR["SC_PLAY"]
+    # ...and whatever mission the level editor last gave level 0, the bench
+    # flies MS_ROCKS on the 192s with the gate CLOSED: an exit that is open
+    # from the first frame puts an X on the radar and an arrow on the edge,
+    # which every radar and camera check below would count as its own. The
+    # table is CODE6, which RUNS in CART_HIRAM RAM, so a write simply lands.
+    # (Read once: a later bench rebuilds the cartridge and cart.lbl with it.)
+    if not _BOOT_LVL:
+        lbl = {m.group(2): int(m.group(1), 16) for m in
+               re.finditer(r"^al ([0-9A-Fa-f]+) \.(\w+)\s*$",
+                           (ROOT / "cart.lbl").read_text(), re.M)}
+        _BOOT_LVL.extend((lbl["LVL_MISN"], lbl["LVL_MPAR"]))
+    cpu_mem[_BOOT_LVL[0]] = cpu_mem[_BOOT_LVL[1]] = 0
+    cpu_mem[asm_consts("satn.s", "emp.s", "shield.s", "gate.s")["GTON"]] = 0
 # The OS boot leaves the cartridge ENABLED on bank 0 (cart_bank <- $80, see the
 # Boot Procedure) and CART_SHADOW holding that byte. This bench skips OS boot and
 # calls the cartridge directly, so it has to stand in for that step: cart_load
@@ -4958,6 +4976,169 @@ def shield_bench():
 
 
 shield_bench()
+
+
+# =============================================================================
+# The EXIT GATE - the mission opens it, the ship flies in, the next sector loads
+# =============================================================================
+# gate.s. Closed, it draws nothing and marks nothing. The level's mission (level
+# 0: every 192 gone, RKLIVE[0] = 0) opens it with EXIT GATE OPEN; from then the
+# X is on the radar and, while the gate is off the screen, the arrow sprite is
+# on the edge toward it; on the screen it is EA_GATE's own polygon. The ship's
+# centre inside GATE_IN of its centre is SC_SECTOR: SECTOR COMPLETED on black,
+# FIRE armed after SEC_ARM frames, and FIRE is a fresh sector with the score,
+# the ships and the Saturnium kept.
+def gate_bench():
+    G = asm_consts("satn.s", "emp.s", "shield.s", "gate.s", "cam.s", "radar.s")
+    GTON_A, GTXL_A = G["GTON"], G["GTXL"]
+    SATN_A = G["SATN"]
+    SCR_STATE_A, SC_SECTOR, JOYPORT_A = SCR["SCR_STATE"], SCR["SC_SECTOR"], SCR["JOYPORT"]
+    IM_GATE = SCR["IM_GATE"]
+    IND_QD_A, IND_QN_A = SCR["IND_QD"], SCR["IND_QN"]
+    RKLIVE_A = G["RKLIVE"]
+    SHX = [main_zp(n) for n in ("SHXL", "SHXH", "SHYL", "SHYH")]
+    ARW0 = asm_consts("thrust.s", "cam.s")["ARW_SLOT0"]
+    SEC_ARM = G["SEC_ARM"]
+    CURLEV_A, SCORE_A, LIVES_A = SCR["CURLEV"], SCR["SCORE"], SCR["LIVES"]
+    GX, GY = G["GTR_N"], None
+
+    def frame(fire=False):
+        port = cpu_mem[JOYPORT_A]
+        cpu_mem[JOY1_PREV] = cpu_mem[JOY1] = cpu_mem[JOY1_PRESS] = 0
+        cpu_mem[JOY1_PREV + 3] = cpu_mem[JOY1 + 3] = cpu_mem[JOY1_PRESS + 3] = 0
+        if fire:
+            cpu_mem[JOY1 + port] = cpu_mem[JOY1_PRESS + port] = JOY_FIRE
+        call(cpu, API_GPU_BEGIN)
+        call(cpu, CART_FRAME)
+        call(cpu, API_GPU_END)
+        end = cpu_mem[0x04] | (cpu_mem[0x05] << 8)
+        return decode(bytes(cpu_mem[PPRAM + i] for i in range(end - PPRAM + 1)))
+
+    def queued(im):
+        return im in ram_block(IND_QD_A, ram(IND_QN_A)) or ram(IND_CUR_A) == im
+
+    def put_ship(x, y):
+        for a, v in zip(SHX, (x & 0xFF, x >> 8, y & 0xFF, y >> 8)):
+            cpu_mem[a] = v
+
+    def gate_xy():
+        b = ram_block(GTXL_A, 4)
+        return b[0] | b[1] << 8, b[2] | b[3] << 8
+
+    def xmarks(cmds):
+        """DOT_PIXELS lists of exactly GTR_N dots shaped like an X."""
+        out = []
+        for op, pl in cmds:
+            if op == 0x47 and pl[0] == GX:
+                pts = [(pl[1 + 2 * i], pl[2 + 2 * i]) for i in range(GX)]
+                c = pts[0]
+                if sorted((x - c[0], y - c[1]) for x, y in pts) == sorted(
+                        [(0, 0), (1, 1), (2, 2), (-1, -1), (-2, -2), (1, -1), (2, -2), (-1, 1), (-2, 2)]):
+                    out.append(c)
+        return out
+
+    def arrows(cmds):
+        return [pl for op, pl in cmds if op == 0x50 and ARW0 <= pl[0] < ARW0 + 4]
+
+    boot_cart()
+    for k in range(cpu_mem[0x6E1C]):                    # no enemy to frame, no
+        cpu_mem[FOEST_A + k] = 0                        #   enemy arrow to share with
+    for _ in range(3):
+        cmds = frame()
+    check("GATE: a new sector opens with it closed - no X on the radar, no arrow",
+          ram(GTON_A) == 0 and not xmarks(cmds) and not arrows(cmds),
+          f"GTON {ram(GTON_A)}")
+
+    saved = ram_block(RKLIVE_A, 5)
+    cpu_mem[RKLIVE_A] = 0                               # level 0: the 192s are gone
+    cmds = frame()
+    check("...the mission done (level 0: no 192s left), it opens, EXIT GATE OPEN queued",
+          ram(GTON_A) == 1 and queued(IM_GATE))
+    cpu_mem[RKLIVE_A] = saved[0]
+    cmds = frame()
+    gx, gy = gate_xy()
+    xs, ars = xmarks(cmds), arrows(cmds)
+    print(f"        gate at ({gx}, {gy}), ship at ({ram(SHX[0]) | ram(SHX[1]) << 8}, "
+          f"{ram(SHX[2]) | ram(SHX[3]) << 8}): radar X {xs}, arrows {[bytes(a).hex() for a in ars]}")
+    check("...stays open when a rock count changes back, and marks the radar with ONE X",
+          ram(GTON_A) == 1 and len(xs) == 1, str(xs))
+    check("...and one arrow on the edge, the enemy arrow's sprite", len(ars) == 1)
+
+    # the arrow points the right way: the gate straight ahead, 700 px out, has
+    # to be the UP arrow (slot ARW_UP), and the X above the radar's centre
+    RC = (G["RADCX"], G["RADCY"])
+    heads = {}
+    for name, dx, dy, want in (("ahead", 0, -700 * 16, 2), ("right", 700 * 16, 0, 0),
+                               ("far behind", 0, 20000, 3)):
+        cpu_mem[main_zp("HEAD")] = 0
+        cpu_mem[main_zp("HEADF")] = 0
+        put_ship((gx - dx) & 0xFFFF, (gy - dy) & 0xFFFF)
+        for _ in range(2):
+            cmds = frame()
+        ars, xs = arrows(cmds), xmarks(cmds)
+        heads[name] = ([a[0] - ARW0 for a in ars], xs)
+    print(f"        heading 0: {heads}")
+    check("...ahead of the ship it is the UP arrow and the X sits above the radar's centre",
+          heads["ahead"][0] == [2] and heads["ahead"][1] and heads["ahead"][1][0][0] < RC[0],
+          str(heads["ahead"]))
+    check("...out past the reach it still points, and the X is pinned toward it",
+          heads["far behind"][0] == [3] and (not heads["far behind"][1]
+                                              or heads["far behind"][1][0][0] > RC[0]),
+          str(heads["far behind"]))
+
+    put_ship((gx) & 0xFFFF, (gy + 200 * 16) & 0xFFFF)   # 200 px short of it, on screen
+    cmds = frame()
+    pg = [pl for op, pl in cmds if op in (0x4C, 0x4E) and (pl[6] & 0x7F) == 12]
+    check("...on the screen it is EA_GATE's polygon, and no arrow", len(pg) == 1 and not arrows(cmds),
+          f"{len(pg)} gate polygons, {len(arrows(cmds))} arrows")
+
+    def cost():
+        call(cpu, API_GPU_BEGIN)
+        call(cpu, LBL["win_off"])
+        c = call(cpu, LBL["do_gate"])
+        call(cpu, LBL["win_on"])
+        call(cpu, API_GPU_END)
+        return c
+    near = cost()
+    put_ship((gx - 3000) & 0xFFFF, (gy + 30000) & 0xFFFF)
+    far = cost()
+    cpu_mem[GTON_A], cpu_mem[RKLIVE_A] = 0, 1
+    shut = cost()
+    cpu_mem[GTON_A], cpu_mem[RKLIVE_A] = 1, saved[0]
+    print(f"        do_gate: {shut} cycles closed, {near} open and drawn, {far} open and far "
+          f"({100 * near / 237000:.2f}% of a frame at most)")
+
+    score = ram_block(SCORE_A, 6)
+    lives = ram(LIVES_A)
+    cpu_mem[SATN_A] = 123
+    put_ship(gx, (gy + 10 * 16) & 0xFFFF)               # into its middle
+    frame()
+    check("...the ship's centre in its middle is SECTOR COMPLETED from the next frame",
+          cpu_mem[SCR_STATE_A] == SC_SECTOR, f"SCR_STATE {cpu_mem[SCR_STATE_A]}")
+    seen = []
+    for f in range(SEC_ARM + 72):                      # ...past a whole 64-frame blink
+        cmds = frame(fire=(f == 20))
+        seen.append(cmds)
+    texts = [bytes(pl[3:-1]).decode() for c in seen for op, pl in c if op == 0x62]
+    cleared = any(op == 0x20 for op, _ in seen[0])
+    game = any(op in (0x4C, 0x4E) for c in seen for op, _ in c)
+    check("...a CLEAR_BG, then SECTOR COMPLETED on the image, and nothing of the field",
+          cleared and "SECTOR COMPLETED" in texts and not game)
+    check(f"...a FIRE before SEC_ARM ({SEC_ARM}) frames does not end it, and PUSH FIRE comes up",
+          cpu_mem[SCR_STATE_A] == SC_SECTOR and "PUSH FIRE" in texts)
+    frame(fire=True)
+    cmds = frame()
+    check("...FIRE after it is the next sector: flying, the gate closed and the ship at its start",
+          cpu_mem[SCR_STATE_A] == 0 and ram(GTON_A) == 0 and
+          (ram(SHX[1]), ram(SHX[3])) == (0x80, 0x80) and cpu_mem[CURLEV_A] == 0,
+          f"SCR_STATE {cpu_mem[SCR_STATE_A]} GTON {ram(GTON_A)} CURLEV {cpu_mem[CURLEV_A]}")
+    check("...keeping the score, the ships and the Saturnium in the hold",
+          ram_block(SCORE_A, 6) == score and ram(LIVES_A) == lives and ram(SATN_A) == 123,
+          f"score {ram_block(SCORE_A, 6)} vs {score}, lives {ram(LIVES_A)}, SATN {ram(SATN_A)}")
+    cpu_mem[SATN_A] = 0
+
+
+gate_bench()
 
 
 # =============================================================================

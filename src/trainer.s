@@ -11,6 +11,7 @@
 ;
 ;   UP      the hold fills: SATN = SATN_MAX (satn.s) - held
 ;   DOWN    the shield goes up for its 30 s (shield.s shield_on) - on the press
+;   RIGHT   the exit gate opens, mission or not (gate.s gate_open) - on the press
 ;
 ; Runs from cart_frame after do_input, inside the bracket: SATN lives under the
 ; window.
@@ -31,6 +32,12 @@ trainer_tick:
         beq     :+
         lda     #SATN_MAX               ; UP: a full hold
         sta     SATN
+:       lda     JOY1_PRESS,x
+        and     #JOY_RIGHT
+        beq     :+
+        phx
+        jsr     gate_open               ; RIGHT: the exit gate
+        plx
 :       lda     JOY1_PRESS,x
         and     #JOY_DOWN
         beq     @done

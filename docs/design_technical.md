@@ -79,9 +79,9 @@ subpixel resolution. The coordinate type never changes. **(TBD)**
 ### 3.3 Leaving the level
 
 The world does not stop wrapping when the mission completes — instead an **exit
-corridor** opens (a marked direction or gate). Flying into it ends the level. The
-wrap therefore never has to be disabled, which keeps the free-wrap property intact
-for the whole game. **(TBD)**
+gate** opens, fixed in the world where the level puts it. Flying into it ends the
+sector. The wrap therefore never has to be disabled, which keeps the free-wrap
+property intact for the whole game. **Built — see 11.44** (`src/gate.s`).
 
 ---
 
@@ -1688,3 +1688,54 @@ These are settled and should not be re-opened without a reason:
     strings in CODE2, only their `IND_LO`/`IND_HI` rows in UPPER. `game_start`
     resets it through a tail call out of `laser.s lsr_reset`, so CART_HIRAM,
     where `game_start` lives, needed no byte.
+44. **The exit gate: invisible until the mission is done, then an X in the
+    world, an X on the radar and the enemy arrow pointing at it.**
+    `src/gate.s`; settles `open_questions.md` A2 and the first half of F1.
+
+    **Per level, in `levels.s`** (the level editor places the gate by drag and
+    picks the mission): `Lx_GTX`/`Lx_GTY`, where it stands — fixed, it never
+    moves — and `Lx_MISN`/`Lx_MPAR`, what opens it: `MS_ROCKS` (every rock of
+    classes 0..MPAR gone, off `RKLIVE`; level 0 asks for the 192s), `MS_FOES`
+    (every placed enemy dead), `MS_OPEN` (open from the first frame).
+    `levels.s` moved from RODATA to CODE6 to make room (UPPER had 15 B).
+
+    **Closed** it costs one mission test a frame and draws nothing. **Open**
+    it says EXIT GATE OPEN, and from then: its polygon at its world position
+    when near the screen; an X of nine dots on the radar, pinned to the rim
+    and blinking with the enemies when out of reach; and, while its centre is
+    off the screen, the enemy arrow's sprite on that edge (`cam.s arrow_fb`,
+    the second half of `cam_arrow`), blinking in turn with an enemy arrow when
+    there is one and steady when there is not.
+
+    **Its shape is an enemy appearance, `EA_GATE`**, authored and animated in
+    `tools/enemy_editor.py` like a UFO; `gate_body` is `foe_body`'s loop. Its
+    ANGLE is `GATE_SPIN`'s own turn (0) minus `HEAD`, so it stays put in a
+    turning world. `GATE_DOT` picks `$4C DOT_POLYGON` (1, now) or `$4E
+    POLYGON16` (0) at the same size — **still open**, as is the animation.
+
+    **A far gate** (a delta past ±$3FFF) is halved before `view_xform` and
+    doubled back after it until one axis is past $3C00, so it lands off every
+    edge even at the 2x zoom-out and the arrow still points the right way.
+
+    **Flying in** — the ship's centre within `GATE_IN` (48 px) of the gate's
+    on both axes — plays the teleport shimmer and is `SC_SECTOR`
+    (`screens.s`): SECTOR COMPLETED on black, a blinking PUSH FIRE after
+    `SEC_ARM` (90) frames, and FIRE is `level_begin` (`gameover.s`), which
+    `game_start` now falls into: the next sector (round to the first while
+    `NLEVELS` is 1) with the score, the ships and the Saturnium kept, the hull
+    whole. **`SC_SECTOR` is the tunnel's placeholder**, and the tunnel will
+    replace its frame and nothing else (`open_questions.md` H1).
+
+    **Trainer**: RIGHT on the second pad opens the gate.
+
+    **Measured** (`tools/preview.py`'s gate bench): `do_gate` is 50 cycles a
+    frame closed, 2,132 open and far, 5,450 open and drawn (2.3% of a frame);
+    the 220-frame trace is otherwise identical to the build before it, +53
+    cycles median. The bench checks the mission opening it, one X and one
+    arrow, UP for a gate ahead and DOWN for one 20,000 units behind, the
+    polygon and no arrow on the screen, SC_SECTOR on flying in, FIRE refused
+    before `SEC_ARM`, and the next sector keeping score, ships and Saturnium.
+
+    **Where it lives**: code, `levels.s` and the strings in CODE6 (CART_HIRAM,
+    **391 B left** there after it); 36 B of state under the window behind
+    `shield.s`'s; `EA_GATE`'s tables in RODATA (UPPER, 73 B left).

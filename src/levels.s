@@ -110,6 +110,10 @@ NLEVELS     = 1
 ;   Nx    how many rocks of that size class the scatter drops (see the header)
 ;   SEED  the LFSR word the scatter starts from - any nonzero value
 ;   SHX   where the ship starts, world 16-bit; SHHD its heading in brad, 0 = +Y
+;   MISN  what opens the exit gate (gate.s): 0 = the rocks of classes 0..MPAR
+;         are all gone (MPAR 0 = the 192s), 1 = every enemy is dead, 2 = open
+;         from the start
+;   GTX   where the gate stands, world 16-bit - fixed, it never moves
 ; -----------------------------------------------------------------------------
 ; level 0 - "MINING ZONE"
 L0_N192     = 15
@@ -121,6 +125,10 @@ L0_SEED     = $3CA5
 L0_SHX      = $8000
 L0_SHY      = $8000
 L0_SHHD     = 0
+L0_MISN     = 2
+L0_MPAR     = 0
+L0_GTX      = $B046
+L0_GTY      = $5130
 
 ; The hand-placed blocks, and the counts DERIVED from their own length - so a
 ; record added or deleted by hand needs nothing else changed.
@@ -164,6 +172,13 @@ LVL_SHXH:   .byte   >L0_SHX
 LVL_SHYL:   .byte   <L0_SHY
 LVL_SHYH:   .byte   >L0_SHY
 LVL_SHHD:   .byte   L0_SHHD
+
+LVL_MISN:   .byte   L0_MISN
+LVL_MPAR:   .byte   L0_MPAR
+LVL_GTXL:   .byte   <L0_GTX
+LVL_GTXH:   .byte   >L0_GTX
+LVL_GTYL:   .byte   <L0_GTY
+LVL_GTYH:   .byte   >L0_GTY
 
 LVL_ROCKN:  .byte   L0_ROCKN
 LVL_ROCKLO: .byte   <LVL0_ROCKS

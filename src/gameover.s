@@ -248,6 +248,21 @@ GO_END:
                                         ;   (HIDATA + CODE3) ran out of room when
                                         ;   the sticks started reading JOYPORT
 game_start:
+        jsr     hud_init                ; the score, the lives, level 1 on the
+        lda     #START_LEVEL            ;   board, the message bar - none of it
+        sta     CURLEV                  ;   is zeroed for us
+        stz     SATN                    ; ...and an empty hold: a NEW GAME's,
+        stz     SATARM                  ;   where a sector keeps what it had
+        ; fall through
+
+; -----------------------------------------------------------------------------
+; level_begin - a sector from its first frame: the ship, the field, the enemies
+; and the gate of level CURLEV. What a sector does NOT reset is what game_start
+; does above it - the score, the ships in hand, the Saturnium in the hold -
+; which is the whole difference between flying into the exit gate (gate.s
+; sector_frame calls this) and starting over.
+; -----------------------------------------------------------------------------
+level_begin:
         stz     GSTATE                  ; ...the game is a game again
         stz     SHIPGONE
         stz     SHIPINV
@@ -311,8 +326,16 @@ game_start:
         jsr     shots_init              ; every gun and puff slot free - nothing
                                         ;   zeroes cartridge RAM for us
         jsr     lsr_reset               ; ...the gun chosen, the beam dark
-        jsr     satn_reset              ; ...no Saturnium, none in flight
-        ldx     #START_LEVEL            ; ...and the field, the ship's place in
+        lda     SATN                    ; ...no Saturnium in flight - but the
+        pha                             ;   hold and the armour's carry are
+        lda     SATARM                  ;   the ship's, and it keeps them
+        pha
+        jsr     satn_reset
+        pla
+        sta     SATARM
+        pla
+        sta     SATN
+        ldx     CURLEV                  ; ...and the field, the ship's place in
         jsr     load_level              ;   it and the sector grid, all out of
         jsr     radar_census            ;   levels.s. The radar's per-class rock
                                         ;   count is taken here, once, off the
@@ -322,13 +345,9 @@ game_start:
                                         ;   load_level, because it falls through
                                         ;   into init_cells and nothing may come
                                         ;   between the two (see load_level)
-        jsr     hud_init                ; the score, the lives, the level number
-        lda     #START_LEVEL            ;   and the caches behind the two rows -
-        sta     CURLEV                  ;   none of it is zeroed for us. The
-                                        ;   level is taken here rather than
-                                        ;   inside load_level so that routine
-                                        ;   stays a pure field builder with no
-                                        ;   HUD in it
+        jsr     gate_load               ; ...and the exit, closed (gate.s)
+        jsr     indicate_reset          ; ...no message left over from the
+        jsr     hud_reset               ;   last sector, and every row repaints
         lda     #HUD_PH_OVER - 1       ; ...and the paint schedule is wound to
         sta     HUD_PHASE               ;   just before the BANNER's two phases,
                                         ;   not to just before row 1 as hud_reset

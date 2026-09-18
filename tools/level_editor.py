@@ -113,6 +113,10 @@ SCATTER_COLOR = "#3f6f8c"               # generated: dim, and not selectable
 PLACED_COLOR = "#7fd0ff"                # authored: bright, and draggable
 FOE_COLOR = "#ff8f5a"
 SHIP_COLOR = "#8dff9a"
+GATE_COLOR = "#e070ff"
+GATE_R_PX = 123                         # the gate's reach from its centre, full-res
+                                        #   px - src/enemies.s EN_GATE, for the map
+MISSIONS = ["0 clear rocks", "1 kill enemies", "2 open"]   # gate.s MS_*
 SEL_COLOR = "#ff5566"
 VIEW_COLOR = "#2c3a46"                  # the ship's rotation-sweep circles
 FRAME_COLOR = "#5c7f6b"                 # ...and the screen frames under the mouse
@@ -211,13 +215,16 @@ def prng_next(state):
 # =============================================================================
 class Level:
     def __init__(self, name="LEVEL", counts=None, seed=0x3CA5,
-                 shx=0x8000, shy=0x8000, shhd=0, rocks=None, foes=None):
+                 shx=0x8000, shy=0x8000, shhd=0, rocks=None, foes=None,
+                 misn=0, mpar=0, gtx=0xB000, gty=0x5000):
         self.name = name
         self.counts = list(counts or [0, 0, 0, 0, 0])   # per size class
         self.seed = seed                                 # the scatter's LFSR word
         self.shx, self.shy, self.shhd = shx, shy, shhd   # where the ship starts
         self.rocks = list(rocks or [])                   # [{x, y, cls, type}]
         self.foes = list(foes or [])                     # [{x, y, kind}]
+        self.misn, self.mpar = misn, mpar                # what opens the gate
+        self.gtx, self.gty = gtx, gty                    # ...and where it stands
 
     @property
     def total(self):
@@ -225,7 +232,8 @@ class Level:
 
     def clone(self, name):
         return Level(name, self.counts, self.seed, self.shx, self.shy, self.shhd,
-                     [dict(r) for r in self.rocks], [dict(f) for f in self.foes])
+                     [dict(r) for r in self.rocks], [dict(f) for f in self.foes],
+                     self.misn, self.mpar, self.gtx, self.gty)
 
     def scatter(self, type_pick):
         """Exactly what load_level's first pass produces, in its own order:
@@ -299,7 +307,8 @@ class Model:
                 [k(i, f"N{c}") for c in CLASSES],
                 k(i, "SEED", 0x3CA5),
                 k(i, "SHX", 0x8000), k(i, "SHY", 0x8000), k(i, "SHHD"),
-                rocks, foes))
+                rocks, foes,
+                k(i, "MISN"), k(i, "MPAR"), k(i, "GTX", 0xB000), k(i, "GTY", 0x5000)))
         return cls(levels)
 
 
@@ -340,6 +349,10 @@ def render_generated(model):
     out.append(";   Nx    how many rocks of that size class the scatter drops (see the header)")
     out.append(";   SEED  the LFSR word the scatter starts from - any nonzero value")
     out.append(";   SHX   where the ship starts, world 16-bit; SHHD its heading in brad, 0 = +Y")
+    out.append(";   MISN  what opens the exit gate (gate.s): 0 = the rocks of classes 0..MPAR")
+    out.append(";         are all gone (MPAR 0 = the 192s), 1 = every enemy is dead, 2 = open")
+    out.append(";         from the start")
+    out.append(";   GTX   where the gate stands, world 16-bit - fixed, it never moves")
     out.append("; -----------------------------------------------------------------------------")
     for i, l in enumerate(lv):
         out.append(f'; level {i} - "{l.name}"')
@@ -351,6 +364,10 @@ def render_generated(model):
         out.append(const("SHX", f"${l.shx:04X}"))
         out.append(const("SHY", f"${l.shy:04X}"))
         out.append(const("SHHD", l.shhd))
+        out.append(const("MISN", l.misn))
+        out.append(const("MPAR", l.mpar))
+        out.append(const("GTX", f"${l.gtx:04X}"))
+        out.append(const("GTY", f"${l.gty:04X}"))
         out.append("")
 
     out.append("; The hand-placed blocks, and the counts DERIVED from their own length - so a")
@@ -399,6 +416,13 @@ def render_generated(model):
     out.append(_row("LVL_SHYL", [f"<L{i}_SHY" for i in range(n)]))
     out.append(_row("LVL_SHYH", [f">L{i}_SHY" for i in range(n)]))
     out.append(_row("LVL_SHHD", [f"L{i}_SHHD" for i in range(n)]))
+    out.append("")
+    out.append(_row("LVL_MISN", [f"L{i}_MISN" for i in range(n)]))
+    out.append(_row("LVL_MPAR", [f"L{i}_MPAR" for i in range(n)]))
+    out.append(_row("LVL_GTXL", [f"<L{i}_GTX" for i in range(n)]))
+    out.append(_row("LVL_GTXH", [f">L{i}_GTX" for i in range(n)]))
+    out.append(_row("LVL_GTYL", [f"<L{i}_GTY" for i in range(n)]))
+    out.append(_row("LVL_GTYH", [f">L{i}_GTY" for i in range(n)]))
     out.append("")
     out.append(_row("LVL_ROCKN", [f"L{i}_ROCKN" for i in range(n)]))
     out.append(_row("LVL_ROCKLO", [f"<LVL{i}_ROCKS" for i in range(n)]))
@@ -507,6 +531,7 @@ class LevelEditor(tk.Tk):
         self._build_name_panel(side)
         self._build_scatter_panel(side)
         self._build_ship_panel(side)
+        self._build_gate_panel(side)
         self._build_place_panel(side)
         self._build_sel_panel(side)
 
@@ -590,6 +615,47 @@ class LevelEditor(tk.Tk):
             e.bind("<Return>", lambda ev, k=k: self._commit_ship(k))
             e.bind("<FocusOut>", lambda ev, k=k: self._commit_ship(k))
             self.ship_vars[k] = v
+
+    def _build_gate_panel(self, side):
+        """The exit gate (src/gate.s): where it stands - drag it on the map too -
+        and the mission that opens it."""
+        f = self._section(side, "Exit gate")
+        self.gate_vars = {}
+        for i, (k, lab) in enumerate([("gtx", "World X"), ("gty", "World Y"),
+                                       ("mpar", "Param (class)")]):
+            tk.Label(f, text=lab, bg=BG, fg=TEXT, width=14,
+                      anchor="w").grid(row=i, column=0, sticky="w", pady=1)
+            v = tk.StringVar()
+            e = tk.Entry(f, textvariable=v, width=8)
+            e.grid(row=i, column=1, padx=4)
+            e.bind("<Return>", lambda ev, k=k: self._commit_gate(k))
+            e.bind("<FocusOut>", lambda ev, k=k: self._commit_gate(k))
+            self.gate_vars[k] = v
+        tk.Label(f, text="Mission", bg=BG, fg=TEXT, width=14,
+                  anchor="w").grid(row=3, column=0, sticky="w", pady=1)
+        self.misn_var = tk.StringVar(value=MISSIONS[0])
+        m = ttk.Combobox(f, textvariable=self.misn_var, values=MISSIONS,
+                         state="readonly", width=14)
+        m.grid(row=3, column=1, padx=4)
+        m.bind("<<ComboboxSelected>>", lambda ev: self._commit_misn())
+
+    def _commit_gate(self, k):
+        lv = self._lvl()
+        try:
+            v = int(self.gate_vars[k].get(), 0)
+        except ValueError:
+            self.gate_vars[k].set(str(getattr(lv, k)))
+            return
+        v = max(0, min(4, v)) if k == "mpar" else v & 0xFFFF
+        setattr(lv, k, v)
+        self.gate_vars[k].set(str(v))
+        self._touch()
+        self._draw()
+
+    def _commit_misn(self):
+        self._lvl().misn = MISSIONS.index(self.misn_var.get())
+        self._touch()
+        self._draw()
 
     def _build_place_panel(self, side):
         f = self._section(side, "Place (double-click the map)")
@@ -713,6 +779,9 @@ class LevelEditor(tk.Tk):
         self.ship_vars["shx"].set(str(lv.shx))
         self.ship_vars["shy"].set(str(lv.shy))
         self.ship_vars["shhd"].set(str(lv.shhd))
+        for k in ("gtx", "gty", "mpar"):
+            self.gate_vars[k].set(str(getattr(lv, k)))
+        self.misn_var.set(MISSIONS[min(lv.misn, len(MISSIONS) - 1)])
         self._scatter_cache = None
         self._update_totals()
         self._refresh_sel()
@@ -792,6 +861,7 @@ class LevelEditor(tk.Tk):
             self._draw_foe(f, SEL_COLOR if self.sel == ("foe", i) else FOE_COLOR)
 
         self._draw_ship(lv, SEL_COLOR if self.sel == ("ship", 0) else SHIP_COLOR)
+        self._draw_gate(lv, SEL_COLOR if self.sel == ("gate", 0) else GATE_COLOR)
         self._draw_frames()
 
     def _draw_frames(self):
@@ -895,6 +965,17 @@ class LevelEditor(tk.Tk):
                                  x - fx * L * 0.4 - px * W, y - fy * L * 0.4 - py * W,
                                  outline=color, fill="", width=2)
 
+    def _draw_gate(self, lv, color):
+        """An X at the gate's true size (at 1:1 zoom in the game), and never
+        smaller than a marker you can grab."""
+        x, y = self._to_canvas(lv.gtx, lv.gty)
+        r = max(10, GATE_R_PX * UNITS_PER_PX * self.ppu * 0.7)
+        self.map.create_line(x - r, y - r, x + r, y + r, fill=color, width=3)
+        self.map.create_line(x - r, y + r, x + r, y - r, fill=color, width=3)
+        self.map.create_text(x + r + 4, y - r,
+                              text=f"EXIT ({MISSIONS[min(lv.misn, 2)]})",
+                              fill=color, anchor="w", font=("Consolas", 8))
+
     # ---- picking ------------------------------------------------------------
     def _hit(self, cx, cy):
         """Placed items first, then the ship. The scatter is never hit-tested -
@@ -916,6 +997,10 @@ class LevelEditor(tk.Tk):
             x, y = self._to_canvas(lv.shx, lv.shy)
             if (x - cx) ** 2 + (y - cy) ** 2 <= 18 ** 2:
                 best = ("ship", 0)
+        if best is None:
+            x, y = self._to_canvas(lv.gtx, lv.gty)
+            if (x - cx) ** 2 + (y - cy) ** 2 <= 18 ** 2:
+                best = ("gate", 0)
         return best
 
     def _press(self, ev):
@@ -934,6 +1019,10 @@ class LevelEditor(tk.Tk):
             lv.shx, lv.shy = wx, wy
             self.ship_vars["shx"].set(str(wx))
             self.ship_vars["shy"].set(str(wy))
+        elif kind == "gate":
+            lv.gtx, lv.gty = wx, wy
+            self.gate_vars["gtx"].set(str(wx))
+            self.gate_vars["gty"].set(str(wy))
         else:
             item = lv.rocks[i] if kind == "rock" else lv.foes[i]
             item["x"], item["y"] = wx, wy
@@ -962,7 +1051,7 @@ class LevelEditor(tk.Tk):
         self._draw()
 
     def _delete_selected(self, _ev=None):
-        if self.sel is None or self.sel[0] == "ship":
+        if self.sel is None or self.sel[0] in ("ship", "gate"):
             return
         kind, i = self.sel
         lv = self._lvl()
@@ -1074,6 +1163,9 @@ class LevelEditor(tk.Tk):
         if kind == "ship":
             self.sel_label.configure(text="Ship start")
             x, y = lv.shx, lv.shy
+        elif kind == "gate":
+            self.sel_label.configure(text="Exit gate")
+            x, y = lv.gtx, lv.gty
         elif kind == "rock":
             r = lv.rocks[i]
             self.sel_label.configure(
@@ -1104,6 +1196,10 @@ class LevelEditor(tk.Tk):
             lv.shx, lv.shy = x, y
             self.ship_vars["shx"].set(str(x))
             self.ship_vars["shy"].set(str(y))
+        elif kind == "gate":
+            lv.gtx, lv.gty = x, y
+            self.gate_vars["gtx"].set(str(x))
+            self.gate_vars["gty"].set(str(y))
         else:
             item = lv.rocks[i] if kind == "rock" else lv.foes[i]
             item["x"], item["y"] = x, y

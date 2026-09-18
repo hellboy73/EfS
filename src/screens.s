@@ -35,6 +35,7 @@ SC_PLAY     = 0
 SC_INTRO    = 1
 SC_TLOAD    = 2
 SC_TITLE    = 3
+SC_SECTOR   = 4                 ; SECTOR COMPLETED - gate.s sector_frame
 
 VR_BLIND_OFF = 4                ; API_GPU_VREG sub-ops (MAD65_CPU_OS.md)
 VR_BLIND_ON  = 5
@@ -133,7 +134,10 @@ scr_boot:
 ; -----------------------------------------------------------------------------
 scr_frame:
         lda     SCR_STATE
-        cmp     #SC_TITLE
+        cmp     #SC_SECTOR
+        bne     :+
+        jmp     sector_frame
+:       cmp     #SC_TITLE
         bne     :+
         jmp     title_frame
 :       cmp     #SC_TLOAD
