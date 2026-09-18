@@ -99,7 +99,7 @@ GTRX        = SHLD_END + 16     ; the radar X's centre, half-res
 GTRY        = SHLD_END + 17
 GTRB        = SHLD_END + 18     ; ONE DOT_PIXELS: the count, then GTR_N pairs
 GATE_END    = GTRB + 1 + 2 * GTR_N
-        .assert GATE_END <= $A000, error, "gate.s: past the RAM under the window"
+        .assert GATE_END <= SHAPES_AT, error, "gate.s: past the RAM under the window"
 
         .pushseg
         .segment "CODE6"

@@ -192,7 +192,7 @@ SATP_END    = SATRN + 3
         .assert SATN_MAX = $FF, error, "satn.s: satn_kill clamps on the carry out of the byte"
         .assert SATP_N <= 16, error, "satn.s: SATP_N outgrew its 16-byte arrays"
         .assert SATRS + SATR_N <= SATN, error, "satn.s: SATRS runs into SATN"
-        .assert SATP_END <= $A000, error, "satn.s: past the RAM under the window"
+        .assert SATP_END <= SHAPES_AT, error, "satn.s: past the RAM under the window"
         .assert SATP_VMAX * 3 <= SATP_ARR && SATP_VMAX < 128, error, "satn.s: SATP_VMAX could step over the arrival box"
         .assert SATR_LIFE = 4 && SATR_DIRS = 64, error, "satn.s: the ring tables are 4 radii x 64 directions, packed dir << 2 | age"
 

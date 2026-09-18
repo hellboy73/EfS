@@ -54,7 +54,7 @@ CAM_XMAX    = 2*FBCX - 1        ; the last full-res row and column
 CAM_YMAX    = 299               ; ...and row: the screen's edge, not FBCY's
 
 ARW_SLOT0   = FLAME_SLOT0 + FLAME_N ; the four arrows, after the flames
-ARW_PAGE    = $12               ; GPU RAM page (ship $10, flames $11)
+ARW_PAGE    = $12               ; GPU RAM page (flames $11) - see sprites.s
 ARW_RIGHT   = 0                 ; slot order, arrows.s's order
 ARW_LEFT    = 1
 ARW_UP      = 2
@@ -707,51 +707,6 @@ ac_done:
         tya
         rts
 
-; -----------------------------------------------------------------------------
-; upload_art_step - the flames' five LOAD pages, the arrows' one, and then the
-; pickups' (pickup.s pk_upload).
-; -----------------------------------------------------------------------------
-upload_art_step:
-        lda     FLSTEP
-        cmp     #$05
-        bcs     :+
-        jmp     upload_flames_step
-:       inc     FLSTEP
-        cmp     #PK_ART_STEP - 1        ; the arrows' step, then the pickup's
-        beq     :+
-        jmp     pk_upload
-:       lda     #ARW_PAGE
-        sta     OS_ARG+0
-        lda     #<arrows_data
-        sta     OS_ARG+1
-        lda     #>arrows_data
-        sta     OS_ARG+2
-        jmp     API_GPU_LOAD
-
-; arrow_defs - X = the definition page upload_flames_step is staging (0 TYPE,
-; 1 PTR_LSB, 2 PTR_MSB, 3 HEIGHT): the arrows' four slots into DEFPG, and the
-; pickups' four behind them (pickup.s pk_defs). Keeps X.
-arrow_defs:
-        phx
-        txa
-        asl     a
-        asl     a
-        tax
-        ldy     #$00
-:       lda     ARW_DEF,x
-        sta     DEFPG+ARW_SLOT0,y
-        inx
-        iny
-        cpy     #$04
-        bne     :-
-        plx
-        jmp     pk_defs                 ; tail
-
-ARW_DEF:
-        .byte   ARW_RIGHT_TYPE, ARW_LEFT_TYPE, ARW_UP_TYPE, ARW_DOWN_TYPE
-        .byte   ARW_RIGHT_OFFSET, ARW_LEFT_OFFSET, ARW_UP_OFFSET, ARW_DOWN_OFFSET
-        .byte   ARW_PAGE, ARW_PAGE, ARW_PAGE, ARW_PAGE
-        .byte   ARW_RIGHT_HEIGHT, ARW_LEFT_HEIGHT, ARW_UP_HEIGHT, ARW_DOWN_HEIGHT
 ; The tip inside each sprite, and on the axis the arrow points along, the
 ; distance from ARW_CM (where arw_clamp leaves that coordinate) to ARW_EDGE
 ; folded in - so one subtraction puts the tip ARW_EDGE in from the edge.
@@ -764,6 +719,9 @@ ARW_HI: .word   CAM_XMAX - ARW_CM, CAM_YMAX - ARW_CM
         .assert ARW_DOWN_TX + ARW_EDGE >= ARW_CM && ARW_LEFT_TY + ARW_EDGE >= ARW_CM, error, "cam.s: an arrow's tip sits closer to its edge than ARW_CM - ARW_EDGE"
         .assert FXH = FXL + 1 && FYL = FXL + 2 && FYH = FXL + 3, error, "cam.s: arw_clamp indexes FX/FY as one block"
 
-        .include "arrows.s"             ; the art - GENERATED, tools/arrowgen.py
+        .segment "SPRART"               ; the art - GENERATED, tools/arrowgen.py - is
+        .align  256                     ;   not RAM's: it sits in a ROM bank and
+        .include "arrows.s"             ;   goes to the GPU in bulk at power-on
+        .align  256                     ;   (sprites.s). One page.
 
         .popseg

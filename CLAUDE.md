@@ -21,6 +21,13 @@ always mapped, code or data, but holding the demo's image on entry. The map and
 the rules for every area are `design_technical.md` 11.19; read it before
 placing a byte.
 
+**Where new data goes** (2026-09-18, `design_technical.md` 11.19): *messages and
+labels* → `MSGDATA` (ROM bank 7, read through `msg_open`/`msg_close`, no RAM);
+*sprites* → `SPRART` + the definition pages in `src/sprites.s` (ROM, streamed to
+the GPU at power-on, no RAM); *vertex tables* (rocks, ship, enemies) → `SHAPES`
+(the RAM under the window at `$9800`, read only inside `win_off` brackets). Do
+not put any of them in `RODATA`/`HIDATA`: upper RAM is for what the IRQ reads.
+
 `D:\GitHub\CETAS` is the sister project — the first MAD-65 game, and the
 structural template for this one (cart.cfg / Model B bootstrap / asset tooling /
 Makefile shape). Read it before inventing a new pattern.

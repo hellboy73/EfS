@@ -1019,16 +1019,38 @@ These are settled and should not be re-opened without a reason:
 
     | area | size | free | what belongs there |
     |---|---|---|---|
-    | run area `$1000-$5FFF` | 20,480 | 1,762 | **code** — `CODE`, `CODE2`, `CODE3`, `CODE4` — and nothing else if it can be helped |
+    | run area `$1000-$5FFF` | 20,480 | 612 | **code** — `CODE`, `CODE2`, `CODE3`, `CODE4` — and nothing else if it can be helped |
     | lower RAM `$0400-$0FFF` | 3,072 | ~0 | the hot tables — ROT, the quarter-square multiply, the star layer |
-    | under the cart `$8000-$9FFF` | 8,192 | ~2,700 | bulk data walked in **bracketed passes** — the object pool, and the enemies' state (`foes.s`, `$9100-$95FF`) |
-    | upper RAM `$A000-$BEFF` | 7,936 | 742 | `RODATA`, `HIDATA`: tables and cold code, **and anything the IRQ reads** |
-    | `CART_HIRAM` `$C000-$DFFF` | 8,192 | 6,431 + 168 | code or data, full speed, always mapped — `CODE5` (`cam.s` + `hof_seed`, 1,505 B) since 2026-09-15; the top page `$DF00-$DFFF` is KEEP (hiscores, 88 B) |
+    | under the cart `$8000-$9FFF` | 8,192 | ~750 (231 state + 523 shapes) | bulk data walked in **bracketed passes** — the object pool, the enemies' state (`foes.s`, `$9100-$95FF`) and everything chained behind it up to `SHAPES_AT` (`$9800`); from there **`SHAPES`**, every vertex table in the game (1,525 B) |
+    | upper RAM `$A000-$BEFF` | 7,936 | 1,796 | `RODATA`, `HIDATA`: tables and cold code, **and anything the IRQ reads** |
+    | `CART_HIRAM` `$C000-$DFFF` | 8,192 | 475 + 168 | code or data, full speed, always mapped — `CODE5` (`cam.s` + `hof_seed`, 1,505 B) since 2026-09-15; the top page `$DF00-$DFFF` is KEEP (hiscores, 88 B) |
 
-    (Free as of the laser, 24. Upper RAM is the tight one; `CART_HIRAM` is the
-    whole of the new room. New per-frame code goes to `CODE4` while the run area
-    lasts — bank 4 has the ROM for it, bank 3 no longer does — and `HIDATA` is
-    for what the IRQ reads or runs once a level.)
+    (Measured 2026-09-18, after the three moves below. `CART_HIRAM` is where new
+    code goes; `HIDATA` is for what the IRQ reads or runs once a level.)
+
+    **Three things left CPU RAM's scarce areas on 2026-09-18**, none of them by
+    shrinking anything:
+
+    * **Every HUD label and indicator message** — `MSGDATA`, bank 7, read
+      straight out of the window by `msg_open`/`msg_close` (`hud_game.s`) on the
+      rare frame a row rebuilds or a message queues. A new message is a `.byte`
+      in that segment and one table byte; it costs no RAM.
+    * **Every sprite** — the flames', the arrows', the pickup's art and the four
+      GPU definition pages, `SPRART`, bank 7, page aligned in the order they
+      land in GPU RAM (`sprites.s`). Nothing is staged in CPU RAM: `cart_init`
+      arms `gpu_load_cart_begin`, and `spr_pump` drains it (`gpu_load_cart_n`)
+      last in every frame until `LOAD_REM` is 0 — eight pages, the first two or
+      three frames of the intro. A new sprite is a page in that bank and a slot
+      in the definition pages, in one file. (The ship's own sprite, and its
+      upload path, were removed: the ship is an outline, 11.14.)
+    * **Every vertex table** — `SHAPES` (`shapes.s`, `enemies.s`): rocks, ship
+      and every enemy, copied at boot from bank 2 into the RAM under the window
+      at `$9800` (`main.s SHAPES_AT`, `cart.cfg WINSHP`; the linker checks that
+      they agree and that the tables fit). Every reader already runs inside
+      `cart_frame`'s `win_off` bracket, where the window is RAM, and copies the
+      vertices with the CPU — nothing hands the OS a pointer into it. A new
+      enemy's outline costs no upper RAM; it costs the 523 bytes left in that
+      2 KB, and the state chain behind `foes.s` has 231 before it meets it.
 
     **`CART_HIRAM`, `$C000-$DFFF`: 8 KB that became the game's on 2026-09-11,
     and from now on belong to every MAD-65 cartridge.** The CPU1 ROM is two 8 KB

@@ -125,7 +125,8 @@
 ; linker resolves wherever the file sits.
 
         .pushseg
-        .segment "RODATA"
+        .segment "SHAPES"               ; the RAM under the cartridge window, not
+                                        ;   RODATA - see main.s SHAPES_AT
 
 ; === GENERATED (tools/enemy_editor.py) - rewritten whole on Save ============
 ; ---- UFO ----

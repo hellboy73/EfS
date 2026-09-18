@@ -73,7 +73,7 @@ EMT1        = SATP_END + 2
 EMDX        = SATP_END + 3      ; |dx| of the enemy being tested, high bytes
 EMK         = SATP_END + 4      ; this frame's kill radius K, high bytes
 EMP_END     = SATP_END + 5
-        .assert EMP_END <= $A000, error, "emp.s: past the RAM under the window"
+        .assert EMP_END <= SHAPES_AT, error, "emp.s: past the RAM under the window"
 
         .pushseg
         .segment "CODE6"

@@ -56,11 +56,11 @@
 ; docstring.
 ; =============================================================================
 
-FLAME_PAGE      = $11           ; GPU RAM page for the flames blob (SHIP_PAGE
-                                ;   is $10; nothing else claims a data page)
+FLAME_PAGE      = $11           ; GPU RAM page for the flames blob (sprites.s
+                                ;   holds the whole sprite memory map)
 FLAME_N         = 27            ; sprite slots A-D, E's own art and A-D's xs
                                 ;   grow/shrink tier install, 2..28
-FLAME_SLOT0     = 2             ; slot 0 = ROM test sprite, 1 = SPR_SHIP
+FLAME_SLOT0     = 2             ; slot 0 = ROM test sprite, 1 = free
 
 FLAME_ANIM_RATE = 4             ; frames per animation step - TUNE HERE. The
                                 ;   frame cycles 1-2-3 (large/medium, 3 frames)
@@ -98,7 +98,6 @@ FLCXL       = $7011             ; the ship's screen centre, computed once a
 FLCXH       = $7012             ;   frame exactly as emit_ship computes it
 FLCYL       = $7013
 FLCYH       = $7014
-FLSTEP      = $7015             ; the flame upload, one LOAD page per frame - 0-4
 FLEFRAME    = $7016             ; E's own frame index, 0-2 (FLIDX clamped - its
                                 ;   own art sets are all 3 frames, but FLIDX
                                 ;   free-runs 0-3 while the ship is at the
@@ -126,83 +125,6 @@ FLBPHASE    = $701E             ; the brake pair's own ramp - same shape as
                                 ;   by BOOSTN - are main.s equates (near
                                 ;   BOOSTARM): $701F on is shots.s's SHTC/SHTS,
                                 ;   so this block stops at FLBPHASE.
-
-; -----------------------------------------------------------------------------
-; upload_flames_step - installs the FLAME_N-sprite blob and patches slots
-; 2..FLAME_N+1 into the shared GPU sprite definition table, one LOAD page a
-; frame.
-; -----------------------------------------------------------------------------
-; Same shape as ship.s's upload_step (that file's own comment calls it out as
-; the worked example this would need) but patching FLAME_N slots from a table
-; instead of two slots inline, since a byte-by-byte special case stops making
-; sense past a handful. Unconditional - unlike the ship's sprite path, this one
-; is not behind SHIP_SPRITE; the ship stays a vector outline, but its flames
-; are not.
-; -----------------------------------------------------------------------------
-upload_flames_step:
-        ldx     FLSTEP
-        inc     FLSTEP
-        txa
-        bne     @def
-        lda     #FLAME_PAGE             ; step 0: the art itself, one LOAD
-        sta     OS_ARG+0
-        lda     #<flames_data
-        sta     OS_ARG+1
-        lda     #>flames_data
-        sta     OS_ARG+2
-        jmp     API_GPU_LOAD
-
-@def:   dex                             ; steps 1-4: def page X, 0=TYPE,
-        lda     #$00                    ;   1=PTR_LSB, 2=PTR_MSB, 3=HEIGHT
-        ldy     #$00
-:       sta     DEFPG,y
-        iny
-        bne     :-
-
-        cpx     #$00
-        bne     :+
-        ldy     #$00
-@tlp:   lda     FLAME_TYPE_TBL,y
-        sta     DEFPG+FLAME_SLOT0,y
-        iny
-        cpy     #FLAME_N
-        bne     @tlp
-        bra     @ship
-:       cpx     #$01
-        bne     :+
-        ldy     #$00
-@llp:   lda     FLAME_OFF_TBL,y
-        sta     DEFPG+FLAME_SLOT0,y
-        iny
-        cpy     #FLAME_N
-        bne     @llp
-        bra     @ship
-:       cpx     #$02
-        bne     @height
-        lda     #FLAME_PAGE             ; every slot's PTR_MSB is the same
-        ldy     #$00                    ;   page - they all share one blob
-@mlp:   sta     DEFPG+FLAME_SLOT0,y
-        iny
-        cpy     #FLAME_N
-        bne     @mlp
-        bra     @ship
-@height:
-        ldy     #$00
-@hlp:   lda     FLAME_HEIGHT_TBL,y
-        sta     DEFPG+FLAME_SLOT0,y
-        iny
-        cpy     #FLAME_N
-        bne     @hlp
-@ship:  jsr     arrow_defs              ; ...and the enemy arrows' four (cam.s)
-        txa
-        clc
-        adc     #$03                    ; GPU def pages $03/$04/$05/$06
-        sta     OS_ARG+0
-        lda     #<DEFPG
-        sta     OS_ARG+1
-        lda     #>DEFPG
-        sta     OS_ARG+2
-        jmp     API_GPU_LOAD
 
 ; -----------------------------------------------------------------------------
 ; do_flames - trigger, ramp and draw all five nozzles. Called once a frame,
@@ -814,44 +736,11 @@ E_ART_PAD_TBL:    .byte   4,  0,  0,  0 ; only XL (24 -> padded to 32) needs one
 ; pixel further aft.
 E_DX_TBL:         .byte   12, 9,  8
 
-        .include "flames.s"             ; the sprite art itself - GENERATED,
-                                        ; see that file's header
-
-; the def-table patch source, one byte per slot 2..FLAME_N+1, in the same
-; order as flames.s's sprites (large up1-3/dn1-3, medium up1-3/dn1-3, small
-; up1-4/dn1-4, xl dn1-3 - E's own art, slots 22-24 - then xs up1-2/dn1-2 -
-; the small bracket's own grow/shrink tier, slots 25-28)
-FLAME_TYPE_TBL:
-        .byte   FLAME_L_UP1_TYPE, FLAME_L_UP2_TYPE, FLAME_L_UP3_TYPE
-        .byte   FLAME_L_DN1_TYPE, FLAME_L_DN2_TYPE, FLAME_L_DN3_TYPE
-        .byte   FLAME_M_UP1_TYPE, FLAME_M_UP2_TYPE, FLAME_M_UP3_TYPE
-        .byte   FLAME_M_DN1_TYPE, FLAME_M_DN2_TYPE, FLAME_M_DN3_TYPE
-        .byte   FLAME_S_UP1_TYPE, FLAME_S_UP2_TYPE, FLAME_S_UP3_TYPE, FLAME_S_UP4_TYPE
-        .byte   FLAME_S_DN1_TYPE, FLAME_S_DN2_TYPE, FLAME_S_DN3_TYPE, FLAME_S_DN4_TYPE
-        .byte   FLAME_XL_DN1_TYPE, FLAME_XL_DN2_TYPE, FLAME_XL_DN3_TYPE
-        .byte   FLAME_XS_UP1_TYPE, FLAME_XS_UP2_TYPE
-        .byte   FLAME_XS_DN1_TYPE, FLAME_XS_DN2_TYPE
-
-FLAME_OFF_TBL:
-        .byte   FLAME_L_UP1_OFFSET, FLAME_L_UP2_OFFSET, FLAME_L_UP3_OFFSET
-        .byte   FLAME_L_DN1_OFFSET, FLAME_L_DN2_OFFSET, FLAME_L_DN3_OFFSET
-        .byte   FLAME_M_UP1_OFFSET, FLAME_M_UP2_OFFSET, FLAME_M_UP3_OFFSET
-        .byte   FLAME_M_DN1_OFFSET, FLAME_M_DN2_OFFSET, FLAME_M_DN3_OFFSET
-        .byte   FLAME_S_UP1_OFFSET, FLAME_S_UP2_OFFSET, FLAME_S_UP3_OFFSET, FLAME_S_UP4_OFFSET
-        .byte   FLAME_S_DN1_OFFSET, FLAME_S_DN2_OFFSET, FLAME_S_DN3_OFFSET, FLAME_S_DN4_OFFSET
-        .byte   FLAME_XL_DN1_OFFSET, FLAME_XL_DN2_OFFSET, FLAME_XL_DN3_OFFSET
-        .byte   FLAME_XS_UP1_OFFSET, FLAME_XS_UP2_OFFSET
-        .byte   FLAME_XS_DN1_OFFSET, FLAME_XS_DN2_OFFSET
-
-FLAME_HEIGHT_TBL:
-        .byte   FLAME_L_UP1_HEIGHT, FLAME_L_UP2_HEIGHT, FLAME_L_UP3_HEIGHT
-        .byte   FLAME_L_DN1_HEIGHT, FLAME_L_DN2_HEIGHT, FLAME_L_DN3_HEIGHT
-        .byte   FLAME_M_UP1_HEIGHT, FLAME_M_UP2_HEIGHT, FLAME_M_UP3_HEIGHT
-        .byte   FLAME_M_DN1_HEIGHT, FLAME_M_DN2_HEIGHT, FLAME_M_DN3_HEIGHT
-        .byte   FLAME_S_UP1_HEIGHT, FLAME_S_UP2_HEIGHT, FLAME_S_UP3_HEIGHT, FLAME_S_UP4_HEIGHT
-        .byte   FLAME_S_DN1_HEIGHT, FLAME_S_DN2_HEIGHT, FLAME_S_DN3_HEIGHT, FLAME_S_DN4_HEIGHT
-        .byte   FLAME_XL_DN1_HEIGHT, FLAME_XL_DN2_HEIGHT, FLAME_XL_DN3_HEIGHT
-        .byte   FLAME_XS_UP1_HEIGHT, FLAME_XS_UP2_HEIGHT
-        .byte   FLAME_XS_DN1_HEIGHT, FLAME_XS_DN2_HEIGHT
+        .pushseg
+        .segment "SPRART"               ; the art is not RAM's: it sits in a ROM
+        .align  256                     ;   bank and goes to the GPU in bulk at
+        .include "flames.s"             ;   power-on (sprites.s). One page.
+        .align  256                     ;   GENERATED - see that file's header
+        .popseg
 
         .segment "CODE"

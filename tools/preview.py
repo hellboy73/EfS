@@ -618,7 +618,6 @@ OP_POLY = (0x4C, 0x4D, 0x4E)[ROCK_FAMILY]   #   2 = $4E solid full-res
 # only the framebuffer comparison uses native units.
 POLY_RES = 2 if ROCK_FAMILY == 2 else 1     # full-res units per half-res unit
 POLY_FB = 2 // POLY_RES                     # ...and native units -> framebuffer
-SHIP_SPRITE = 0                 # mirrors main.s: 0 = the vector outline
 SHIP_SHAPE = shapes_points("SHIP_SHAPE")        # (dx, dy) vertices, FULL-res,
                                                  #   from shapes_const("SHIP_VN")
 SHIP_SHAPE = SHIP_SHAPE[:shapes_const("SHIP_VN")]
@@ -1276,8 +1275,9 @@ gpu_mem.subscribe_to_read(range(0xC000, 0x10000),
 # The harness jumps straight into the dispatch loop, so GPU boot never runs and
 # the sprite definition table is empty. Install sprite 0 exactly as boot_main
 # does: type $14 (32 px wide, no overlay), data at $F400, 26 rows. The cart then
-# LOADs its own four definition pages over this on its first frame, which is
-# precisely what the ship-sprite check below is testing.
+# LOADs its own four definition pages over this within its first frames - the
+# bulk sprite upload (src/sprites.s), which this harness drives by running the
+# frames.
 gpu_mem[0x0300] = 0x14
 gpu_mem[0x0400] = 0x00
 gpu_mem[0x0500] = 0xF4
@@ -1472,8 +1472,8 @@ check('the zoom settles on its target instead of creeping',
       f'{ZOOM_RZ[trace[-1]["TIER"]]}')
 
 # --- the ship: an authored N-vertex outline, a GPU polygon like a rock's -----
-# The sprite is assembled out (SHIP_SPRITE = 0 in main.s) while the vector
-# version is measured. It moved off CPU1-transformed LINE16 onto the same $4E
+# The ship is a vector outline (the sprite it started as is gone). It moved off
+# CPU1-transformed LINE16 onto the same $4E
 # POLYGON16 a rock uses (design_technical.md 11.14): CPU1 sends the centre,
 # ANGLE = 0 (the ship never spins) and SCALE = ZEASH - the same eased
 # reciprocal a rock's SCALE reads (4.4), not the snapped ZOOMH the rock span
@@ -1488,17 +1488,6 @@ scale = trace[-1]['ZEASH']
 ship_polys = [p for p in polys(frames[-1]) if p['n'] == SHIP_LINES and not p['open']]
 check('the ship draws exactly one polygon a frame', len(ship_polys) == 1,
       f'{len(ship_polys)} candidates with {SHIP_LINES} vertices')
-# Sprite id, not "any sprite": op 0x50 is also how the thruster flames draw
-# (thrust.s), and by this point in the flight the boost triggered at BOOST_AT
-# is still running (BOOST_FRAMES outlasts the script) and legitimately keeps
-# the main/aft nozzles showing - see thrust.s's flame_boost_pair. What this
-# check actually guards is the ship-sprite FALLBACK path (SHIP_SPRITE=1,
-# SPR_SHIP's own slot) never firing alongside the vector outline.
-SPR_SHIP = cart_const("SPR_SHIP")
-check('no ship sprite is emitted while the vector outline is in',
-      not any(op == 0x50 and payload[0] == SPR_SHIP
-              for op, payload in decode(frames[-1])))
-
 p = ship_polys[0]
 check('the ship polygon is centred where SHOFF/SHOFX put it',
       (p['cx'], p['cy']) == (shipx, shipy),
@@ -1508,6 +1497,33 @@ check('the ship SCALE is ZEASH, the same field a rock reads',
       p['scale'] == scale, f'SCALE {p["scale"]}, ZEASH {scale}')
 check('the ship offsets are SHIP_SHAPE, unrotated and unscaled, as authored',
       p['offs'] == SHIP_SHAPE, f'{p["offs"]} != {SHIP_SHAPE}')
+
+# --- the sprites: one bulk upload, straight out of the SPRART bank ------------
+# src/sprites.s arms gpu_load_cart_begin in cart_init and drains it last in
+# every frame, so the eight LOAD pages - the art at $11-$14, then the four
+# definition pages at $03-$06 - have to appear in the first frames' command
+# lists, byte for byte what the ROM holds, and never again.
+_lbl = {m.group(2): int(m.group(1), 16) for m in
+        re.finditer(r"^al ([0-9A-Fa-f]+) \.(\w+)\s*$",
+                    (ROOT / "cart.lbl").read_text(), re.M)}
+_sbank = CART[7 * 0x2000:8 * 0x2000]                 # SPR_BANK = 7 (sprites.s)
+_want = {}
+for _k in range(4):
+    _a, _d = _lbl["flames_data"] - 0x8000 + _k * 256, _lbl["spr_defs"] - 0x8000 + _k * 256
+    _want[0x11 + _k] = bytes(_sbank[_a:_a + 256])
+    _want[0x03 + _k] = bytes(_sbank[_d:_d + 256])
+_got, _when = {}, {}
+for _f, _fr in enumerate(frames):
+    for _op, _pl in decode(_fr):
+        if _op == 0x30 and _pl[0] in _want:
+            _got.setdefault(_pl[0], []).append(bytes(_pl[1:257]))
+            _when[_pl[0]] = _f
+check('every sprite page reaches the GPU, once, exactly as the ROM holds it',
+      all(_got.get(pg) == [d] for pg, d in _want.items()),
+      f'pages seen {sorted((pg, len(v)) for pg, v in _got.items())}')
+check('...within the first frames - before anything is drawn from them',
+      len(_when) == 8 and max(_when.values()) <= 3,
+      f'last page in frame {max(_when.values()) if _when else None}')
 
 # want_ordered feeds the framebuffer solidity check below, so it has to stay
 # in SHIP_SHAPE's own winding order, not the sorted-set comparison the old

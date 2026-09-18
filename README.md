@@ -58,7 +58,8 @@ EfS/
     radar_bg.s            the radar's ring, as a background bitmap
     bootstrap.s           Model B: copy both banks to RAM, then never read
     header.s              the $8000 signature and the two vectors
-    ship32.s              the ship sprite, kept for SHIP_SPRITE = 1
+    sprites.s             every sprite's art and definition pages, in a ROM bank,
+                          uploaded to the GPU in bulk at power-on
     mad65.inc             OS jump table + RAM/ZP equates (the cart's interface
                           to the console firmware)
   docs/

@@ -51,7 +51,7 @@ SHLDL       = EMP_END           ; frames of shield left, 0 = down
 SHLDH       = EMP_END + 1
 SHARM       = EMP_END + 2       ; the quarters of a hit point carried
 SHLD_END    = EMP_END + 3
-        .assert SHLD_END <= $A000, error, "shield.s: past the RAM under the window"
+        .assert SHLD_END <= SHAPES_AT, error, "shield.s: past the RAM under the window"
 
         .pushseg
         .segment "CODE2"

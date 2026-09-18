@@ -28,6 +28,16 @@ API_GPU_DOTCIRCLE   = $FF27     ; OS_ARG+0 = CX (0-199), +1 = CY (0-149), +2 = R
                                 ;   clipped (the slower path). The EMP (emp.s)
 API_GPU_SPRITE      = $FF2A     ; OS_ARG+0 = SPR_ID, +1..2 = X16, +3..4 = Y16
 API_GPU_LOAD        = $FF39     ; OS_ARG+0 = GPU page MSB, +1..2 = ptr -> 256 bytes
+API_GPU_LOAD_CART_BEGIN = $FF9F ; OS_ARG+0 = cart bank, +1..2 = window address of
+                                ;   the first page, +3 = destination START page,
+                                ;   +4 = page count: ARM a multi-page job. Emits
+                                ;   nothing, so it is legal outside a frame
+                                ;   (cart_init) - sprites.s
+API_GPU_LOAD_CART_N = $FFA2     ; no args: drain the armed job by the PPRAM this
+                                ;   frame has left, ~7 pages. Call it LAST in
+                                ;   the frame, between gpu_begin and gpu_end
+LOAD_REM            = $0240     ; published: pages of the armed job still to
+                                ;   load, 0 = done or idle
 API_GPU_LOAD_CART   = $FF9C     ; OS_ARG+0 = cart bank, +1..2 = window address,
                                 ;   +3 = GPU page: one LOAD page read straight
                                 ;   out of the cartridge. Carry SET = no PPRAM

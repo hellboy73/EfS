@@ -21,16 +21,14 @@
 ; THE SPRITE: ONE for every pickup, whatever it holds - its size is the art's
 ; (PK_W x PK_HEIGHT, tools/pickupgen.py), overlay, never scaled (the same size
 ; at every zoom), two frames flipped every PK_HOLD frames. The art is PK_PAGES
-; GPU pages read straight out of the MSGDATA bank (gpu_load_cart), so it costs
-; no CPU RAM: the art upload's steps after the arrows' (cam.s
-; upload_art_step), and pk_defs puts its two slots into the definition pages
-; behind the arrows'.
+; GPU pages, kept in the sprite bank (SPRART), so it costs
+; no CPU RAM: it goes to the GPU with the other sprites' at power-on, and
+; its two slots sit in the definition pages behind the arrows' (sprites.s).
 ; =============================================================================
 
 PK_SLOT0    = ARW_SLOT0 + 4     ; the two frames, after the arrows
 PK_PAGE     = $13               ; GPU RAM page (arrows $12), and PK_PAGES on
 PK_HOLD     = 10                ; frames each animation frame is shown
-PK_ART_STEP = 6                 ; FLSTEP of its first page: after the arrows'
 
 ; --- state: $73AF-$73B3, behind hud_game.s's MSGSAVE. Always mapped: laser.s
 ;     reads LSRHAVE outside any bracket ------------------------------------------
@@ -155,54 +153,14 @@ pk_tick:
         sta     PKPH
 :       rts
 
-; -----------------------------------------------------------------------------
-; pk_upload - cam.s upload_art_step, FLSTEP just counted past PK_ART_STEP + n:
-; the art's page n, straight out of the MSGDATA bank. A frame with no PPRAM
-; left for it tries again on the next.
-; -----------------------------------------------------------------------------
-pk_upload:
-        lda     FLSTEP
-        sec
-        sbc     #PK_ART_STEP + 1        ; n
-        tax
-        clc
-        adc     #>pickups_data
-        sta     OS_ARG+2
-        lda     #<pickups_data
-        sta     OS_ARG+1
-        txa
-        clc
-        adc     #PK_PAGE
-        sta     OS_ARG+3
-        lda     #MSG_BANK
-        sta     OS_ARG+0
-        jsr     API_GPU_LOAD_CART
-        bcc     :+
-        dec     FLSTEP
-:       rts
-
-; pk_defs - cam.s arrow_defs, X = the definition page being staged (0 TYPE,
-; 1 PTR_LSB, 2 PTR_MSB, 3 HEIGHT): the pickup's two slots into DEFPG. Keeps X.
-pk_defs:
-        phx
-        txa
-        asl     a
-        tax
-        lda     PK_DEF,x
-        sta     DEFPG+PK_SLOT0
-        lda     PK_DEF+1,x
-        sta     DEFPG+PK_SLOT0+1
-        plx
-        rts
-
-PK_DEF:     .byte   PK_TYPE, PK_TYPE    ; by field, then frame
-            .byte   <PK_OFF0, <PK_OFF1
-            .byte   PK_PAGE + >PK_OFF0, PK_PAGE + >PK_OFF1
-            .byte   PK_HEIGHT, PK_HEIGHT
         .assert PK_PAGE + PK_PAGES <= $14 + 1, error, "pickup.s: the art runs past GPU page $14"
 
+        .segment "SPRART"               ; the art - GENERATED, tools/pickupgen.py -
+        .align  256                     ;   is not RAM's: it sits in a ROM bank and
+        .include "pickups_art.s"        ;   goes to the GPU in bulk at power-on
+        .align  256                     ;   (sprites.s). PK_PAGES pages.
+
         .segment "MSGDATA"
-        .include "pickups_art.s"        ; the art - GENERATED, tools/pickupgen.py
 IM_LASER_GOT_S: .byte "LASER ACQUIRED", 0
 
         .popseg

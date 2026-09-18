@@ -21,9 +21,8 @@
 ;     layer that slid but did not turn would tear away from the world on every
 ;     turn. A nearer layer of MOTE_N specks runs at twice ship speed.
 ;   * the ship: an authored 14-vertex outline, always nose-up, riding up and
-;     down the screen with the throttle. The 32x32 sprite it used to be is still
-;     in the build behind SHIP_SPRITE, and design_technical 11.14 says why the
-;     outline won.
+;     down the screen with the throttle. (It was a 32x32 sprite once - removed;
+;     design_technical 11.14 says why the outline won.)
 ;   * NOBJ asteroids with real world positions, velocities and spins, drawn as
 ;     SOLID FULL-RES outlines ($4E POLYGON16) at one of five sizes: 192, 128,
 ;     64, 32 and 16 full-res pixels across. They collide with each other; see
@@ -292,15 +291,12 @@ OCCB_N      = 10                ; bands covering FBY 0..149
 ; rock crosses a 4096-unit boundary about once in 300 frames.
 PEND_MAX    = 16                ; deferred cell moves per frame; overflow is safe
                                 ;   - it just relinks on a later frame instead
-; The ship is a VECTOR OUTLINE, not the sprite. Set SHIP_SPRITE = 1 to put
-; ship32.png back: the asset, the converter and the whole upload path are
-; still here, just assembled out. The outline is here to be measured against a
-; sprite once zoom exists - it scales for nothing, where a sprite would need a
-; pre-scaled frame per zoom step, and the ship is the one object in the game
-; that never rotates so the usual argument for sprites does not apply to it.
-; Settled that it never will (design_technical.md 11.9): sprites are for
-; thruster flames and shots, not for the ship or for rocks.
-SHIP_SPRITE = 0
+; The ship is a VECTOR OUTLINE, not a sprite: it scales for nothing, where a
+; sprite would need a pre-scaled frame per zoom step, and it is the one object
+; in the game that never rotates so the usual argument for sprites does not
+; apply to it. Settled (design_technical.md 11.9): sprites are for thruster
+; flames, arrows and pickups, not for the ship or for rocks. The 32x32 sprite
+; it started as, and the upload path that installed it, are gone.
 
 ; The outline itself - SHIP_SHAPE, up to 13 signed byte (dx,dy) vertices, and
 ; SHIP_VN, how many of them are used - lives in shapes.s next to the rock
@@ -312,10 +308,6 @@ SHIP_SPRITE = 0
 ; emit_ship builds the same argument block a rock does and lets the GPU
 ; rotate (by 0 - the ship never spins), scale and draw it instead.
 
-SPR_SHIP    = 1                 ; the slot the ship art is installed into. Slot 0
-                                ;   is left as the ROM test sprite so that a
-                                ;   forgotten id draws something recognisable
-SHIP_PAGE   = $10               ; ...and the GPU RAM page its 256 bytes land on
 ; LOD_R and the per-rock switch to an authored reduced outline (SHAPE_LODN,
 ; shapes.s) are retired (design_technical.md 11.9): rocks draw at full
 ; authored detail at every on-screen size now. The GPU is the resource that
@@ -539,7 +531,9 @@ PKX         = $D9               ; nonzero if this star must be parked
 MQA         = $E8               ; quarter-square multiply: the two MAGNITUDES in,
 MQB         = $E9               ;   0..127 each
 MQR         = $EA               ; ...and its scratch, $EA-$EB
-SPRSTEP     = $EC               ; which page of the sprite upload is next, 0-5
+SPRJOB      = $EC               ; the sprites' bulk upload (sprites.s): 0 = done or
+                                ;   not armed, 1 = the art pages draining, 2 = the
+                                ;   definition pages
 THRTLL      = $ED               ; throttle position, 0..THRTL_MAX - see do_input.
 THRTLH      = $EE               ;   Two of the three bytes this used to be FREE;
                                 ;   they held the rock transform's split trig
@@ -698,6 +692,19 @@ NFREEMIN    = $62DD             ; ...and the fewest there have ever been, which
 NRECYC      = $62DE             ; rocks quietly recycled to make room, likewise
 SOCCW       = $62DF             ; the ship's occluder box, half-extents
 SOCCH       = $62E0
+; THE RAM UNDER THE WINDOW HAS TWO TENANTS. Below SHAPES_AT the hand-placed
+; state - the object pool at $8000, then every subsystem's arrays and scratch,
+; each chained after the last (satn.s, emp.s, shield.s, gate.s assert their own
+; end against it). From SHAPES_AT to $9FFF, the SHAPES segment: every vertex
+; table in the game - rocks, ship, enemies (shapes.s, enemies.s) - copied in
+; from ROM bank 2 at boot (bootstrap.s), so it costs no upper RAM at all and is
+; read at full speed by the passes that already run inside cart_frame's win_off
+; bracket. cart.cfg's WINSHP area starts here too; the linker checks that the
+; two agree (below), and that the tables fit.
+SHAPES_AT   = $9800
+        .import __SHAPES_RUN__
+        .assert __SHAPES_RUN__ = SHAPES_AT, lderror, "main.s: SHAPES_AT and cart.cfg's WINSHP disagree"
+
 OBJXL       = $8000             ; object world positions, 16.8, structure-of-arrays
 OBJXH       = $8100
 OBJXF       = $8200
@@ -989,8 +996,6 @@ PBUF        = $6280             ; the POLYGON argument block: 7 header bytes and
                                 ;   emit_ship's own per-vertex scratch; the GPU
                                 ;   owns the whole ship outline now too, so
                                 ;   those bytes came back as well.
-DEFPG       = $6300             ; one page of the GPU sprite definition table,
-                                ;   staged here and shipped with LOAD
 ROTHEAD     = $62CE             ; the heading the ROT tables were built for
 VISN        = $62CF             ; entries in the visible list this frame
 VISI        = $62D0             ; ...and the draw loop's cursor into it
@@ -1127,7 +1132,6 @@ cart_init:
         sta     RAMPIX                  ;   longer change at runtime - see do_input
         lda     #2                      ; the settled-on speed-coupled turn rate,
         sta     TSCALE                  ;   x1.25 at the top tier
-        stz     SPRSTEP
         stz     OVC                     ; the background opens CLEAR, so that is
                                         ;   what the banner believes is showing
                                         ;   (GO_BLANK) - see gameover.s
@@ -1157,6 +1161,9 @@ cart_init:
         jsr     win_on                  ; ...and the window is a cartridge again
                                         ;   before init can return - the OS jumps
                                         ;   to boot_frame THROUGH it (window.s)
+        jsr     spr_arm                 ; ...and every sprite the game has goes
+                                        ;   to the GPU in bulk, from the first
+                                        ;   frames on (sprites.s)
         jsr     music_start             ; ...and the song starts here, AFTER
                                         ;   that: vgm_play only records where
                                         ;   the stream is, but the player
@@ -1173,27 +1180,20 @@ cart_init:
 ; =============================================================================
 ; cart_frame — called once per frame, between gpu_begin and gpu_end.
 ; =============================================================================
+; The sprites' bulk upload drains into whatever PPRAM the frame left unused, so
+; it is the LAST thing in every frame - the screens' frames included, which is
+; why it wraps the whole of frame_body rather than sitting inside it.
 cart_frame:
+        jsr     frame_body
+        jmp     spr_pump                ; tail
+
+frame_body:
         inc     FRAME
         bne     :+
         inc     FRAME+1
 :       lda     SCR_STATE               ; a screen - the intro or the title -
         beq     :+                      ;   takes the whole frame (screens.s);
         jmp     scr_frame               ;   SC_PLAY is 0 and falls through
-:
-.if SHIP_SPRITE
-        lda     SPRSTEP                 ; the sprite upload, one LOAD page per
-        cmp     #$05                    ;   frame, and FIRST in the frame it
-        bcs     :+                      ;   happens on - see upload_step
-        jsr     upload_step
-:
-.endif
-        lda     FLSTEP                  ; same shape, for the flames - see
-        cmp     #PK_ART_STEP + PK_PAGES ;   upload_flames_step - and then the
-        bcs     :+                      ;   enemy arrows' page and the pickups'
-                                        ;   (cam.s, pickup.s). The
-        jsr     upload_art_step         ;   ship is a vector outline, but its
-                                        ;   flames are sprites regardless.
 :
         lda     BGDONE                  ; one-shot: wipe the boot screen off the
         bne     :+                      ;   background. The OS replays background
@@ -1243,7 +1243,7 @@ cart_frame:
         jsr     ring_frame              ; the radar's furniture, one
                                         ;   RECT_BG_RLE command, retried until
                                         ;   it lands. FIRST in the frame for the
-                                        ;   same reason upload_step is: dropped
+                                        ;   same reason ring_frame is: dropped
                                         ;   for want of PPRAM leaves a permanent
                                         ;   hole, not a one-frame blink
         jsr     bgtext_tick             ; the shared background-text window ages
@@ -1511,7 +1511,12 @@ cart_frame:
                                         ; file's) and screens.s (SC_SECTOR)
         .include "pickup.s"             ; the laser and the shield, dropped by
                                         ; a kill and homing like Saturnium.
-                                        ; CODE6, its art in MSGDATA
+                                        ; CODE6, its art in SPRART
+        .include "sprites.s"            ; every sprite's memory map, the
+                                        ; definition pages, and the bulk upload
+                                        ; that puts them all on the GPU at
+                                        ; power-on. AFTER the three files whose
+                                        ; art it lays out
         .include "sfx.s"                ; the sound effects and the explosion
                                         ; flash. A HIDATA file end to end - the
                                         ; SFX engine reads the step programs
@@ -1542,7 +1547,7 @@ cart_frame:
 ; against exactly these numbers, so they are kept on one page to be read and
 ; retuned together.
 ; =============================================================================
-        .segment "RODATA"
+        .segment "SHAPES"
 
         .include "shapes.s"             ; every vertex table - rocks, ship. See
                                          ; that file's header and tools/shape_editor.py

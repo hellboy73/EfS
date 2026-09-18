@@ -10,64 +10,9 @@
 ;
 ; It is drawn as an authored 14-vertex outline through the same GPU polygon
 ; call a rock uses, at angle 0 because it never spins: design_technical 11.14.
-; The 32x32 sprite it used to be is still here behind SHIP_SPRITE, along with
-; the LOAD-page upload that installs it, because that path is also how any
-; future sprite gets into GPU RAM.
+; (It was a 32x32 sprite once; that, and the LOAD-page upload that installed
+; it, are gone. Sprites now go to the GPU in bulk at power-on - sprites.s.)
 ; =============================================================================
-.if SHIP_SPRITE
-; -----------------------------------------------------------------------------
-; upload_step — install the ship sprite, ONE LOAD page per frame for five frames.
-; -----------------------------------------------------------------------------
-; LOAD is the only way CPU1 can write GPU RAM, and it writes a whole 256-byte
-; page at a time — including the sprite definition table, which is four pages of
-; one parameter each ($03 type, $04 ptr lo, $05 ptr hi, $06 height). So each of
-; the four is staged blank in DEFPG, patched with the two slots this cartridge
-; uses, and shipped. Slot 0 keeps the ROM test sprite's own numbers, which costs
-; nothing and means an id typo still draws something.
-;
-; ONE PAGE A FRAME because five is too many at once: a LOAD is 258 bytes of the
-; 2047-byte list and about 10,000 cycles of copying, and all five on the first
-; frame put that frame at 98% of budget for no reason. Spread out it is 5% a
-; frame, and the ship appears on frame 5 — 83 ms, which nobody sees. It still
-; goes FIRST in whichever frame it lands on: a def page dropped for want of
-; PPRAM would leave the slot empty for the rest of the session.
-; -----------------------------------------------------------------------------
-upload_step:
-        ldx     SPRSTEP
-        inc     SPRSTEP
-        txa                             ; the OLD step, not the incremented one
-        bne     @def
-        lda     #SHIP_PAGE              ; step 0: the art itself
-        sta     OS_ARG+0
-        lda     #<ship32_data
-        sta     OS_ARG+1
-        lda     #>ship32_data
-        sta     OS_ARG+2
-        jmp     API_GPU_LOAD
-@def:   dex                             ; steps 1-4: definition page X-1
-        lda     #$00                    ; a blank page...
-        ldy     #$00
-:       sta     DEFPG,y
-        iny
-        bne     :-
-        txa                             ; ...with the two live slots patched in
-        asl     a
-        tay
-        lda     SPRDEF,y
-        sta     DEFPG+0
-        lda     SPRDEF+1,y
-        sta     DEFPG+SPR_SHIP
-        txa
-        clc
-        adc     #$03                    ; GPU pages $03 / $04 / $05 / $06
-        sta     OS_ARG+0
-        lda     #<DEFPG
-        sta     OS_ARG+1
-        lda     #>DEFPG
-        sta     OS_ARG+2
-        jmp     API_GPU_LOAD
-
-.endif
 
 ; -----------------------------------------------------------------------------
 ; do_ship — velocity from the speed tier and the heading, then integrate.
@@ -585,26 +530,6 @@ emit_ship:
         jsr     ship_hidden             ; broken up, or on the hidden half of a
         bcs     @gone                   ;   respawn blink - gameover.s owns that
                                         ;   question, and flame_draw asks it too
-.if SHIP_SPRITE
-        lda     #SPR_SHIP
-        sta     OS_ARG+0
-        ldy     #$00                    ; fb_x = FBCX + offset - 16
-        bit     SHOFFH
-        bpl     :+
-        ldy     #$FF
-:       clc
-        lda     SHOFFH
-        adc     #<SHIP_SX
-        sta     OS_ARG+1
-        tya
-        adc     #>SHIP_SX
-        sta     OS_ARG+2
-        lda     #<SHIP_SY
-        sta     OS_ARG+3
-        lda     #>SHIP_SY
-        sta     OS_ARG+4
-        jmp     API_GPU_SPRITE
-.else
         ; The centre is 16-bit because it has to be: FBCX plus a SHOFF of 126
         ; plus a vertex is past 255 on its own. Built straight into PBUF now -
         ; the same argument block one_asteroid fills, reused here because the
@@ -661,7 +586,6 @@ emit_ship:
         lda     #>PBUF
         sta     OS_ARG+1
         jmp     API_GPU_POLYGON16       ; tail call: its own rts returns for us
-.endif
 @gone:  rts
 
 ; -----------------------------------------------------------------------------
@@ -955,36 +879,3 @@ ship_die:
                                         ;   it from there
 
         .segment "CODE"                 ; back to bank 0 for the rest of this file
-
-; =============================================================================
-; The sprite the ship used to be
-; =============================================================================
-; Assembles to nothing while SHIP_SPRITE = 0, which it is: the outline won
-; (design_technical 11.14). It is kept whole - the art, the definition pages
-; and upload_step above - because it is also the worked example of getting any
-; sprite into GPU RAM, which the thruster flames and the shots will need.
-; =============================================================================
-        .segment "RODATA"
-.if SHIP_SPRITE
-; --- the ship -----------------------------------------------------------------
-; Generated from assets/png/ship32.png:
-;     python tools/sprgen.py assets/png/ship32.png src/ship32.s \
-;            ship32 --tate
-; --tate pre-rotates the art a quarter turn, because the monitor is on its side
-; and a sprite's width axis runs DOWN the player's screen. Nothing rotates it at
-; runtime; the asset is simply stored turned. It is 32x32 with an overlay plane,
-; which is 256 bytes - exactly one LOAD page, which is why it is 32 and not 30.
-        .include "ship32.s"
-
-; The two sprite slots this cartridge defines, as the four GPU definition pages
-; want them: [slot 0, slot SPR_SHIP] per page. Slot 0 keeps the ROM test sprite
-; ($F400, 32x26, no overlay) so that a wrong id draws something recognisable
-; instead of nothing at all.
-SPRDEF:
-        .byte   $14, SHIP32_TYPE        ; $0300 SPR_TYPE
-        .byte   $00, $00                ; $0400 SPR_PTR_LSB
-        .byte   $F4, SHIP_PAGE          ; $0500 SPR_PTR_MSB
-        .byte   26,  SHIP32_HEIGHT      ; $0600 SPR_HEIGHT
-.endif
-
-        .segment "CODE"
