@@ -10,7 +10,7 @@
 ;   SC_INTRO   black; the MAD-65 logo; MISSION / ASTEROID / DESTRUCTION revealed
 ;              one at a time; then the blinder
 ;   SC_TLOAD   the title picture streamed onto the background under the blinder
-;   SC_TITLE   the picture, the marquee along the bottom line, and FIRE
+;   SC_TITLE   the picture, the marquee one line above the bottom, and FIRE
 ;
 ; THE PICTURES ARE BACKGROUND, SENT COMPRESSED. Both go through the transport
 ; block (MAD-65 CPU OS): RECT_BG_BEGIN arms the rectangle, then RECT_BG_CART
@@ -69,7 +69,7 @@ INTRO_END   = TITLE_SHOW - TLOAD_LEAD
         .assert INTRO_W3 < INTRO_END, error, "screens.s: the last word would come after the screen has gone dark"
 
 ; --- the marquee --------------------------------------------------------------
-SC_LINE     = 49                ; the bottom line of the 37 x 50 VTEXT grid
+SC_LINE     = 48                ; one above the bottom line of the 37 x 50 VTEXT grid
 SC_WIN      = 39                ; 37 visible cells + the two guard cells a
                                 ;   character enters from the right through
 SC_SPEED    = 1                 ; px a frame
@@ -82,7 +82,7 @@ SC_TERM     = $FF
 PF_DELAY    = 603               ; frames of title before it starts: 10 s
 PF_ON       = 30                ; frames lit...
 PF_OFF      = 30                ; ...and dark
-PF_LINE     = 0                 ; the top line
+PF_LINE     = 1                 ; one below the top line
 PF_COL      = (37 - (pf_text_end - pf_text - 1)) / 2   ; centred: cell 14
 
 ; --- state, in KEEP straight after the hiscore table ---------------------------
@@ -350,7 +350,7 @@ pf_text:    .byte   "PUSH FIRE", 0
 pf_text_end:
 
 ; -----------------------------------------------------------------------------
-; marquee - SC_WIN characters of SC_MSG on the bottom line, slid SC_SCRL px.
+; marquee - SC_WIN characters of SC_MSG on line SC_LINE, slid SC_SCRL px.
 ; -----------------------------------------------------------------------------
 ; On the IMAGE layer, rebuilt every frame, so it needs no replay and simply
 ; stops existing when the title does. T0/T1 are the game's scratch pair and are
