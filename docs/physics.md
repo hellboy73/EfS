@@ -426,7 +426,7 @@ Integration is every frame for every UFO.
 | `FSH_MIN` | frames a bullet fired from off screen lives before the screen may take it | **60** |
 | `FOE_SNEAR` / `FOE_SFAR` | think every 2^this frames, near / far | **1 / 3** |
 | `FOE_FARPG` | pages past the coarse window before a UFO is far | **16** |
-| `SCORE_FOE_HIT` / `SCORE_FOE_KILL` | the player's pay for a hit / the last one | **50 / 100** |
+| `SCORE_FOE_HIT` / `SCORE_FOE_KILL` | the player's pay for a hit / the last one. An EMP kill lands no hit and pays the 100 alone (design_technical 11.42) | **50 / 100** |
 
 ### 9.1 The spider — an excavator, not a fighter
 

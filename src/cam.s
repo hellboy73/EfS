@@ -51,7 +51,7 @@ CAM_XLIM    = 80                ; ...and across: the turn lean's full reach,
                                 ;   (CAMX_CLAMP * 32 * 107/128) >> 8
 CAM_SSTEP   = 4                 ; px a frame the camera's slide may move
 CAM_XMAX    = 2*FBCX - 1        ; the last full-res row and column
-CAM_YMAX    = 2*FBCY + 1
+CAM_YMAX    = 299               ; ...and row: the screen's edge, not FBCY's
 
 ARW_SLOT0   = FLAME_SLOT0 + FLAME_N ; the four arrows, after the flames
 ARW_PAGE    = $12               ; GPU RAM page (ship $10, flames $11)

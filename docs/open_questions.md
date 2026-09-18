@@ -462,9 +462,10 @@ into to collect. Two examples sketched so far:
   count. This directly reopens B9, which already names CETAS's
   gated-behind-a-pickup-and-50-rounds laser as the path this engine chose *not*
   to take ("this one is free") — the two entries need to be settled together.
-- **Shield.** Raises resistance to collisions and to enemy fire while active, and
-  for as long as it lasts is drawn as a `dot_circle` around the ship — a
-  diegetic readout of "shield is up" that costs no HUD text.
+- **Shield — BUILT, `design_technical.md` 11.43** (`src/shield.s`), all but
+  its pickup: `shield_on` is the door the pickup will use, and only the
+  trainer opens it for now. Open: the pickup itself, with the rest of this
+  entry.
 - **Magnetism (TBD, from a design conversation 2026-09-16).** Instead of
   requiring the player to fly the sprite down exactly, a pickup within some
   radius of the ship drifts toward it on its own. Reasoning: a 2-button
@@ -533,12 +534,14 @@ readout needs its own GPU/VRAM budget check alongside the shield's.
   enemy kind (E6) that itself fights with a laser drops it on death. Ties E6
   (new enemy kind), F6 (the pickup mechanism) and B9 (the laser's cost, still
   entirely open) into one thread instead of three separate ones.
-- **EMP — a weapon against enemies only, deliberately not against rocks.**
-  Kills or disables enemies in an area; does not damage asteroids. Reasoning
-  discussed: the roster should not overlap in what each piece is good at —
-  blaster/laser work on both rocks and enemies, EMP is enemies-only, the
-  shield is defence, teleport is mobility. An EMP that also cracked rocks
-  would just be a better blaster and blur that.
+- **EMP — BUILT, `design_technical.md` 11.42** (`src/emp.s`, 2026-09-18):
+  FIRE1 + FIRE2, 200 Saturnium, a `DOT_CIRCLE` off the hull growing 16 px a
+  frame for 31 frames, and every enemy inside the radar's round test at `2n`
+  high-byte units dies, whatever its hit points; rocks never. Still open, and
+  only this: **the ring's GPU cost (TBM)** — madsim's F3 meter during an EMP.
+  If it does not fit, the ring gives (every other frame, or stopped at the
+  screen edge), not the kill.
+
 - **A spread-shot upgrade for the blaster — flagged with a real constraint,
   not yet a number.** More pellets fired in a wider fan. B8 already notes the
   player's shot pool is 6 slots; a target of ~15 pellets in flight at once is

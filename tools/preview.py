@@ -179,6 +179,9 @@ def decode(stream):
         elif op == 0x50:                        # SPRITE: id, X16, Y16
             out.append((op, stream[i + 1:i + 6]))
             i += 6
+        elif op == 0x48:                        # DOT_CIRCLE: CX, CY, R, half-res
+            out.append((op, stream[i + 1:i + 4]))   # - the EMP's ring (emp.s)
+            i += 4
         elif op == 0x49:                        # HDOT_LINE: XB, Y, NB - the
             out.append((op, stream[i + 1:i + 4]))   # laser's beam (laser.s),
             i += 4                              #   already byte-aligned by the OS
@@ -602,7 +605,7 @@ def shapes_points(name):
 # The bench's own geometry, mirrored from main.s. If these drift apart the
 # checks below stop meaning anything, so they are asserted where possible.
 HCX, HCY = 100, 74              # half-res framebuffer centre
-FBCX, FBCY = 200, 149           # full-res framebuffer centre
+FBCX, FBCY = cart_const("FBCX"), cart_const("FBCY")   # full-res framebuffer centre
 SPR_W2, SPR_H2 = 8, 8           # the ship's occluder half-extent, half-res
 ROCK_FAMILY = cart_const("ROCK_FAMILY")         # 0 = $4C dotted, 1 = $4D solid,
 OP_POLY = (0x4C, 0x4D, 0x4E)[ROCK_FAMILY]   #   2 = $4E solid full-res
@@ -4410,6 +4413,29 @@ def satn_bench():
           cpu_mem[WEAPON] == 0, f"WEAPON {cpu_mem[WEAPON]}")
     cpu_mem[WEAPON] = 0
 
+    # ARMOUR: what ship_hurt really takes off the hull, called straight, with
+    # the hold at each step's edges - one ordinary hit, and the pulsar's beam as
+    # ten 1s, which only carrying the eighths can soften. The carry starts at 0.
+    SHIPHP_A, SHIPINV_A = cart_addr("SHIPHP"), cart_addr("SHIPINV")
+    SATARM_A = satn_sym("SATBUF") + 1 + 2 * (SATP_N + satn_sym("SATR_N")) + 1
+    arm = {}
+    for v in (0, 63, 64, 127, 128, 191, 192, 254, 255):
+        paid = []
+        for costs in ((HIT_HP,), (1,) * 10):
+            cpu_mem[SATN_A], cpu_mem[SATARM_A] = v, 0
+            cpu_mem[SHIPINV_A], cpu_mem[SHIPHP_A] = 0, 100
+            call(cpu, LBL["win_off"])
+            for c in costs:
+                cpu.a = c
+                call(cpu, LBL["ship_hurt"])
+            call(cpu, LBL["win_on"])
+            paid.append(100 - cpu_mem[SHIPHP_A])
+        arm[v] = tuple(paid)
+    print(f"        saturnium armour, SATN: (one hit of {HIT_HP}, ten hits of 1) paid {arm}")
+    check("...the hold softens every hit to 8/8, 7/8, 6/8, 5/8 by SATN >> 6, and to half when full",
+          arm == {0: (10, 10), 63: (10, 10), 64: (8, 8), 127: (8, 8), 128: (7, 7),
+                  191: (7, 7), 192: (6, 6), 254: (6, 6), 255: (5, 5)}, str(arm))
+    cpu_mem[SHIPINV_A], cpu_mem[SATARM_A] = 0, 0
 
 satn_bench()
 
@@ -4613,6 +4639,325 @@ def pulsar_bench():
 
 
 pulsar_bench()
+
+
+# =============================================================================
+# The EMP - FIRE1+FIRE2, 200 Saturnium, a ring off the ship, every enemy in it
+# =============================================================================
+# emp.s and open_questions F8. Refused first, on too little Saturnium: nothing
+# spent, EMP NOT AVAILABLE jumps the bar, and the chord is neither a bullet nor
+# a weapon change. Then bought: a field of enemies placed round the ship at known
+# high-byte distances - a UFO on screen, one with more hit points than any
+# weapon deals, a mounted spider, one far OFF the screen but inside the reach,
+# and one past it - and the ring's 32 frames flown. Every kill must land on the
+# first frame its high-byte distance fits inside n, and pay SCORE_FOE_KILL; the
+# rocks must not lose a hit point; the ring must be one DOT_CIRCLE a frame about
+# the hull, R = 4n.
+def emp_bench():
+    def emp_sym(name):
+        m = re.search(rf"^{re.escape(name)}\s*=\s*(\S+)", (SRC / "emp.s").read_text(), re.M)
+        return m.group(1)
+    EMPN_A = satn_sym("SATBUF") + 1 + 2 * (satn_sym("SATP_N") + satn_sym("SATR_N")) + 3
+    COST, NFR, RSH, KSH = (int(emp_sym(n)) for n in
+                           ("SATN_EMP_COST", "EMP_FRAMES", "EMP_RSH", "EMP_KSH"))
+    SCORE_FOE_KILL = foes_const("SCORE_FOE_KILL")
+    hud = (SRC / "hud_game.s").read_text()
+    SCORE_A = int(re.search(r"^SCORE\s*=\s*[$]([0-9A-Fa-f]{4})", hud, re.M).group(1), 16)
+    IND_QD_A = int(re.search(r"^IND_QD\s*=\s*[$]([0-9A-Fa-f]{4})", hud, re.M).group(1), 16)
+    IM_EMP_NA = int(re.search(r"^IM_EMP_NA\s*=\s*(\d+)", hud, re.M).group(1))
+    VLEN_A = cart_addr("VLEN")
+    FOEHP_A, FOEON_A = foes_addr("FOEHP"), foes_addr("FOEON")
+    OBJHP_A = cart_addr("OBJHP")
+    WEAPON_A = laser_sym("WEAPON")
+    FLC = 0x7011                                        # thrust.s FLCXL..FLCYH
+
+    def frame(held=0, press=0):
+        cpu_mem[JOY1_PREV] = 0
+        cpu_mem[JOY1], cpu_mem[JOY1_PRESS] = held, press
+        call(cpu, API_GPU_BEGIN)
+        call(cpu, CART_FRAME)
+        call(cpu, API_GPU_END)
+        end = cpu_mem[0x04] | (cpu_mem[0x05] << 8)
+        return bytes(cpu_mem[PPRAM + i] for i in range(end - PPRAM + 1))
+
+    def score():
+        return int(bytes(cpu_mem[SCORE_A + i] for i in range(7)).decode())
+
+    def ship():
+        return (cpu_mem[0x8B] | cpu_mem[0x8C] << 8, cpu_mem[0x8E] | cpu_mem[0x8F] << 8)
+
+    def pages(k):                                       # |dx|, |dy| on high bytes
+        sx, sy = ship()
+        return (abs(sb8((foe_pos(k)[1] - (sx >> 8)) & 0xFF)),
+                abs(sb8((foe_pos(k)[3] - (sy >> 8)) & 0xFF)))
+
+    def circles(st):
+        return [pl for op, pl in decode(st) if op == 0x48]
+
+    CHORD = JOY_FIRE | JOY_FIRE2
+    boot_cart()
+    for k in range(cpu_mem[0x6E1C]):
+        cpu_mem[FOEST_A + k] = 0
+    for _ in range(3):
+        frame()
+
+    # --- short of it: refused, and said -----------------------------------------
+    cpu_mem[SATN_A] = COST - 1
+    w0 = cpu_mem[WEAPON_A]
+    frame(CHORD, CHORD)
+    qd = ram(IND_QD_A)
+    for _ in range(25):                                 # past TPCLICK_FRAMES
+        frame()
+    shots = sum(cpu_mem[SHTLIVE + i] for i in range(SHOT_N))
+    print(f"        chord at {COST - 1}: SATN -> {ram(SATN_A)}, EMPN {ram(EMPN_A)}, bar queue "
+          f"head {qd}, bullets {shots}, weapon {w0} -> {cpu_mem[WEAPON_A]}")
+    check(f"EMP: FIRE1+FIRE2 with {COST - 1} Saturnium is refused - nothing spent, no ring",
+          ram(SATN_A) == COST - 1 and ram(EMPN_A) == 0)
+    check("...and EMP NOT AVAILABLE jumps the message bar", qd == IM_EMP_NA, f"head {qd}")
+    check("...and the chord is neither a bullet nor a weapon change",
+          shots == 0 and cpu_mem[WEAPON_A] == w0)
+
+    # --- the field -------------------------------------------------------------
+    sx, sy = ship()
+    field = {                                           # slot: (pages dx, dy, what)
+        0: (0, -3, "UFO on screen"),
+        1: (4, 4, "UFO with 250 hit points"),
+        2: (0, 0, "spider MOUNTED on the nearest rock"),
+        3: (-24, 12, "UFO off screen, inside the reach"),
+        4: (70, 0, "UFO past the reach"),
+        5: (12, 32, "PULSAR at the madsim dump's (12, 32) pages"),
+    }
+    for k, (px, py, _) in field.items():
+        if k == 2:
+            continue
+        foe_put(k, (sx + px * 256) & 0xFFFF, (sy + py * 256) & 0xFFFF)
+        cpu_mem[FOEKIND_AD + k] = 0
+        cpu_mem[foes_addr("FOEAPP") + k] = _app["UFO"]
+    cpu_mem[FOEHP_A + 1] = 250
+    cpu_mem[FOEKIND_AD + 5] = foes_const("FK_PULSAR")
+    cpu_mem[foes_addr("FOEAPP") + 5] = _app["PULSAR"]
+    cpu_mem[FOEHP_A + 5] = 5 * HIT_HP
+    cpu_mem[pulsar_sym("FOEANGF") + 5] = cpu_mem[pulsar_sym("FOELSR") + 5] = 0
+    cpu_mem[foes_addr("FOEAST") + 5], cpu_mem[foes_addr("FOEACD") + 5] = 2, 50
+    live = sorted((i for i in range(cpu_mem[0x0CB8]) if ram(OBJSHP_A + i) < BODY_SPIDER),
+                  key=lambda i: abs(_wd(obj_xy(i)[0], sx)) + abs(_wd(obj_xy(i)[1], sy)))
+    rock = live[0]
+    foe_put(2, 0, 0)
+    spider_put(2, FS_MOUNTED, EA_SPIDER, rock)
+    cpu_mem[0x6E1C] = max(cpu_mem[0x6E1C], 6)
+    for k in range(6, cpu_mem[0x6E1C]):
+        cpu_mem[FOEST_A + k] = 0
+    frame()
+    frame()
+    rocks0 = {i: (ram(OBJSHP_A + i), ram(OBJHP_A + i)) for i in range(cpu_mem[0x0CB8])
+              if ram(OBJSHP_A + i) < BODY_SPIDER}
+    offscreen = ram(FOEON_A + 3) == 0
+
+    # --- bought ----------------------------------------------------------------
+    cpu_mem[SATN_A] = 255
+    sc0 = score()
+    died, rings, dist = {}, [], {}
+    spent = vship = None
+    for f in range(NFR + 4):
+        before = {k: ram(FOEST_A + k) for k in field}
+        st = frame(CHORD, CHORD) if f == 0 else frame()
+        if f == 0:
+            spent, vship = ram(SATN_A), cpu_mem[VLEN_A + 2]
+        cx = (cpu_mem[FLC] | cpu_mem[FLC + 1] << 8) // 2
+        cy = (cpu_mem[FLC + 2] | cpu_mem[FLC + 3] << 8) // 2
+        rings.append((circles(st), cx, cy))
+        for k in field:
+            if before[k] and not ram(FOEST_A + k):
+                died[k] = f + 1                         # n on the frame it died
+                dist[k] = pages(k)
+    counts = [len(c) for c, _, _ in rings]
+    rs = [c[0][2] for c, _, _ in rings if c]
+    centred = all(c[0][0] == cx and c[0][1] == cy for c, cx, cy in rings if c)
+    print(f"        bought at 255: SATN -> {spent}, ship's voice claim {vship}; circles a "
+          f"frame {counts}; R {rs[:3]}..{rs[-2:]}")
+    for k, (px, py, what) in field.items():
+        print(f"          {what}: " + (f"dead at n={died[k]}, |d| {dist[k]} pages"
+                                        if k in died else "alive"))
+    check(f"...{COST} Saturnium buys it: 255 -> {255 - COST}, and its sound takes the ship's voice",
+          spent == 255 - COST and vship == NFR, f"SATN {spent}, VLEN {vship}")
+    check(f"...the ring is ONE DOT_CIRCLE a frame for exactly EMP_FRAMES ({NFR}) frames",
+          counts == [1] * NFR + [0] * 4, str(counts))
+    check("...growing R = n << EMP_RSH half-res px, about the hull's drawn centre",
+          rs == [(n + 1) << RSH for n in range(NFR)] and centred, f"R {rs}")
+
+    def fits(k, n):
+        dx, dy = dist[k]
+        r = n << KSH                                    # the reach, in pages
+        return dx <= r and dy <= r and dx * dx + dy * dy <= r * r
+
+    check("every enemy dies on the first frame its high-byte distance fits inside n << EMP_KSH",
+          all(fits(k, died[k]) and not (died[k] > 1 and fits(k, died[k] - 1)) for k in died),
+          f"died {died}, |d| {dist}")
+    check("...the one on screen, the 250-hit-point one and the MOUNTED spider all die",
+          all(k in died for k in (0, 1, 2)), f"died {died}")
+    check("...and the pulsar the madsim dump saw survive, 33 pages out on the screen",
+          5 in died, f"died {died}")
+    check("...and so does the one off the screen, out of sight",
+          offscreen and 3 in died, f"off screen before {offscreen}, died {died}")
+    check("...but not the one past the reach",
+          4 not in died and ram(FOEST_A + 4) != 0, f"state {ram(FOEST_A + 4)}")
+    check(f"...each paying SCORE_FOE_KILL ({SCORE_FOE_KILL}) once, and nothing else",
+          score() - sc0 == SCORE_FOE_KILL * len(died),
+          f"score +{score() - sc0}, {len(died)} kills")
+    rocks1 = {i: (ram(OBJSHP_A + i), ram(OBJHP_A + i)) for i in rocks0}
+    hurt = {i: (rocks0[i], rocks1[i]) for i in rocks0 if rocks0[i] != rocks1[i]}
+    check("...and not one rock loses a hit point - the spider's own included",
+          not hurt and ram(OBJSHP_A + rock) < BODY_SPIDER, f"changed {hurt}")
+    check("...and the ring is over", ram(EMPN_A) == 0)
+
+    # --- what a frame of it costs CPU1, kills aside ------------------------------
+    # Every slot live and out of reach (the kill is foe_kill's, priced with the
+    # weapons), the ring at its biggest: the walk, the tests and the OS builder.
+    nf0 = cpu_mem[0x6E1C]
+    cpu_mem[0x6E1C] = 16
+    for k in range(16):
+        foe_put(k, (sx + 0x5000) & 0xFFFF, (sy + 0x5000) & 0xFFFF)
+    cyc = []
+    for n in (1, NFR):
+        cpu_mem[EMPN_A] = n
+        call(cpu, API_GPU_BEGIN)
+        call(cpu, LBL["win_off"])
+        cyc.append(call(cpu, LBL["do_emp"]))
+        call(cpu, LBL["win_on"])
+        call(cpu, API_GPU_END)
+    cpu_mem[EMPN_A] = 0
+    for k in range(16):
+        cpu_mem[FOEST_A + k] = 0
+    cpu_mem[0x6E1C] = nf0
+    print(f"        do_emp over 16 live enemies, none in reach: {cyc[0]} cycles at n=1, "
+          f"{cyc[1]} at n={NFR} ({100 * max(cyc) / 237000:.2f}% of a frame)")
+
+    # --- and with what is left, refused again ----------------------------------
+    left = ram(SATN_A)
+    frame(CHORD, CHORD)
+    check(f"...a second chord with {left} left is refused, nothing spent",
+          ram(SATN_A) == left and ram(EMPN_A) == 0)
+    for k in range(6):
+        cpu_mem[FOEST_A + k] = 0
+
+
+emp_bench()
+
+
+# =============================================================================
+# The SHIELD - the trainer raises it, it quarters every hit, it blinks out
+# =============================================================================
+# shield.s and open_questions F6. The trainer's DOWN on the OTHER pad raises it
+# and says SHIELD ENABLED; every frame it is one DOT_CIRCLE of SHLD_R about the
+# hull; ship_hurt pays a quarter, remainder carried; SHIELD WEARS OFF on the
+# frame SHLD_WARN is reached, then it blinks and goes down; a ship lost drops it.
+# The 30 s are not flown - the clock is set near its end instead.
+def shield_bench():
+    def sh_sym(name):
+        m = re.search(rf"^{re.escape(name)}\s*=\s*(\d+)", (SRC / "shield.s").read_text(), re.M)
+        return int(m.group(1))
+    EMPN_A = satn_sym("SATBUF") + 1 + 2 * (satn_sym("SATP_N") + satn_sym("SATR_N")) + 3
+    SHLDL_A, SHLDH_A, SHARM_A = EMPN_A + 5, EMPN_A + 6, EMPN_A + 7   # behind emp.s's 5
+    NFR, WARN, BLINK = sh_sym("SHLD_FRAMES"), sh_sym("SHLD_WARN"), sh_sym("SHLD_BLINK")
+    R = sh_sym("SHLD_R")
+    hud = (SRC / "hud_game.s").read_text()
+    IND_QD_A = int(re.search(r"^IND_QD\s*=\s*[$]([0-9A-Fa-f]{4})", hud, re.M).group(1), 16)
+    IND_QN_A = int(re.search(r"^IND_QN\s*=\s*[$]([0-9A-Fa-f]{4})", hud, re.M).group(1), 16)
+    IM_ON = int(re.search(r"^IM_SHIELD_ON\s*=\s*(\d+)", hud, re.M).group(1))
+    IM_OFF = int(re.search(r"^IM_SHIELD_OFF\s*=\s*(\d+)", hud, re.M).group(1))
+    SHIPHP_A, SHIPINV_A = cart_addr("SHIPHP"), cart_addr("SHIPINV")
+    SATARM_A = satn_sym("SATBUF") + 1 + 2 * (satn_sym("SATP_N") + satn_sym("SATR_N")) + 1
+    ZOOMH_A = cart_addr("ZOOMH")
+    FLC = 0x7011
+    JOYPORT_A = SCR["JOYPORT"] if "JOYPORT" in SCR else None
+
+    def frame(p2=0):
+        cpu_mem[JOY1_PREV] = cpu_mem[JOY1] = cpu_mem[JOY1_PRESS] = 0
+        other = 3 - (cpu_mem[JOYPORT_A] if JOYPORT_A is not None else 0)
+        cpu_mem[0x0A + other] = cpu_mem[0x0C + other] = p2
+        call(cpu, API_GPU_BEGIN)
+        call(cpu, CART_FRAME)
+        call(cpu, API_GPU_END)
+        cpu_mem[0x0A + other] = cpu_mem[0x0C + other] = 0
+        end = cpu_mem[0x04] | (cpu_mem[0x05] << 8)
+        return [pl for op, pl in decode(bytes(cpu_mem[PPRAM + i] for i in range(end - PPRAM + 1)))
+                if op == 0x48]
+
+    def left():
+        return ram(SHLDL_A) | ram(SHLDH_A) << 8
+
+    def queued(im):
+        return im in ram_block(IND_QD_A, ram(IND_QN_A)) or ram(IND_CUR_A) == im
+
+    boot_cart()
+    for k in range(cpu_mem[0x6E1C]):
+        cpu_mem[FOEST_A + k] = 0
+    for _ in range(3):
+        frame()
+    check("SHIELD: a new game starts with it down, and nothing drawn", left() == 0 and not frame())
+
+    cs = frame(JOY_DOWN)
+    cx = (cpu_mem[FLC] | cpu_mem[FLC + 1] << 8) // 2
+    cy = (cpu_mem[FLC + 2] | cpu_mem[FLC + 3] << 8) // 2
+    zr = (R * cpu_mem[ZOOMH_A] + 64) >> 7              # qmul, rounded
+    print(f"        trainer DOWN: {left()} frames left, circles {[tuple(c) for c in cs]}, "
+          f"hull at ({cx}, {cy}), ZOOMH {cpu_mem[ZOOMH_A]}, R expected {zr}")
+    check(f"...the trainer's DOWN raises it for SHLD_FRAMES ({NFR}), and SHIELD ENABLED is queued",
+          left() == NFR - 1 and queued(IM_ON), f"left {left()}")
+    check("...drawn as ONE DOT_CIRCLE about the hull, SHLD_R scaled by the zoom",
+          len(cs) == 1 and tuple(cs[0]) == (cx, cy, zr), str(cs))
+    zoomed = []
+    for z in (127, 112, 96, 80, 64):                    # the same frame's draw at
+        cpu_mem[ZOOMH_A] = z                            #   other zooms
+        call(cpu, API_GPU_BEGIN)
+        call(cpu, LBL["win_off"])
+        cpu_mem[SHLDL_A] += 1
+        call(cpu, LBL["do_shield"])
+        call(cpu, LBL["win_on"])
+        call(cpu, API_GPU_END)
+        end = cpu_mem[0x04] | (cpu_mem[0x05] << 8)
+        st = bytes(cpu_mem[PPRAM + i] for i in range(end - PPRAM + 1))
+        zoomed.append([pl[2] for op, pl in decode(st) if op == 0x48])
+    print(f"        R at ZOOMH 127/112/96/80/64: {zoomed}")
+    check("...and shrinks step by step with the zoom, not in two jumps",
+          zoomed == [[(R * z + 64) >> 7] for z in (127, 112, 96, 80, 64)], str(zoomed))
+    frame()
+
+    paid = []
+    for costs in ((HIT_HP,), (1,) * 10):
+        cpu_mem[SATN_A], cpu_mem[SATARM_A], cpu_mem[SHARM_A] = 0, 0, 0
+        cpu_mem[SHIPINV_A], cpu_mem[SHIPHP_A] = 0, 100
+        call(cpu, LBL["win_off"])
+        for c in costs:
+            cpu.a = c
+            call(cpu, LBL["ship_hurt"])
+        call(cpu, LBL["win_on"])
+        paid.append(100 - cpu_mem[SHIPHP_A])
+    cpu_mem[SHIPHP_A] = 100
+    print(f"        with it up, an empty hold: one hit of {HIT_HP} pays {paid[0]}, ten of 1 pay {paid[1]}")
+    check("...the hull pays a quarter, the remainder carried: 10 -> 2, ten 1s -> 2",
+          paid == [2, 2], str(paid))
+
+    cpu_mem[SHLDL_A], cpu_mem[SHLDH_A] = WARN + 1, 0
+    cs = frame()
+    check(f"...at SHLD_WARN ({WARN}) frames left SHIELD WEARS OFF is queued, still drawn",
+          left() == WARN and queued(IM_OFF) and len(cs) == 1, f"left {left()}, circles {cs}")
+    cpu_mem[SHLDL_A] = 3 * BLINK + 3
+    drawn = [len(frame()) for _ in range(3 * BLINK + 6)]
+    runs = [len(r) for r in "".join(map(str, drawn[:3 * BLINK + 2])).replace("0", " ").split()]
+    print(f"        the last {3 * BLINK + 3} frames: drawn {drawn}")
+    check(f"...then it blinks, SHLD_BLINK ({BLINK}) frames at a time, and goes down",
+          0 in drawn[:3 * BLINK + 2] and 1 in drawn and all(r <= BLINK for r in runs)
+          and drawn[-4:] == [0] * 4 and left() == 0, str(drawn))
+
+    cpu_mem[SHLDL_A], cpu_mem[SHLDH_A] = 100, 0
+    cpu_mem[SHIPINV_A] = 30
+    frame()
+    check("...and a ship lost takes it down with it", left() == 0, f"left {left()}")
+    cpu_mem[SHIPINV_A] = 0
+
+
+shield_bench()
 
 
 # =============================================================================

@@ -46,7 +46,8 @@
 ; THE PLAYER'S BULLETS hit a UFO on the screen, against the same swept test the
 ; rocks get (shots.s shot_dnarrow / shot_swept). FOE_HP hits, SCORE_FOE_HIT a
 ; hit and SCORE_FOE_KILL on top for the last one - the killing blow pays both,
-; as a rock's does. A dead UFO comes apart the way the ship does (debris.s):
+; as a rock's does. The EMP (emp.s) lands no hit, so it pays SCORE_FOE_KILL
+; alone. A dead UFO comes apart the way the ship does (debris.s):
 ; each of its PARTS flies off as one piece and tumbles (fw_*).
 ;
 ; RAMMING. A ship that flies into a UFO pays one hit point (ship_hurt, with
@@ -3629,11 +3630,16 @@ foe_take_hit:
         rts
 
 ; -----------------------------------------------------------------------------
-; foe_kill - FEI is out of hit points.
+; foe_kill - FEI is out of hit points, or the EMP reached it (emp.s).
 ; -----------------------------------------------------------------------------
-; A rock's death in every way the player can hear and see - the boom and the
-; flash (rock_boom), the break shake, the puff - and then the wreck. The slot
-; is simply marked dead: nothing walks the enemies by anything but FOEST.
+; The one door every enemy's death goes through, whatever the weapon, so it is
+; paid and heard the same every time: SCORE_FOE_KILL (on top of what its hits
+; paid - the EMP's kill has no hits, so this alone), a rock's death in every
+; way the player can hear and see - the boom and the flash (rock_boom), the
+; break shake, the puff - with a creature's SHRIEK on top (SE_SCREECH, on a
+; tone voice, so it and the boom's noise voice do not cut each other), and then
+; the wreck. The slot is simply marked dead: nothing walks the enemies by
+; anything but FOEST.
 ; -----------------------------------------------------------------------------
 foe_kill:
         ldx     FEI
@@ -3645,6 +3651,8 @@ foe_kill:
         lda     #SCORE_FOE_KILL
         jsr     score_add
 :       jsr     rock_boom
+        lda     #SE_SCREECH
+        jsr     sfx_fire
         lda     #SHK_SHIFT_BREAK
         jsr     shake_arm
         ldx     FEI

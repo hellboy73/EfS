@@ -1374,8 +1374,8 @@ These are settled and should not be re-opened without a reason:
 
     **The player's bullets** hit a UFO on the screen with shots.s's own swept
     test. Three hits (`FOE_HP` = 30, 25); 50 a hit and 100 on top for the last, so the killing blow
-    pays both, like a rock's. It dies with a rock's boom, flash and break shake,
-    and its PARTS fly apart and tumble for 1.5 s — debris.s's recipe, with parts
+    pays both, like a rock's. It dies with a rock's boom, flash and break shake
+    — and, since 42, a shriek on top — and its PARTS fly apart and tumble for 1.5 s — debris.s's recipe, with parts
     where the ship has runs. A ship that RAMS a UFO pays a ram's worth, as for a
     rock, and the UFO is shoved aside undamaged — the rocks' rule (physics.md
     4.6).
@@ -1578,3 +1578,113 @@ These are settled and should not be re-opened without a reason:
     pages, ~0.7 s — a scene transition, not a refresh rate. If the live
     per-frame path ever needs relief, the lever is the class window (G8), not
     a second rendering mode. Closes `open_questions.md` G6.
+42. **The third weapon is the EMP, and every enemy's death is one event.**
+    `src/emp.s`; the design is `open_questions.md` F8's, which this closes but
+    for the GPU cost below.
+
+    **The trigger: FIRE1 + FIRE2 held together**, on the frame the second goes
+    down (`emp_input`, from `do_input` before `do_fire2`). It costs
+    `SATN_EMP_COST` = **200** Saturnium = `SATN_FULL`, the charge the hull's
+    spark ring already flashes at, so the readout is built. Short of it the
+    chord says **EMP NOT AVAILABLE** through `indicate_urgent` (the bar's
+    second queue-jumper, after the weapon change: it answers a press) and
+    spends nothing. The chord eats both edges: a pending FIRE2 click is
+    cancelled and `TPLOCK` armed, so it is neither a weapon change nor half a
+    teleport, and this frame's FIRE1 edge is cleared from `JOYINP` before the
+    gun sees it. A FIRE1 that went down a frame EARLIER has already fired — so
+    with the laser armed and 200-207 in the hold, the beam's 8 can leave the EMP
+    short. One EMP at a time; a chord while one grows buys nothing.
+
+    **The ring is a screen circle and nothing else**: one `DOT_CIRCLE` (`$FF27`,
+    now in `mad65.inc` as `API_GPU_DOTCIRCLE`) about the hull's drawn centre
+    (`FLCX/FLCY` halved), `R = n << 3` half-res px for `n` = 1..`EMP_FRAMES` =
+    31 — 16 full-res px a frame, 0.51 s, 248 at the end. *Widened after a
+    madsim dump*: the first cut grew 8 px a frame to 128, the half-diagonal
+    from the screen's MIDDLE — but at speed the ship sits up to 126 px below
+    it (33) and the camera leans 80 px (34), so the far corner is ~400 px away,
+    and the dump showed a pulsar on the screen, near its top, 33 pages from a
+    fast ship, outside the reach and alive.
+
+    **The kill is the radar's round test at radius `K = n << 1`, in position
+    high bytes**: every live enemy — a spider still MOUNTED on its rock
+    included, asleep or awake, on the screen or not, hit points ignored — with
+    `dx² + dy² <= K²` on the high-byte delta, out of the quarter-square table.
+    No multiply, no zoom. One high-byte unit is 4 half-res px at the 2x
+    zoom-out, so there the kill and the ring are one circle frame for frame,
+    out to 62 pages = 15,872 world units = 496 full-res px, past every corner;
+    at 1:1 the kill runs twice the ring's pace, off the screen. Far enemies die on later
+    frames, so a crowd's wrecks spread over the half second. Rocks are never
+    touched: the pass walks `FOEST` and nothing else.
+
+    **Every enemy's death goes through `foe_kill`, whatever killed it, and is
+    the same event.** The pay is unchanged — the gun's `SCORE_FOE_HIT` 50 a hit
+    and the laser's pro rata share still pay as they land, and `SCORE_FOE_KILL`
+    100 on the death (`FOEKILL`, a pulsar's beam, still pays nobody). The EMP
+    lands no hit, so an EMP kill is `SCORE_FOE_KILL` alone: it pays for the
+    death, not for an effortless hit. The death is a rock's — the boom, the
+    one-frame flash, the break shake — with a creature's shriek on top:
+    `SE_SCREECH`, a high warble that sags, 16 frames, on `VOICE_ROCK` at
+    `PRI_BOOM`, so it and the boom's noise voice never cut each other.
+
+    **Measured** (`tools/preview.py`'s EMP bench, py65): the refusal, the
+    price, 31 rings with `R` 8..248 about the hull, each placed enemy dying on
+    exactly the first `n` its distance fits (a UFO at 4 pages on n=2, a
+    250-hit-point one at (4,4) on 3, a mounted spider at (7,9) on 6, an
+    off-screen UFO at (24,12) on 14, and a PULSAR at the dump's (12,32) on 18),
+    one at 70 pages untouched, +100 a kill
+    and nothing more,
+    no rock's hit point lost. **CPU1: 1,105 cycles a frame** over 16 live
+    enemies with none in reach (0.47%); a kill adds `foe_kill`'s own cost, as
+    from any weapon. **The GPU side is NOT measured (TBM)**: a dotted circle is
+    roughly half of `CIRCLE16`'s ~54,000 cycles at R = 100, and this one is on
+    the slower clipped path from the frame it crosses the nearest edge — ~75
+    half-res px from the middle of the screen — to its last. madsim's F3 meter during an
+    EMP is the measurement; if it does not fit, the ring gives — every other
+    frame, or stopped at the screen edge — and the kill does not.
+
+    **Where it lives**: CODE6 in CART_HIRAM, behind the pulsar; its state
+    (`EMPN` and three bytes of scratch) under the window behind satn.s's. Both
+    new sound programs and the message's text are in CODE6 too, because UPPER
+    had 41 bytes left: sfx.s and hud_game.s keep only their table rows there.
+    CART_HIRAM is otherwise kept for the next enemies' code — nothing else
+    moves there.
+43. **The shield: 30 s of a quarter of every hit, a dotted circle round the
+    hull.** `src/shield.s`; `open_questions.md` F6, which still owns the pickup.
+
+    **What it does**: `physics.s ship_hurt` calls `shield_armour` straight after
+    `satn_armour`, so the hull pays `(cost + carried) / 4` of what the
+    Saturnium armour left — the remainder carried in `SHARM`, the armour's own
+    trick, so the pulsar's beam at 1 a frame costs 1 frame in 4, not 0. It
+    changes what the hull PAYS only; a ram still bounces and klangs.
+    `SHLD_FRAMES` = 1,810 (30 s), the last `SHLD_WARN` = 241 (4 s) blinking
+    `SHLD_BLINK` = 8 frames on and off. **SHIELD ENABLED** is queued when it
+    goes up and **SHIELD WEARS OFF** when the blink starts. A ship lost
+    (`SHIPGONE` or the respawn blink `SHIPINV`) drops it.
+
+    **What it looks like**: one `DOT_CIRCLE` about the hull's pivot
+    (`FLCX/FLCY` halved). Centring it on the middle of `SHIP_SHAPE`'s -22..+10
+    instead was tried and judged worse in flight. The half-res lattice leaves
+    it a full-res pixel off on a frame the pivot lands on an odd one — a madsim
+    dump showed exactly that, 1 px sideways at `FLCY` = 149. So the view's
+    centre `FBCY` moved one px to the right on the screen, 149 -> 148 (main.s),
+    set by eye so the circle sits round the hull at rest; in flight the turn
+    lean moves the ship off it and the pixel comes and goes.
+    `SHLD_R` = 15 half-res px at 1:1 (30 full-res; the nose is 22 out),
+    **scaled by the zoom the way the hull is** — `qmul` by `ZOOMH`, the laser's
+    way of putting a radius on the screen — so it shrinks smoothly, a half-res
+    pixel at a time: 15, 13, 11, 9, 8 at ZOOMH 127/112/96/80/64. (A first cut
+    borrowed the Saturnium ring's two-step 3/4 rule and looked wrong.)
+
+    **No pickup yet**: `shield_on` (full 30 s again if already up) is the
+    pickup's door; the TRAINER's DOWN on the second pad opens it for now.
+
+    **Measured** (`tools/preview.py`'s shield bench): raised by the trainer,
+    one circle a frame about the hull, R per zoom as above, a hit of 10 paying
+    2 and ten 1s paying 2, the warning queued on frame 241 exactly, the blink,
+    down at 0, dropped by a lost ship.
+
+    **Where it lives**: CODE2 (bank 1, run area — CART_HIRAM stays for enemy
+    code); its three bytes of state under the window behind the EMP's; its two
+    strings in CODE2, only their `IND_LO`/`IND_HI` rows in UPPER. `game_start`
+    resets it through a tail call out of `laser.s lsr_reset`, so CART_HIRAM,
+    where `game_start` lives, needed no byte.

@@ -4,10 +4,12 @@
 ; One stick - the one in the port whose FIRE started the game (JOYPORT,
 ; screens.s), so a player on port 2 plays on port 2. It steers and throttles
 ; on HELD bits, teleports on a
-; DOUBLE CLICK of FIRE2 (a single click changes the weapon - laser.s), and
+; DOUBLE CLICK of FIRE2 (a single click changes the weapon - laser.s), fires the
+; EMP on FIRE1 and FIRE2 together (emp.s), and
 ; boosts on a gesture read off its own throttle HELD bit - not a button at
 ; all. Nothing else in the program looks at JOY1/JOY2 but the screens, the
-; game over's FIRE and thrust_sfx's raw thrust bit, all through JOYPORT:
+; game over's FIRE and thrust_sfx's raw thrust bit, all through JOYPORT - and
+; the TEMPORARY trainer (trainer.s), which reads the OTHER port on purpose:
 ; everything downstream reads the state this leaves behind - the heading, the
 ; throttle position, the boost timer.
 ;
@@ -209,6 +211,9 @@ do_input:
         and     #$7F
         sta     THFRAC
 
+        jsr     emp_input               ; FIRE1+FIRE2 together: the EMP, and
+                                        ;   the chord's edges are eaten before
+                                        ;   do_fire2 or the gun see them (emp.s)
         jsr     do_fire2                ; FIRE2: single click/double click/
                                         ;   teleport lockout - HIDATA below,
                                         ;   same reasoning as do_boost

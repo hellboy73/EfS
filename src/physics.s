@@ -1523,8 +1523,13 @@ ship_hurt:
                                         ;   side you can see reads as a broken
                                         ;   collision test, not as mercy. See
                                         ;   ship.s ship_die
-        pla                             ; SHIPHP - the cost, as SHIPHP + ~A + 1:
-        eor     #$FF                    ;   carry CLEAR is a borrow, a hit
+        pla
+        jsr     satn_armour             ; the Saturnium in the hold takes its
+                                        ;   share of the cost first (satn.s)
+        jsr     shield_armour           ; ...and the shield, if it is up, takes
+                                        ;   three quarters of the rest (shield.s)
+        eor     #$FF                    ; SHIPHP - the cost, as SHIPHP + ~A + 1:
+                                        ;   carry CLEAR is a borrow, a hit
         sec                             ;   bigger than what was left
         adc     SHIPHP
         beq     @dead

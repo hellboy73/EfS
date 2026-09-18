@@ -87,6 +87,21 @@
 ;     200 - 254     18 sparks + a 3-ray flash for 2 frames every 32
 ;     255           ...and a lone ray for 1 frame every 4 between them
 ;
+; ARMOUR. The hold also soaks up damage: every cost to the hull (physics.s
+; ship_hurt - rams, bullets, the pulsar's beam) is scaled by the charge, in
+; steps rather than smoothly. The step is SATN >> 6, and the full hold is one
+; more:
+;       SATN   0 -  63     pays 8/8     (a hit of 10 costs 10)
+;             64 - 127          7/8                         9 (8.75)
+;            128 - 191          6/8                         8 (7.5)
+;            192 - 254          5/8                         6 (6.25)
+;            255                4/8 - half                  5
+; It is worked in EIGHTHS with the remainder carried to the next hit
+; (SATARM), so nothing is lost to rounding: the pulsar's beam costs 1 a frame,
+; which a plain halving would round to 0 or leave at 1, and at 255 it costs
+; exactly one frame in two. Nothing is spent: the armour is the charge being
+; there. (The shield divides what is left by 4 on top of this - shield.s.)
+;
 ; RAM: under the cartridge window, $9600 up, behind foes.s's block. Everything
 ; that touches it runs inside cart_frame's win_off bracket - do_shots/do_foes
 ; (the kill), do_ship (the teleport), game_start, and do_satn - and the dot
@@ -169,7 +184,9 @@ SATRD       = $969D             ; the flash's first ray direction
 SATHEX      = $969E             ; DBG_SATN: "SN hh", NUL - 6 bytes
 SATBUF      = $96A4             ; 1 + 2*(SATP_N + SATR_N): ONE DOT_PIXELS
 SATRN       = SATBUF + 1 + 2 * (SATP_N + SATR_N) ; rays in this flash
-SATP_END    = SATRN + 1
+SATARM      = SATRN + 1         ; armour: the eighths of a hit point carried
+SATAC       = SATRN + 2         ;   to the next hit, and this hit's cost
+SATP_END    = SATRN + 3
         .assert SATPT > FECAR, error, "satn.s: the pool runs into foes.s's state"
         .assert SATN_MAX = $FF, error, "satn.s: satn_kill clamps on the carry out of the byte"
         .assert SATP_N <= 16, error, "satn.s: SATP_N outgrew its 16-byte arrays"
@@ -962,11 +979,53 @@ satn_spend:
 @no:    rts
 
 ; -----------------------------------------------------------------------------
+; satn_armour - physics.s ship_hurt: A = a hit's cost (at most 31) -> what the
+; hull pays for it, (cost * (8 - step) + the carried eighths) / 8, where step is
+; SATN >> 6, or 4 when the hold is full. See ARMOUR in the header. Preserves X
+; and Y; the multiply is 4 to 8 adds.
+; -----------------------------------------------------------------------------
+satn_armour:
+        phx
+        sta     SATAC
+        lda     SATN
+        cmp     #SATN_MAX
+        beq     @full
+        lsr     a                       ; the step, 0-3
+        lsr     a
+        lsr     a
+        lsr     a
+        lsr     a
+        lsr     a
+        bra     @step
+@full:  lda     #4                      ; ...and 4 brimming: half
+@step:  eor     #$FF                    ; 8 - step = ~step + 1 + 8 (carry set
+        sec                             ;   is the +1)
+        adc     #8
+        tax                             ; X = eighths paid, 4..8
+        lda     SATARM
+@mul:   clc
+        adc     SATAC
+        dex
+        bne     @mul
+        tax
+        and     #$07                    ; what does not make a whole point is
+        sta     SATARM                  ;   carried
+        txa
+        lsr     a
+        lsr     a
+        lsr     a
+        plx
+        rts
+        .assert RAM_DMG * 8 + 7 < 256 && FSH_DMG * 8 + 7 < 256, error, "satn.s: satn_armour's product is one byte - a hit of at most 31"
+
+; -----------------------------------------------------------------------------
 ; satn_reset - game_start: an empty hold, an empty pool, and the ring's sparks
 ; spread round the circle with their ages staggered, so it never starts in step.
 ; -----------------------------------------------------------------------------
 satn_reset:
         stz     SATN
+        stz     SATARM
+        stz     EMPN                    ; ...and no EMP still growing (emp.s)
         stz     SATHMP
         stz     SATWC
         ldx     #SATP_N-1

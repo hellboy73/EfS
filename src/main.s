@@ -66,7 +66,7 @@
 ;   view         the player's portrait screen, +x right, +y down, origin centre.
 ;   framebuffer  what the hardware draws. TATE clockwise means
 ;                  fb_x = portrait_y   and   fb_y = 299 - portrait_x
-;                so the full-res centre is fb (200, 149) and the half-res centre
+;                so the full-res centre is fb (200, 148) and the half-res centre
 ;                is fb (100, 74).
 ;
 ;   asteroid     a vertex list in half-res pixels, signed bytes, origin-centred.
@@ -187,6 +187,11 @@ DBG_CLASSES = 0
 DBG_SATN      = 1
 DBG_SATN_ROW  = 3               ; below the message bar (IND_ROW)
 DBG_SATN_CELL = 0
+
+; TEMPORARY - THE TRAINER: test cheats on the SECOND pad (trainer.s says which
+; is which, and what each control does). 1 while the game is being tuned; 0
+; takes every byte of it out of the image, and it ships at 0.
+TRAINER       = 1
 
 ; Which opcode draws a rock. All three are the SAME command - one closed figure
 ; per outline, with the centre, the angle, the scale and the RAW shape sent as
@@ -398,7 +403,14 @@ AST_BUDGET  = (209000 - AST_NONROCK) / AST_VCOST
 AST_MAX     = (AST_BUDGET + 4) / 5
 
 FBCX        = 200               ; full-res framebuffer centre
-FBCY        = 149
+FBCY        = 148               ; was 149: moved ONE PX TO THE RIGHT on the
+                                ;   screen (TATE: fb y down is screen right),
+                                ;   by eye, so the shield's half-res circle
+                                ;   (shield.s) sits round the hull at rest.
+                                ;   300 px across has no middle pixel, so 148
+                                ;   is as central as 149 was. A tuning value,
+                                ;   not a rule - in flight the lean moves the
+                                ;   ship off it anyway
 HCX         = 100               ; half-res framebuffer centre
 HCY         = 74
 
@@ -1259,6 +1271,9 @@ cart_frame:
                                         ;   restart walks the object pool, which
                                         ;   is what the bracket is for
         jsr     do_input
+.if TRAINER
+        jsr     trainer_tick            ; TEMPORARY - the second pad's cheats
+.endif
         jsr     do_camera               ; cos/sin, then the two rotation tables
         jsr     do_ship                 ; velocity from tier + heading, integrate
         jsr     shake_tick              ; publish this frame's SHAKEX/SHAKEY -
@@ -1322,6 +1337,10 @@ cart_frame:
                                         ;   hull sparks, one DOT_PIXELS. AFTER
                                         ;   do_flames for FLCX/FLCY too
                                         ;   (satn.s)
+        jsr     do_emp                  ; the EMP: this frame's kills and its
+                                        ;   ring, about FLCX/FLCY too (emp.s)
+        jsr     do_shield               ; ...and the shield's circle and clock
+                                        ;   (shield.s)
         jsr     do_radar               ; the contact lists - built BEFORE the HUD
                                         ;   because the HUD reads the count, and
                                         ;   emitted AFTER it because the list
@@ -1461,6 +1480,15 @@ cart_frame:
                                         ; on its frame 0, the teleport. CODE6,
                                         ; after foes.s and laser.s, whose
                                         ; tunables and hooks it uses.
+        .include "emp.s"                ; the EMP: FIRE1+FIRE2, a ring off the
+                                        ; ship, every enemy in it dead; and the
+                                        ; enemies' death screech. CODE6, after
+                                        ; satn.s, whose state it follows
+        .include "shield.s"             ; the shield: a quarter of every hit
+                                        ; for 30 s, a dotted circle round the
+                                        ; hull. CODE2, after emp.s, whose
+                                        ; state it follows
+        .include "trainer.s"            ; TEMPORARY - TRAINER's test cheats
         .include "cam.s"                ; the camera frames the nearest enemy,
                                         ; and an edge arrow points at one it
                                         ; cannot. CODE4, after laser.s.

@@ -66,6 +66,10 @@ SE_ALARM     = 12       ; a UFO has seen the ship - beep, beep, beep
 SE_LASER     = 13       ; the laser was lit (laser.s) - a fast falling tone
 SE_WSWITCH   = 14       ; FIRE2 changed the weapon - a click-clack
 SE_SATN      = 15       ; Saturnium reached the ship (satn.s) - a whoosh
+SE_SCREECH   = 16       ; an enemy died, whatever killed it - a shriek. Its
+                        ;   program is in emp.s (CODE6): UPPER is full
+SE_EMP       = 17       ; the EMP went off (emp.s) - a falling discharge,
+                        ;   program in emp.s likewise
 
 ; voice hint per effect: 0/1/2 = a forced tone voice, $FF = noise (auto, voice 7)
 VOICE_GUN   = 0
@@ -142,6 +146,8 @@ LEN_ALARM  = 36
 LEN_LASER  = 10
 LEN_WSWITCH= 6
 LEN_SATN   = 16
+LEN_SCREECH= 16
+LEN_EMP    = EMP_FRAMES ; se_emp is authored to the ring's own length
 
 ; -----------------------------------------------------------------------------
 ; sfx_fire — A = SE_* id. Play that effect on its assigned voice.
@@ -215,15 +221,18 @@ sfx_lo: .byte   <se_shot, <se_rock_boom, <se_rock_hit, <se_klang
         .byte   <se_psst, <se_boost, <se_teleport, <se_klang_n
         .byte   <se_death, <se_death_low, <se_death_n, <se_ufo_shot
         .byte   <se_alarm, <se_laser, <se_wswitch, <se_satn
+        .byte   <se_screech, <se_emp
 sfx_hi: .byte   >se_shot, >se_rock_boom, >se_rock_hit, >se_klang
         .byte   >se_psst, >se_boost, >se_teleport, >se_klang_n
         .byte   >se_death, >se_death_low, >se_death_n, >se_ufo_shot
         .byte   >se_alarm, >se_laser, >se_wswitch, >se_satn
+        .byte   >se_screech, >se_emp
 sfx_voice:
         .byte   VOICE_GUN, VOICE_NOISE, VOICE_ROCK, VOICE_SHIP
         .byte   VOICE_NOISE, VOICE_NOISE, VOICE_SHIP, VOICE_NOISE
         .byte   VOICE_SHIP, VOICE_GUN, VOICE_NOISE, VOICE_ROCK
         .byte   VOICE_ROCK, VOICE_GUN, VOICE_GUN, VOICE_NOISE
+        .byte   VOICE_ROCK, VOICE_SHIP
 
 ; ...the same voice again as a 0-3 CLAIM INDEX, because sfx_voice's $FF is a
 ; firmware hint ("noise, allocate it yourself") and not a table row. Derived by
@@ -233,6 +242,7 @@ sfx_vi: .byte   VOICE_GUN, 3, VOICE_ROCK, VOICE_SHIP
         .byte   3, 3, VOICE_SHIP, 3
         .byte   VOICE_SHIP, VOICE_GUN, 3, VOICE_ROCK
         .byte   VOICE_ROCK, VOICE_GUN, VOICE_GUN, 3
+        .byte   VOICE_ROCK, VOICE_SHIP
         .assert VOICE_N = 4, error, "sfx.s: sfx_vi's noise rows say 3; VOICE_N moved"
 
 ; ...and the arbiter's own two, in the same order. Every effect has a real row
@@ -243,11 +253,14 @@ sfx_pri:
         .byte   PRI_FEEDBACK, PRI_BOOST, PRI_FEEDBACK, PRI_KLANG
         .byte   PRI_DEATH, PRI_FEEDBACK, PRI_DEATH, PRI_FEEDBACK
         .byte   PRI_ALARM, PRI_FEEDBACK, PRI_FEEDBACK, PRI_BOOM
+        .byte   PRI_BOOM, PRI_KLANG
 sfx_len:
         .byte   LEN_SHOT, LEN_BOOM, LEN_ROCKHIT, LEN_KLANG
         .byte   LEN_PSST, LEN_BOOST, LEN_TELE, LEN_KLANG_N
         .byte   LEN_DEATH, LEN_DEATH, LEN_DEATH, LEN_SHOT
         .byte   LEN_ALARM, LEN_LASER, LEN_WSWITCH, LEN_SATN
+        .byte   LEN_SCREECH, LEN_EMP
+        .assert * - sfx_len = SE_EMP + 1, error, "sfx.s: an effect is missing a row"
 
 ; --- the effect programs -----------------------------------------------------
 

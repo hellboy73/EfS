@@ -162,6 +162,9 @@ IM_LIFE      = 3                ; ...and a ship was lost, but not the last one
 IM_ENEMY     = 4                ; a UFO has seen the ship (foes.s foe_alarm)
 IM_GUN       = 5                ; FIRE2 chose the gun... (laser.s wpn_toggle)
 IM_LASER     = 6                ; ...or the laser
+IM_EMP_NA    = 7                ; FIRE1+FIRE2 with too little Saturnium (emp.s)
+IM_SHIELD_ON = 8                ; the shield went up (shield.s)...
+IM_SHIELD_OFF= 9                ; ...and has 4 s left
 
 ; --- RAM ---------------------------------------------------------------------
 ; $7030-$70FF was the last clear stretch of the page thrust.s and shots.s share
@@ -721,9 +724,11 @@ indicate_msg:
 ; FRONT of the queue and whatever is showing has its hold cut short, so the next
 ; paint phase draws this one. Clobbers A/X/Y.
 ; -----------------------------------------------------------------------------
-; The weapon change uses it (laser.s wpn_toggle) and nothing else does, because
-; it is the one line on this bar that is not a REPORT of something that
-; happened: it is the STATE the player is now flying in. Queued behind a HULL
+; The weapon change uses it (laser.s wpn_toggle), because it is the one line on
+; this bar that is not a REPORT of something that happened: it is the STATE the
+; player is now flying in. The EMP's refusal (emp.s) is the other user: it
+; answers a button the player has just pressed, and an answer that arrives two
+; seconds later is not one. Queued behind a HULL
 ; BREACH and its two-second hold, ARMED would land after they had already fired
 ; the other weapon - a bar that lies about what is in their hands.
 ;
@@ -955,9 +960,13 @@ IM_ENEMY_S: .byte   "ENEMY DETECTED", 0
 IM_GUN_S:   .byte   "BLASTER ARMED", 0
 IM_LASER_S: .byte   "LASER ARMED", 0
 
+; IM_EMP_NA_S is in emp.s (CODE6) and the shield's two in shield.s (CODE2):
+; UPPER, where these are, is full
 IND_LO:     .byte   <IM_HULL_S, <IM_CRIT_S, <IM_LEVEL_S, <IM_LIFE_S, <IM_ENEMY_S
-            .byte   <IM_GUN_S, <IM_LASER_S
+            .byte   <IM_GUN_S, <IM_LASER_S, <IM_EMP_NA_S, <IM_SHIELD_ON_S
+            .byte   <IM_SHIELD_OFF_S
 IND_HI:     .byte   >IM_HULL_S, >IM_CRIT_S, >IM_LEVEL_S, >IM_LIFE_S, >IM_ENEMY_S
-            .byte   >IM_GUN_S, >IM_LASER_S
+            .byte   >IM_GUN_S, >IM_LASER_S, >IM_EMP_NA_S, >IM_SHIELD_ON_S
+            .byte   >IM_SHIELD_OFF_S
 
         .segment "CODE2"

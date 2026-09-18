@@ -21,6 +21,11 @@ API_GPU_DOTLINE     = $FF1B     ; OS_ARG+0..3 = X1,Y1,X2,Y2, half-res bytes
 API_GPU_DOTLINES    = $FF1E     ; OS_ARG+0..1 = ptr -> { N, x0,y0, ... }  half-res
                                 ;        a chain of N connected dotted segments
 API_GPU_DOTPIXELS   = $FF24     ; OS_ARG+0..1 = ptr -> { N, x0,y0, ... }  half-res
+API_GPU_DOTCIRCLE   = $FF27     ; OS_ARG+0 = CX (0-199), +1 = CY (0-149), +2 = R,
+                                ;   half-res: a dotted circle outline ($48). An
+                                ;   OFF-SCREEN CENTRE drops the whole command,
+                                ;   as does R = 0; a radius past the edges is
+                                ;   clipped (the slower path). The EMP (emp.s)
 API_GPU_SPRITE      = $FF2A     ; OS_ARG+0 = SPR_ID, +1..2 = X16, +3..4 = Y16
 API_GPU_LOAD        = $FF39     ; OS_ARG+0 = GPU page MSB, +1..2 = ptr -> 256 bytes
 API_GPU_CLEARBG     = $FF3C     ; (no args) clear the VRAM background
