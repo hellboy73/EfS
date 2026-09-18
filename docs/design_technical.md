@@ -773,8 +773,8 @@ continuous for everything else.
 
 ## 9. Levels
 
-The campaign is **5 levels** — MINING ZONE, SENSOR ANOMALY, CONTACT, HUNT,
-ESCAPE — needing three mission types: **clear the field**, **survive / traverse**,
+The campaign is **5 levels** — MINING ZONE, CONTACT, HUNT, the
+station siege, ESCAPE (re-cut 2026-09-18, `story.md`) — needing mission types: **clear the field**, **survive / traverse**,
 and **reach the exit alive**. See [`story.md`](story.md) for the per-level content
 and for the engine features the fiction commits us to (cloaked-but-simulated
 enemies, detection-and-pursuit AI, deliberately unreliable instruments). Each
@@ -1830,3 +1830,48 @@ These are settled and should not be re-opened without a reason:
     once its text is fully shown (as in CETAS). It records the sector reached (`3-2`) beside
     the score, and marks an entry whose game was continued. The ENDINGS
     replacing the GAME OVER banner are agreed but deferred.
+
+46. **Mining stations: one fixed, indestructible landmark in some sectors.**
+    Decided 2026-09-18 (the user), not built; the open parts are
+    `open_questions.md` E11.
+
+    **What one is.** A human mining base, the fiction's (`story_full.md`),
+    at most **one per sector and not in every sector**, but somewhere in
+    every level. It is a simple geometric figure that never moves and cannot
+    be destroyed. It is scenery and an obstacle, and gives the player
+    nothing. It is placed per sector in `levels.s`, like the gate.
+
+    **Why.** The torus has no landmarks, and a station is one: the player
+    knows they have been here. It also gives "clear the field" a reason (the
+    rocks threaten the station), and it gives the radio a second voice, the
+    station's crew. Its state across the campaign (working, then silent,
+    then a wreck) is told by the radio, not by the figure, which stays the
+    same.
+
+    **What touches it.** Rocks bounce off it as off a wall of infinite mass.
+    Shots end on it. The ship **does not collide**: the station's
+    anti-collision field brakes it, so it can neither ram the station nor
+    fly through it, and loses no hull.
+
+    **The radar always shows it**, whatever classes G8's window is showing,
+    with its own mark, and pins it to the rim when it is out of reach, as it
+    does the gate.
+
+    **The station under siege is L4** (`story.md`), and the one station
+    that is destroyed. It is spread over the level:
+    * **4-1:** fragments of a distress call on the radio, with an unsure
+      bearing, because the instruments lie;
+    * **4-2:** on the way, a wreck;
+    * **4-3:** the siege. UFOs are firing at the station, and they keep at it
+      until they see the ship, then turn on it. That is a new state before
+      the UFO's patrol, detect and pursue (`foes.s`): holding station round a
+      point and firing at it. The station **falls in the player's
+      presence**, and only then. Its fall is **scripted**: it happens
+      whatever the player does, and the figure stays indestructible to the
+      physics. It breaks into pieces that are defined later, and they are
+      gone after a moment, the way the ship's wreck is (`debris.s`). It
+      spits out the crew of SRV-T03's **lifepod**, which **homes on the ship
+      by itself and cannot be missed** (F6's magnetism). Catching it is a
+      bonus pickup, and it opens the gate: a new mission kind beside
+      `MS_ROCKS`/`MS_FOES`/`MS_OPEN`. A **wreck** may stay behind, a
+      second figure authored in the editor.

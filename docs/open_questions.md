@@ -356,8 +356,29 @@ Needs a per-level parameter set, and it must be designed together with the HUD
 
 ## F. Content and structure
 
+**E11. Mining stations — the open parts of `design_technical.md` 11.46 (TBD).**
+
+* **The ship's brake:** straight to zero (the first idea), or cancel only the
+  part of the velocity toward the station, so the ship slides along it. The
+  second is less sticky. Fly both.
+* **The shape:** its size (bigger than the screen or not), and its collision
+  shape. A circle, or a few circles, is what the collision pass can afford.
+* **Enemies and the station:** do they go round it or bounce off it? Do the
+  UFOs' shots at a besieged station hit it visibly (sparks, no damage)?
+* **The siege (4-3, 11.46; the fall, the pod and the gate are settled):**
+  - What counts as "in the player's presence": on screen, or within a
+    distance? And how long after that does the station fall?
+  - What becomes of the UFOs still there once it has fallen?
+  - How far off do the UFOs "see" the ship?
+  - What the pieces of the fall are, and how long they last.
+  - Is the wreck left behind solid like the station, or only a picture?
+* **The radar mark:** which cluster of dots, told apart from the gate's X and
+  a rock's point, and whether it blinks.
+* **Which sectors** have one. Fixed: the siege station in 4-3. Candidates for
+  the rest: 1-1 (the station the field is cleared for), a dark station in L3.
+
 **F1. Mission types (TBD).** ~~Number of levels~~ — **settled: 5 levels**
-(MINING ZONE / SENSOR ANOMALY / CONTACT / HUNT / ESCAPE, see `story.md`). What
+(MINING ZONE / CONTACT / HUNT / the station siege / ESCAPE, re-cut 2026-09-18, see `story.md`). What
 remains open is the implementation of the three mission types the script needs:
 **clear the field**, **survive / traverse**, **reach the exit alive** — and what
 each shows on the HUD.

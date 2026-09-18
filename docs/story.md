@@ -32,11 +32,36 @@ Once they realise they are being found, they hunt.
 
 | # | name | mission | new gameplay element |
 |---|---|---|---|
-| 1 | MINING ZONE | clear the field | asteroids only — no enemies at all |
-| 2 | SENSOR ANOMALY | clear the field | alien ships flicker into view briefly, do not attack |
-| 3 | CONTACT | survive first contact | aliens stay visible, and fight when approached |
-| 4 | HUNT | get through the region | patrols that detect and pursue; fighting everything is not the intent |
-| 5 | ESCAPE | reach the boundary alive | very large area, many hunters, degraded instruments |
+| 1 | MINING ZONE | clear the field | asteroids only in 1-1; from 1-2 alien ships flicker into view and are gone, never attack, and Control calls them a sensor glitch (the old L2, SENSOR ANOMALY, folded in) |
+| 2 | CONTACT | survive first contact | aliens stay visible, and fight when approached |
+| 3 | HUNT | get through the region | patrols that detect and pursue; fighting everything is not the intent |
+| 4 | *(name TBD)* | save the survivor | a distress call from a mining station under siege: the crew of a lost ship (SRV-T03) holding the station's data. They are caught as a lifepod, and the station is destroyed whatever the player does |
+| 5 | ESCAPE | reach the exit alive | many hunters, degraded instruments, and the station's data is the way out |
+
+**Re-cut 2026-09-18 (the user).** L1 alone was rocks only and would have been
+dull, so the old L2 (SENSOR ANOMALY) was folded into it. CONTACT and HUNT moved
+up one level, the siege became L4, and ESCAPE stays the finale.
+
+**Why the siege, and what the game is about (2026-09-18, the user).** The
+aliens do not want to win a war. They want to stay hidden. The mine, while it
+was autonomous, could be fooled by them. A crewed ship and a station's records
+cannot, so the aliens destroy both, to wipe out what is known about them. That
+is why they attack our ships, and why they attack the station. It is also the
+clue to the reveal that no line ever states. So **the goal of the game is not
+to beat the aliens, it is to get out with what is known about them**.
+In order:
+* L4: the crew of SRV-T03, lost earlier, took shelter at a station. The
+  station's data is the one record the lying instruments could not corrupt: a
+  map of the anomaly, and so the way out. The player drags the UFOs off the
+  station and catches the crew's lifepod. The station goes anyway, because
+  destroying it was the aliens' aim.
+* L5: ESCAPE with the crew and the data. Its briefing's "the last known way
+  home" is that data. ENDING WON is getting it out.
+
+**`story_levels.md` and `story_full.md` still follow the old five and are the
+author's to rewrite.** L1's briefing absorbs SENSOR ANOMALY's or hands it to
+the radio in 1-2. L4 needs a name and a briefing. The reveal section gains the
+aliens' motive above.
 
 This settles **open question F1** (level count = 5) and gives the mission-type
 spread for the level plan in `design_technical.md` section 9. Three distinct
@@ -77,6 +102,11 @@ the enemy roster for open question E6.
 **5. Escalating area size — read as difficulty, not map size.** Every sector
 is the same torus (`design_technical.md` 11.45); "far larger" in levels 4 and 5
 is a far gate, more hunters and lying instruments.
+
+**7. Human mining stations.** The fiction's mining stations are in the
+field: a landmark in a world that wraps and so has no other one, and the
+story of the human side told by the radio (a station's crew talks). See
+`design_technical.md` 11.46.
 
 **6. Five crewed ships — they are the lives.** SRV-T01..T05; losing one hands
 over to the next callsign, and the tunnel can bring back a crew lost in that
