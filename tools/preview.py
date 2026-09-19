@@ -5108,9 +5108,25 @@ def gate_bench():
 
     put_ship((gx) & 0xFFFF, (gy + 200 * 16) & 0xFFFF)   # 200 px short of it, on screen
     cmds = frame()
-    pg = [pl for op, pl in cmds if op in (0x4C, 0x4E) and (pl[6] & 0x7F) == 12]
-    check("...on the screen it is EA_GATE's polygon, and no arrow", len(pg) == 1 and not arrows(cmds),
-          f"{len(pg)} gate polygons, {len(arrows(cmds))} arrows")
+    PN = int(re.search(r"^EN_GATE_PN\s*=\s*(\d+)", (SRC / "enemies.s").read_text(), re.M).group(1))
+    by_centre = {}
+    for op, pl in cmds:
+        if op in (0x4C, 0x4E):
+            by_centre.setdefault(bytes(pl[:4]), []).append(pl)
+    pg = [g for g in by_centre.values() if len(g) == PN]
+    check(f"...on the screen it is EA_GATE's {PN} parts round one centre, and no arrow",
+          len(pg) == 1 and not arrows(cmds),
+          f"{len(pg)} gate groups, {len(arrows(cmds))} arrows")
+    steps = []
+    for _ in range(9 * 8):                              # the playlist walks its frames
+        c = frame()
+        grp = [g for g in {bytes(pl[:4]): [x for o, x in c if o in (0x4C, 0x4E) and bytes(x[:4]) == bytes(pl[:4])]
+                            for o, pl in c if o in (0x4C, 0x4E)}.values() if len(g) == PN]
+        if grp:
+            steps.append(tuple(bytes(x[7:]) for x in grp[0]))
+    kinds = sorted(set(steps), key=steps.index)
+    check("...and it animates: its frames come round in turn, the outer part never changes",
+          len(kinds) > 1 and len({k[0] for k in kinds}) == 1, f"{len(kinds)} distinct frames")
 
     def cost():
         call(cpu, API_GPU_BEGIN)

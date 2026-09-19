@@ -1731,7 +1731,11 @@ These are settled and should not be re-opened without a reason:
     there is one and steady when there is not.
 
     **Its shape is an enemy appearance, `EA_GATE`**, authored and animated in
-    `tools/enemy_editor.py` like a UFO; `gate_body` is `foe_body`'s loop. Its
+    `tools/enemy_editor.py` like a UFO; `gate_body` is `foe_body`'s loop. It
+    is a bottomless well: a fixed equilateral triangle of side 200 px and three
+    concentric ones inside it, each shrinking by 0.4^(1/5) a frame over five
+    frames, so the smallest vanishes as a new one appears at side 180 and the
+    loop has no seam. Its
     ANGLE is `GATE_SPIN`'s own turn (0) minus `HEAD`, so it stays put in a
     turning world. `GATE_DOT` picks `$4C DOT_POLYGON` (1, now) or `$4E
     POLYGON16` (0) at the same size — **still open**, as is the animation.
@@ -1752,7 +1756,7 @@ These are settled and should not be re-opened without a reason:
     **Trainer**: RIGHT on the second pad opens the gate.
 
     **Measured** (`tools/preview.py`'s gate bench): `do_gate` is 50 cycles a
-    frame closed, 2,132 open and far, 5,450 open and drawn (2.3% of a frame);
+    frame closed, 3,819 open and far, 7,089 open and drawn (3.0% of a frame);
     the 220-frame trace is otherwise identical to the build before it, +53
     cycles median. The bench checks the mission opening it, one X and one
     arrow, UP for a gate ahead and DOWN for one 20,000 units behind, the
