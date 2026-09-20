@@ -778,8 +778,8 @@ continuous for everything else.
 
 ## 9. Levels
 
-The campaign is **5 levels** — MINING ZONE, CONTACT, HUNT, the
-station siege, ESCAPE (re-cut 2026-09-18, `story.md`) — needing mission types: **clear the field**, **survive / traverse**,
+The campaign is **5 levels** — MINING ZONE, CONTACT, HUNT, RESCUE,
+ESCAPE (re-cut 2026-09-18, `story.md`) — needing mission types: **clear the field**, **survive / traverse**,
 and **reach the exit alive**. See [`story.md`](story.md) for the per-level content
 and for the engine features the fiction commits us to (cloaked-but-simulated
 enemies, detection-and-pursuit AI, deliberately unreliable instruments). Each
@@ -1819,16 +1819,19 @@ These are settled and should not be re-opened without a reason:
     `SECTOR 1-2` and the mission (`CLEAR THE LARGE ROCKS`, `DESTROY ALL
     HOSTILES`, `REACH THE EXIT GATE`), read from the sector's `MISN`.
 
-    **RADIO MESSAGES** are one HUD line during play, from the HUD-message
-    bank: Control and the other ships talking, triggered by events (a foe
-    decloaking, the gate opening, a ship lost) and by the sector's script.
-    It is the way the story is told *in* flight rather than only between
-    boards. Open: the line's place on the HUD, how long one stays, and the
-    trigger set — `open_questions.md` H5.
+    **THE RADIO IS IN THE TUNNEL** (the user, 2026-09-20), and only there:
+    Control and the other ships talk in the debrief and the brief under the
+    tunnel's window (below), from the HUD-message bank. **There is no radio
+    line during play** - the two HUD rows and the radar keep the screen, and
+    what happens in a sector (a foe decloaks, the gate opens, a ship is lost)
+    is the message bar's (`indicate_msg`, the `IM_*` strings) or the tunnel's
+    debrief afterwards. This replaces the in-flight HUD line this paragraph
+    first decided (2026-09-18); the open parts are `open_questions.md` H5.
 
     **Lives are the five survey ships**, SRV-T01..T05 (`story_levels.md`);
     `LIVES_START` is already 5. Losing one hands over to the next callsign
-    (a radio line: `SRV-T01 LOST - T02 TAKING OVER`). A ship lost in a
+    (`SRV-T01 LOST - T02 TAKING OVER`, on the message bar; the tunnel's radio
+    picks it up in the debrief). A ship lost in a
     sector can be won back in the tunnel that follows it, and only there.
     Ships lost in earlier sectors come back only as **a ship for points** (an
     extra life at score thresholds; the thresholds are TBD). The count never

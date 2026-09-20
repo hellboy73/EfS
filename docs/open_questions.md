@@ -406,7 +406,7 @@ ship, enemies stopped and sliding). What is still open:
   (11.48); the F3 meter is owed a look.
 
 **F1. Mission types (TBD).** ~~Number of levels~~ — **settled: 5 levels**
-(MINING ZONE / CONTACT / HUNT / the station siege / ESCAPE, re-cut 2026-09-18, see `story.md`). What
+(MINING ZONE / CONTACT / HUNT / RESCUE / ESCAPE, re-cut 2026-09-18, see `story.md`). What
 remains open is the implementation of the three mission types the script needs:
 **clear the field**, **survive / traverse**, **reach the exit alive** — and what
 each shows on the HUD.
@@ -898,13 +898,27 @@ which moves on every build, and `preview.py`'s whole discipline is to parse
 addresses out of the source instead. Either export the handful of labels a bench
 needs, or have the Makefile emit a label file beside `map.txt`.
 
-**H5. Radio messages (decided 2026-09-18, not built — `design_technical.md`
-11.45).** One HUD line of Control and the other ships talking during play,
-strings in the HUD-message bank. Open: where the line sits beside the two HUD
-rows and the radar, how long a message stays and whether it types itself out,
-whether two can queue, and the triggers — events (a foe decloaks, the gate
-opens, a ship is lost and the next callsign takes over) and per-sector script
-lines, which ties it to the per-sector data in `levels.s`.
+**H5. Radio messages (decided 2026-09-18, moved 2026-09-20 — not built,
+`design_technical.md` 11.45).** The radio is in the TUNNEL between sectors
+(H6), not a HUD line during play: Control and the other ships talk in the
+debrief of the sector just flown and the brief for the next, in the text area
+under the tunnel's window, strings in the HUD-message bank. In flight the
+message bar keeps what it has. Open:
+
+* How the text shows in the tunnel: whether it types itself out, how long a
+  line stays, whether the minute holds two or three lines, and whether the
+  radio's text is fixed per sector or assembled from what happened in it.
+* **The triggers, now a record and not an event.** A debrief has to know what
+  the sector held: a ship lost, a foe seen, the station reached. So the sector
+  keeps a few flag bits during play (RAM to spend) and the tunnel reads them;
+  the brief for the next sector is per-sector script data in `levels.s`'s bank
+  (`LEVELS`), beside the level's other tables.
+* **What the fiction lost by it.** Two beats were written as radio in flight and
+  no longer have a place there: 4-1's fragments of a distress call with an
+  unsure bearing, and the station's crew talking (11.46), which in 4-3 would be
+  heard only after the siege, in the tunnel that follows it. They move to the
+  briefing of L4 and to the tunnel after 4-1 and 4-2 (the approach), or are
+  told some other way; the author's call.
 
 **H6. The tunnel — what it is is settled (`design_technical.md` 11.45), its
 numbers are not (TBD/TBM).** After every sector (after x-3, before the level

@@ -35,7 +35,7 @@ Once they realise they are being found, they hunt.
 | 1 | MINING ZONE | clear the field | asteroids only in 1-1; from 1-2 alien ships flicker into view and are gone, never attack, and Control calls them a sensor glitch (the old L2, SENSOR ANOMALY, folded in) |
 | 2 | CONTACT | survive first contact | aliens stay visible, and fight when approached |
 | 3 | HUNT | get through the region | patrols that detect and pursue; fighting everything is not the intent |
-| 4 | *(name TBD)* | save the survivor | a distress call from a mining station under siege: the crew of a lost ship (SRV-T03) holding the station's data. They are caught as a lifepod, and the station is destroyed whatever the player does |
+| 4 | RESCUE | save the survivor | a distress call from a mining station under siege: the crew of a lost ship (SRV-T03) holding the station's data. They are caught as a lifepod, and the station is destroyed whatever the player does |
 | 5 | ESCAPE | reach the exit alive | many hunters, degraded instruments, and the station's data is the way out |
 
 **Re-cut 2026-09-18 (the user).** L1 alone was rocks only and would have been
@@ -60,8 +60,9 @@ In order:
 
 **`story_levels.md` and `story_full.md` still follow the old five and are the
 author's to rewrite.** L1's briefing absorbs SENSOR ANOMALY's or hands it to
-the radio in 1-2. L4 needs a name and a briefing. The reveal section gains the
-aliens' motive above.
+the radio - the tunnel's, since the radio is only there (11.45) - after 1-1
+or 1-2. L4 is named RESCUE (the user, 2026-09-20) and still needs its
+briefing. The reveal section gains the aliens' motive above.
 
 This settles **open question F1** (level count = 5) and gives the mission-type
 spread for the level plan in `design_technical.md` section 9. Three distinct
@@ -105,7 +106,8 @@ is a far gate, more hunters and lying instruments.
 
 **7. Human mining stations.** The fiction's mining stations are in the
 field: a landmark in a world that wraps and so has no other one, and the
-story of the human side told by the radio (a station's crew talks). See
+story of the human side told by the radio (a station's crew talks - in the
+tunnel between sectors, where the radio is: 11.45). See
 `design_technical.md` 11.46.
 
 **6. Five crewed ships — they are the lives.** SRV-T01..T05; losing one hands
