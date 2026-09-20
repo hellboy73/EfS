@@ -1500,17 +1500,22 @@ check('the ship offsets are SHIP_SHAPE, unrotated and unscaled, as authored',
 
 # --- the sprites: one bulk upload, straight out of the SPRART bank ------------
 # src/sprites.s arms gpu_load_cart_begin in cart_init and drains it last in
-# every frame, so the eight LOAD pages - the art at $11-$14, then the four
-# definition pages at $03-$06 - have to appear in the first frames' command
-# lists, byte for byte what the ROM holds, and never again.
+# every frame, so every LOAD page - the art from $11 on (the flames', the
+# arrows', and the pickup's PK_PAGES), then the four definition pages at
+# $03-$06 - has to appear in the first frames' command lists, byte for byte
+# what the ROM holds, and never again.
 _lbl = {m.group(2): int(m.group(1), 16) for m in
         re.finditer(r"^al ([0-9A-Fa-f]+) \.(\w+)\s*$",
                     (ROOT / "cart.lbl").read_text(), re.M)}
 _sbank = CART[7 * 0x2000:8 * 0x2000]                 # SPR_BANK = 7 (sprites.s)
+_art_pages = 2 + int(re.search(r"^PK_PAGES\s*=\s*(\d+)",
+                               (SRC / "pickups_art.s").read_text(), re.M).group(1))
 _want = {}
-for _k in range(4):
-    _a, _d = _lbl["flames_data"] - 0x8000 + _k * 256, _lbl["spr_defs"] - 0x8000 + _k * 256
+for _k in range(_art_pages):
+    _a = _lbl["flames_data"] - 0x8000 + _k * 256
     _want[0x11 + _k] = bytes(_sbank[_a:_a + 256])
+for _k in range(4):
+    _d = _lbl["spr_defs"] - 0x8000 + _k * 256
     _want[0x03 + _k] = bytes(_sbank[_d:_d + 256])
 _got, _when = {}, {}
 for _f, _fr in enumerate(frames):
@@ -1522,7 +1527,7 @@ check('every sprite page reaches the GPU, once, exactly as the ROM holds it',
       all(_got.get(pg) == [d] for pg, d in _want.items()),
       f'pages seen {sorted((pg, len(v)) for pg, v in _got.items())}')
 check('...within the first frames - before anything is drawn from them',
-      len(_when) == 8 and max(_when.values()) <= 3,
+      len(_when) == _art_pages + 4 and max(_when.values()) <= 3,
       f'last page in frame {max(_when.values()) if _when else None}')
 
 # want_ordered feeds the framebuffer solidity check below, so it has to stay

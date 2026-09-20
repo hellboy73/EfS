@@ -68,10 +68,10 @@ TITLE_PNG = assets/png/bitmaps/efs_title_scr.png
 src/screens_art.s: $(LOGO_PNG) $(TITLE_PNG) tools/artgen.py tools/bggen.py
 	python tools/artgen.py $@ LOGO=$(LOGO_PNG)@22,160/128 TITLE=$(TITLE_PNG)@0,0/15
 
-# The pickup's sprite, both frames (pickup.s). Tracked output, like arrows.s.
-# PICKUP_SET picks the pair, assets/png/<set>1.png and <set>2.png.
-PICKUP_SET = bonusmid
-PICKUP_PNG = assets/png/$(PICKUP_SET)1.png assets/png/$(PICKUP_SET)2.png
+# The pickup's sprite, every animation frame (pickup.s). Tracked, like arrows.s.
+# PICKUP_SET picks the set: assets/png/<set>1.png, <set>2.png, ... as far as they go.
+PICKUP_SET = bonusbox
+PICKUP_PNG = $(wildcard assets/png/$(PICKUP_SET)[0-9].png)
 src/pickups_art.s: $(PICKUP_PNG) tools/pickupgen.py tools/sprgen.py Makefile
 	python tools/pickupgen.py $(PICKUP_SET)
 

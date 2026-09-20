@@ -1944,18 +1944,224 @@ These are settled and should not be re-opened without a reason:
     demand a precise pass over a small icon.
 
     **What it looks like.** **One sprite for every pickup**, laser and
-    shield alike (`assets/png/bonusmid1.png`, `bonusmid2.png`): 32x32 with
-    an overlay, two GPU pages, never scaled, so it is the same size at every zoom, and
-    **two frames flipped every 10 game frames** (`PK_HOLD`). It is drawn in
-    the hardware's axes, like the enemy arrow, so it is not turned for TATE.
+    shield alike (`assets/png/bonusbox1.png` .. `bonusbox4.png`, 2026-09-20):
+    16x16 with an overlay, one GPU page, never scaled, so it is the same size
+    at every zoom, and **four frames in a loop, one every 8 game frames**
+    (`PK_FRAMES`, `PK_HOLD`). It is drawn in the hardware's axes, like the
+    enemy arrow, so it is not turned for TATE. The frame count and the size
+    are the art's: `tools/pickupgen.py` takes as many `<set>N.png` as there
+    are, and the Makefile's `PICKUP_SET` picks the set.
 
     **Built 2026-09-18, `src/pickup.s`** (CODE6), all but the rocks marked
     in the editor. A pickup is a slot of `satn.s`'s pool with another tag
     (`SPT_LASER`/`SPT_SHIELD`), held to slots 0 and 1. `foe_kill` drops it
     (`pk_drop`), `do_satn` steers it like a mote and draws it as a sprite
     (`pk_draw`), and its arrival sets `LSRHAVE` (LASER ACQUIRED) or calls
-    `shield_on`. The art (`tools/pickupgen.py` → `src/pickups_art.s`) is read
-    straight out of the MSGDATA bank by `gpu_load_cart`, as the seventh
-    art-upload step, so it costs no CPU RAM. A kill by a pulsar's beam
+    `shield_on`. The art (`tools/pickupgen.py` → `src/pickups_art.s`) sits in
+    `SPRART` and reaches the GPU with every other sprite's at power-on
+    (`sprites.s`, 11.19), so it costs no CPU RAM. A kill by a pulsar's beam
     (`FOEKILL`) drops nothing, just as it pays nothing. The trainer's LEFT
     gives the laser.
+
+48. **The human base: six triangles as an animated shape like the gate's, a
+    circle a triangle for the stars and for the wall, and a radar mark.** Decided
+    2026-09-19 (the user), built as `src/base.s` and `EA_BASE`. It is 46's station
+    figure and its "does not collide", made concrete; the parts of 46 it does not
+    touch (the siege, shots) are still 46's, and `open_questions.md` E11 has what
+    is open.
+
+    **What it is.** **Six equilateral triangles, the gate's largest at 0.7** (140 px
+    a side), laid out as a **hexagon** with their apexes toward the middle and
+    **16 px between them**: 304 x 272 px, about the size of the screen at 1:1. It
+    began as fifteen 64 px squares, then eight of 96, then six triangles of 200 px
+    (428 x 380), and the GPU could not draw any of them beside the enemies (a dump
+    of a scene with four UFOs: the 200 px hexagon was 66.8 k of a 236 k frame); at
+    140 px it is **52.5 k** on the same scene, a fifth less - a dotted line costs
+    about 39 cycles a pixel, but three vertices and a command are a fixed part of
+    a triangle, so the saving is not the third the length would give. It
+    never moves, is not in the object pool and is placed per level in `base.s`'s
+    `BASE_*` rows (**level 0 has one now**, 640 px dead ahead of the start, at
+    `$8000,$5800`; a row's `BASE_ON` 0 takes it away). The rows move into
+    `levels.s` when the level editor learns to place one - that file is rewritten
+    whole on Save, so they cannot live in it yet.
+
+    **It is an enemy appearance, `EA_BASE`, and the gate draws it.** Authored in
+    `tools/enemy_editor.py` like `EA_GATE`: six parts, six frames (frame *f* has
+    triangle *f* smaller, 0.6), a playlist of the six frames in turn, **60 game
+    frames a step** (`EN_BASE_AHOLD`) - each triangle is shown smaller for 60
+    frames, one after another round the hexagon. Its vertices are data in the RAM
+    under the cartridge window (SHAPES, 386 B left after them) like every other
+    outline, and **nothing in `base.s` draws a line**: `gate.s`'s `gb_draw` (the
+    body of `gate_body`, now parameterised by a five-byte record `GBAP`..`GBMK`:
+    appearance, step, spin, scale halving, and a mask of the parts to draw) is the
+    drawing, one `DOT_POLYGON` a part at the object's centre, turned by `-HEAD`.
+    `gate_body` sets the record for the gate and falls in; `do_base` sets it for
+    the base and jumps in. **The numbers are authored in half-res units**, one
+    unit = 2 px, and `GBSH` = 0 tells `gb_draw` not to halve the scale as the
+    gate's full-res numbers want: a vertex offset is a signed byte, and the hexagon
+    reaches 154 px from its centre, which is 77 units, and 154 px would not fit.
+    The editor therefore draws the base at half size. `GATE_GR` (the cull margin)
+    is the gate's own again, 192 px: the base reaches 154.
+
+    **A circle a triangle, on its vertices, for the wall - and for the stars, once
+    a triangle is gone.** Each triangle is a **segment**; its circle has the
+    triangle's centroid for a centre and passes through its three corners: **41
+    half-res px = 41 collision units**, `EA_BASE`'s circumradius (40.3 for all six,
+    out of its vertices, rounded up to hold them; the centres are `BS_OFF`, 48
+    units out and 60 degrees apart). It is the wall (below) always, and the star-occlusion disc
+    (`add_disc`, a rock's way, decision 12) when a triangle is missing: a circle
+    through the corners covers the whole triangle, so no star shows through one,
+    and it reaches 20 units past the middle of each edge, a halo of about 40 px
+    that the hexagon's own edges never fill.
+    **While all six stand the stars get ONE disc**, on the anchor, round the whole
+    hexagon: 77 half-res px at 1:1, the farthest corner (`BS_HR`). The hexagon is
+    nearly a circle, and six discs are not cheap - each is a bounding box that
+    covers most of the screen and a star tests the boxes in turn: **six discs
+    cost `do_base` 15.7 k and `do_stars` 15.9 k cycles a frame, one disc 8.8 k and
+    10.6 k** (a whole frame is 237 k; with no base at all `do_base` is 3 k and
+    `do_stars` 6.6 k). The one disc hides a few pixels of stars past the flats,
+    12 units at the worst. **Measured** (`base_bench`): over eight headings with
+    the ship in the middle 63 stars are drawn and none is inside a triangle, where
+    the same scenes without the base draw 63 more there.
+
+    **A segment is live or not** - a bit of `BSLIVE`, all set by `base_load` - and
+    a segment that is not live has **no disc, no wall and no drawing** (`gb_draw`'s
+    mask). Nothing clears a bit yet: the base will be shot at and attacked by
+    aliens and lose its triangles **one by one**, and that is all it will take,
+    with the hit points and the fall itself (E11).
+
+    **The radar mark is six dots, the hexagon's own shape** - two above, one to
+    each side, two below - in the player's screen axes and never turned, pinned
+    to the rim and blinking with the enemies when the base is out of reach.
+    `gate.s`'s `gate_radar` was split for it: `gr_pos` (its position half, from a
+    world position's high bytes to the radar cell or the rim toward it) is what
+    `do_base` calls too, and the dots are the only part that is the base's own. It
+    is on the radar **whatever the base's distance**: it is drawn before the near
+    test.
+
+    **Nothing can enter a live segment.** One routine, `bs_keep`, puts a mover
+    back outside every live circle - each grown by the mover's own radius, so its
+    edge and not its centre stops at the line - and three movers differ only in
+    what they do with their velocity:
+    * **A rock** is put back and its velocity into the circle **reversed**: a wall
+      of infinite mass, no energy lost (`base_rock`, in `do_objects` after the rock
+      has moved and before its cell is looked up, so the grid sees the corrected
+      place). A spider riding a rock goes with it; a drifting spider's carrier is
+      a rock.
+    * **An enemy** is put back and its velocity **into the circle taken away**
+      (`base_foe`, the end of `foe_integrate`, so every UFO and pulsar). It keeps
+      steering, so it **slides along the circle**; going round is what `foe_avoid`
+      does for rocks and is not done for this (E11).
+    * **The ship** is stopped **before** it moves (`base_brake`, in `do_ship`
+      between the knockback and the position integration). `bs_keep` runs on where
+      the true 24-bit step would put it, and the velocity is corrected by however
+      far it was put back, so the ship ends on the circle and **slides along it**.
+      It is done by velocity and not by pushing the position back because the
+      star layers scroll off the velocity: a ship pushed back after it had moved
+      would slide the stars under a world that stood still. The ship's radius is 12
+      units (its own 16 px and eight more, so it stops short of the line); it loses
+      no hull. **Answers E11's brake question**: the ship slides.
+    **How a circle pushes, without a square root.** Distances are in collision
+    units (32 world units = a half-res px) so that two lookups in the quarter-square
+    table `physics.s` uses and an add are d^2, compared with (41 + the mover's
+    radius)^2. A mover that is inside is moved **along the axis it is farther from
+    the centre on**, to the first whole unit at which it is outside (a short search
+    up the table: at most rsum steps, a few for a rock). Magnitudes are floored, so
+    the test errs toward "inside", and a mover is never left in a circle: it stands
+    off it by up to a unit and a half (3 px), and the velocity that is reversed or
+    dropped is that axis's, not the true normal's. The six circles overlap, so a
+    push out of one can land in the next; they are walked up to three times.
+    **Three consequences.** **The middle of the hexagon is a trap for a circle wall,
+    and is closed.** The six circles overlap and leave one small pocket free there
+    (8 units across the middle): a mover pushed out of one circle lands in the next,
+    and one that ends in the pocket has no way out of it. The scatter drops rocks
+    at random over the whole torus, level 0's at a fixed seed, and **a dump
+    (`dumps/00002856`) found a class-3 rock at 16 units from the anchor** with a
+    velocity of 8 units a frame that it could not use, jittering in the pocket
+    for good. A mover that is **still being pushed after six passes is now put out
+    of the base** (`bs_eject`): a circle on the anchor as far out as any of the six
+    reaches (89 units), and it is pushed out of that the way it is pushed out of a
+    segment's, reversing or dropping its velocity as usual. It jumps, once, and it
+    never happens to a mover that was outside: a rock that is born inside the base
+    leaves at its first frame awake. **A ship that is already inside** (a teleport
+    landed there, or the sector began there) is let out and not held, as braked it
+    would be trapped. **And a triangle's circle is not the triangle**: it stands 20
+    units (40 px) off the middle of an edge, so a rock bounces off empty space there;
+    the corners are covered.
+    **Measured** (`base_bench`, direct calls on random movers, the circles
+    worked out again in Python): 3000 ships and velocities round the circles - 141
+    braked, none ended inside, none braked that would not have gone in; 2000 rocks
+    of every class and 1500 enemies, each put outside every circle with only the
+    velocity it should lose changed; head on at a circle's middle the ship stops
+    exactly on it; on a real frame a rock aimed at a circle never gets in and
+    comes back out, and a UFO whose post is inside a circle is not inside one at
+    the end of the frame. `base_brake` costs 316 cycles, `base_rock` 31 a rock
+    that is far and 4.6 k one that is on a circle.
+
+    **Not stopped yet**: the player's **bullets** and the enemies' pass through it
+    (46 says shots end on it), and a rock **frozen** outside `do_objects` window is
+    not tested - a rock the scatter dropped inside the base is put back on a circle
+    the first frame it is awake, which can be a visible jump.
+
+    **Where it lives.** `EA_BASE`'s vertices in SHAPES; all of `base.s`'s wall and
+    tables in **`CODE7`**, a segment stored in ROM **bank 7** (5.9 KB of it free)
+    and **run in upper RAM** after `HIDATA` (`cart.cfg`, and one more row in
+    `bootstrap.s`'s `boot_segs`): 937 bytes, of the 1,796 upper RAM had. The place,
+    the discs and the mark are `CODE6` (`CART_HIRAM`). **Free now: `CART_HIRAM`
+    30 B, upper RAM 859 B, the RUN area 597 B, bank 0 34 B**, SHAPES 386 B. 55 bytes
+    of state under the window behind `gate.s`'s, three `jsr`s in the flight code
+    (`do_ship`, `do_objects`, `foe_integrate`), and a dozen small edits to
+    `gate.s`. CODE7 was first the RUN area's, then upper RAM's: both `HIRAM` and
+    upper RAM are full-speed and unbanked, and upper RAM is where the room is.
+
+49. **Enemy density: a screen holds only as many enemies as the GPU can draw beside
+    everything else, and enemies arrive gradually.** Decided 2026-09-20 (the user).
+    **The rule is decided; the mechanism that keeps it is not built** - it is
+    `open_questions.md` F9.
+
+    **Why, measured.** A madsim dump of a real scene (`dumps/00002856`, frame 2856,
+    the camera at its widest, scale 0.5) had **the GPU at 99.6%** (236,436 of
+    237,404 cycles; replayed command by command on the real `gpu_os.bin` in py65 it
+    comes to the same 99.6%) and CPU1 at 80.2%. **Four UFOs on the screen at once
+    cost 91,100 GPU cycles, 38% of the frame** (21-27 k each: five parts, 15
+    vertices), against 66,800 for the human base (200 px triangles, now 52,500),
+    22,300 for two rocks, 17,300 for the ship, 14,100 for a pulsar and 19,400 for
+    ten `DOT_PIXELS` lists. A solid polygon costs the GPU about **1.4 k cycles a
+    command and 1.2 k a segment whatever its length** - a five-pixel UFO detail of
+    two vertices is 2.7 k, and a part that is absent from its frame (one vertex) is
+    still 1.4 k - so what an enemy costs is how many commands and vertices it has,
+    and a screen of enemies is dear. A dotted line is 39 cycles a pixel.
+
+    **The rule.**
+    1. **A level never has more enemies on the screen at once than an enemy budget
+       allows.** The budget is in **GPU cycles, not a head count**: an appearance
+       has a cost (measured: the UFO is about 22 k) and the enemies on the screen
+       may not add up to more than a set share of the frame. Proposed: **a quarter
+       of the GPU frame, about 60 k cycles - two or three UFOs of today's shape.**
+       The number is a first setting, to be flown and re-tuned like every other.
+    2. **Enemies arrive gradually.** A group is not on the screen all together: its
+       members come one after another, and the rest wait - not yet present, or
+       held off the screen - until room is made by a kill or a departure.
+    3. **The level keeps the rule: a pool, a cap, and conditions** (the user,
+       2026-09-20 - not a runtime that holds enemies back at the edge of the
+       screen). A level has a **pool** of the enemies it will send in all, and **a cap
+       on how many of them may be alive at once**. Enemies are **spawned one after
+       another**: a pool entry whose condition holds is spawned when fewer than the cap
+       are alive, and a kill makes room for the next. So **no new enemy appears on the
+       map while the cap is full**, and a crowd cannot chase the ship into view,
+       because there is no crowd.
+       **A pool entry has a condition** - by default "as soon as there is room", but
+       it may be something that has to happen first: a time, the ship reaching a place,
+       or **the level being cleared**. *"You cleared the level? Fly to the gate - and
+       there are the enemies"*: an entry that waits for the mission to be done and then
+       appears at the gate, counting against the cap like any other. The budget of rule 1
+       is a property of how the level is authored (the cap times the dearest appearance
+       in the pool may not pass it; the level editor can flag one that does), and the
+       game only counts the living and releases the next.
+    4. **It counts everything that is drawn beside the player**: the UFOs that
+       besiege the station in 4-3 (46) count against it like any others, and so do
+       the base and its segments' losses, which are drawn either way.
+    5. **Every appearance has its cost written down**, measured on the GPU, next to
+       its shape (the enemy editor), so that a new enemy is priced when it is drawn.
+       An enemy that is dear for what it shows - parts that are a few pixels, parts
+       that are absent in most frames - is redrawn, not budgeted around.

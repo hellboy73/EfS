@@ -7,7 +7,7 @@
 ;                  PTR_LSB, PTR_MSB, HEIGHT), one byte per slot
 ;   page $11       the thruster flames, 27 sprites in one blob    (thrust.s)
 ;   page $12       the enemy arrows, four sprites in one page     (cam.s)
-;   page $13-$14   the pickup, two frames                         (pickup.s)
+;   page $13(-$14) the pickup, PK_FRAMES frames                    (pickup.s)
 ;
 ;   slot 0         the GPU ROM's test sprite - left alone, so a stray id draws
 ;                  something recognisable. (The definition pages here hold a
@@ -15,7 +15,7 @@
 ;   slot 1         free - it was the ship's, when the ship was a sprite
 ;   slot 2-28      the flames     (FLAME_SLOT0, FLAME_N)
 ;   slot 29-32     the arrows     (ARW_SLOT0)
-;   slot 33-34     the pickup     (PK_SLOT0)
+;   slot 33 on     the pickup     (PK_SLOT0, PK_FRAMES of them)
 ;
 ; NONE OF IT LIVES IN CPU RAM. The art (the three GENERATED files, included
 ; where their code is, into SPRART) and the four definition pages below are ROM
@@ -37,13 +37,13 @@
 
 spr_art     = flames_data       ; the art's first page - SPRART opens with it
 SPR_BANK    = 7                 ; cart.cfg: SPRART's bank (MSGDATA shares it)
-SPR_ART_PAGES = 4               ; $11 flames, $12 arrows, $13-$14 pickups
+SPR_ART_PAGES = PK_PAGE + PK_PAGES - FLAME_PAGE ; $11 flames, $12 arrows,
+                                        ;   $13 on the pickup's frames
 SPR_DEF_PAGES = 4               ; $03-$06
 
         .assert FLAME_PAGE = $11 && ARW_PAGE = FLAME_PAGE + 1 && PK_PAGE = ARW_PAGE + 1, error, "sprites.s: the art pages are not contiguous"
-        .assert PK_PAGE + PK_PAGES - FLAME_PAGE = SPR_ART_PAGES, error, "sprites.s: SPR_ART_PAGES is not the art's page count"
         .assert ARW_SLOT0 = FLAME_SLOT0 + FLAME_N && PK_SLOT0 = ARW_SLOT0 + 4, error, "sprites.s: the slot ranges are not adjacent"
-        .assert PK_SLOT0 + 2 <= 256, error, "sprites.s: slots past 255"
+        .assert PK_SLOT0 + PK_FRAMES <= 256, error, "sprites.s: slots past 255"
         .assert SPR_BANK = MSG_BANK, error, "sprites.s: SPRART and MSGDATA are one bank"
 
         .pushseg
@@ -128,8 +128,10 @@ spr_defs:
         .byte   FLAME_XS_UP1_TYPE, FLAME_XS_UP2_TYPE
         .byte   FLAME_XS_DN1_TYPE, FLAME_XS_DN2_TYPE
         .byte   ARW_RIGHT_TYPE, ARW_LEFT_TYPE, ARW_UP_TYPE, ARW_DOWN_TYPE
-        .byte   PK_TYPE, PK_TYPE
-        .res    256 - PK_SLOT0 - 2, 0
+        .repeat PK_FRAMES
+        .byte   PK_TYPE
+        .endrepeat
+        .res    256 - PK_SLOT0 - PK_FRAMES, 0
         .assert * - spr_defs = 256, error, "sprites.s: the TYPE page is not 256 bytes"
 
 ; --- page $04, SPR_PTR_LSB (each sprite's byte offset within its page) --------
@@ -144,8 +146,10 @@ spr_defs:
         .byte   FLAME_XS_UP1_OFFSET, FLAME_XS_UP2_OFFSET
         .byte   FLAME_XS_DN1_OFFSET, FLAME_XS_DN2_OFFSET
         .byte   ARW_RIGHT_OFFSET, ARW_LEFT_OFFSET, ARW_UP_OFFSET, ARW_DOWN_OFFSET
-        .byte   <PK_OFF0, <PK_OFF1
-        .res    256 - PK_SLOT0 - 2, 0
+        .repeat PK_FRAMES, I
+        .byte   <(I * PK_BYTES)
+        .endrepeat
+        .res    256 - PK_SLOT0 - PK_FRAMES, 0
         .assert * - spr_defs = 512, error, "sprites.s: the PTR_LSB page is not 256 bytes"
 
 ; --- page $05, SPR_PTR_MSB (the GPU page - the flames share one blob) --------
@@ -154,8 +158,10 @@ spr_defs:
         .byte   FLAME_PAGE
         .endrepeat
         .byte   ARW_PAGE, ARW_PAGE, ARW_PAGE, ARW_PAGE
-        .byte   PK_PAGE + >PK_OFF0, PK_PAGE + >PK_OFF1
-        .res    256 - PK_SLOT0 - 2, 0
+        .repeat PK_FRAMES, I
+        .byte   PK_PAGE + >(I * PK_BYTES)
+        .endrepeat
+        .res    256 - PK_SLOT0 - PK_FRAMES, 0
         .assert * - spr_defs = 768, error, "sprites.s: the PTR_MSB page is not 256 bytes"
 
 ; --- page $06, SPR_HEIGHT ----------------------------------------------------
@@ -170,8 +176,10 @@ spr_defs:
         .byte   FLAME_XS_UP1_HEIGHT, FLAME_XS_UP2_HEIGHT
         .byte   FLAME_XS_DN1_HEIGHT, FLAME_XS_DN2_HEIGHT
         .byte   ARW_RIGHT_HEIGHT, ARW_LEFT_HEIGHT, ARW_UP_HEIGHT, ARW_DOWN_HEIGHT
-        .byte   PK_HEIGHT, PK_HEIGHT
-        .res    256 - PK_SLOT0 - 2, 0
+        .repeat PK_FRAMES
+        .byte   PK_HEIGHT
+        .endrepeat
+        .res    256 - PK_SLOT0 - PK_FRAMES, 0
         .assert * - spr_defs = 1024, error, "sprites.s: the HEIGHT page is not 256 bytes"
         .popseg
 

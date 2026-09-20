@@ -18,17 +18,22 @@
 ; is free or holds a mote (feedback only), and with both holding pickups it
 ; replaces the OLDER, by the slot's age.
 ;
-; THE SPRITE: ONE for every pickup, whatever it holds - its size is the art's
-; (PK_W x PK_HEIGHT, tools/pickupgen.py), overlay, never scaled (the same size
-; at every zoom), two frames flipped every PK_HOLD frames. The art is PK_PAGES
-; GPU pages, kept in the sprite bank (SPRART), so it costs
-; no CPU RAM: it goes to the GPU with the other sprites' at power-on, and
-; its two slots sit in the definition pages behind the arrows' (sprites.s).
+; THE SPRITE: ONE for every pickup, whatever it holds - its size and its
+; animation are the art's (PK_W x PK_HEIGHT, PK_FRAMES, tools/pickupgen.py),
+; overlay, never scaled (the same size at every zoom), a frame every PK_HOLD
+; game frames. The art is PK_PAGES GPU pages, kept in the sprite bank (SPRART),
+; so it costs no CPU RAM: it goes to the GPU with the other sprites' at
+; power-on, and its PK_FRAMES slots sit in the definition pages behind the
+; arrows' (sprites.s).
 ; =============================================================================
 
-PK_SLOT0    = ARW_SLOT0 + 4     ; the two frames, after the arrows
+PK_SLOT0    = ARW_SLOT0 + 4     ; the frames' slots, after the arrows
 PK_PAGE     = $13               ; GPU RAM page (arrows $12), and PK_PAGES on
-PK_HOLD     = 10                ; frames each animation frame is shown
+PK_HOLD     = 8                 ; game frames each animation frame is shown
+PK_SLOW     = 1                 ; FRAME mask: it takes its step one frame in
+                                ;   PK_SLOW+1 and drifts with the ship on the
+                                ;   others, so it closes at 1/(PK_SLOW+1) of a
+                                ;   mote's speed - see satn.s do_satn
 
 ; --- state: $73AF-$73B3, behind hud_game.s's MSGSAVE. Always mapped: laser.s
 ;     reads LSRHAVE outside any bracket ------------------------------------------
@@ -36,14 +41,18 @@ LSRHAVE     = $73AF             ; nonzero once a laser has been TAKEN. A new
                                 ;   game (continue included) clears it; a lost
                                 ;   ship and a sector keep it
 PKANI       = $73B0             ; frames left on this animation frame
-PKPH        = $73B1             ; the frame, 0 or 1
+PKPH        = $73B1             ; the animation's frame, 0 .. PK_FRAMES-1
 PKT         = $73B2             ; pk_spawn's tag
 PKAGE       = $73B3             ; ...and slot 0's age, to compare
         .assert MSGSAVE = LSRHAVE - 1 && PKAGE < WINSAVE, error, "pickup.s: the block no longer fits between MSGSAVE and WINSAVE"
         .assert SPT_LASER & $80 && SPT_SHIELD & $80 && (SPT_SATN & $80) = 0, error, "pickup.s: bit 7 of the tag is 'a pickup'"
 
         .pushseg
-        .segment "CODE6"
+        .segment "CODE4"                ; the run area, not CART_HIRAM: HIRAM
+                                        ;   was down to 8 bytes when the
+                                        ;   pickup's half-rate step (satn.s)
+                                        ;   needed room, and this file asks
+                                        ;   nothing of HIRAM
 
 ; -----------------------------------------------------------------------------
 ; pk_drop - foes.s foe_kill, FEI dying, EXTX/EXTY its position (expl_at's).
@@ -148,12 +157,16 @@ pk_tick:
         bpl     :+
         lda     #PK_HOLD-1
         sta     PKANI
-        lda     PKPH
-        eor     #$01
-        sta     PKPH
+        lda     PKPH                    ; ...and the next frame: 0, 1, ... and
+        inc     a                       ;   round to 0 again
+        cmp     #PK_FRAMES
+        bcc     @set
+        lda     #$00
+@set:   sta     PKPH
 :       rts
 
         .assert PK_PAGE + PK_PAGES <= $14 + 1, error, "pickup.s: the art runs past GPU page $14"
+        .assert PK_FRAMES >= 1 && PK_FRAMES * PK_BYTES <= PK_PAGES * 256, error, "pickup.s: the frames do not fit the pages they claim"
 
         .segment "SPRART"               ; the art - GENERATED, tools/pickupgen.py -
         .align  256                     ;   is not RAM's: it sits in a ROM bank and

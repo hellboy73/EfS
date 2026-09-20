@@ -264,7 +264,13 @@ do_satn:
         jmp     @nextx
 
 @step:  stz     SATSW
-        lda     SATPT,x                 ; one frame older, saturating
+        lda     SATPT,x                 ; A PICKUP TAKES ITS STEP one frame in
+        bpl     :+                      ;   PK_SLOW+1 (pickup.s) and only drifts
+        lda     FRAME                   ;   with the ship on the others: the
+        and     #PK_SLOW                ;   same pull, a slower approach
+        beq     :+
+        jmp     @scr
+:       lda     SATPT,x                 ; one frame older, saturating
         and     #SATP_AGE
         cmp     #SATP_SWIRL
         bcs     :+
@@ -348,7 +354,7 @@ do_satn:
         adc     SATPYH,x
         sta     SATPYH,x
 
-        sec                             ; ...and to the screen, by the road a
+@scr:   sec                             ; ...and to the screen, by the road a
         lda     SATPXL,x                ;   puff's anchor takes (expl_one)
         sbc     SHXL
         sta     PXL
