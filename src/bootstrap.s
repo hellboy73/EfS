@@ -61,6 +61,7 @@
         .import __CODE5_LOAD__, __CODE5_RUN__, __CODE5_SIZE__
         .import __UICODE_LOAD__, __UICODE_RUN__, __UICODE_SIZE__
         .import __CODE6_LOAD__, __CODE6_RUN__, __CODE6_SIZE__
+        .import __CODE7_LOAD__, __CODE7_RUN__, __CODE7_SIZE__
         .import __SHAPES_LOAD__, __SHAPES_RUN__, __SHAPES_SIZE__
         .import cart_init, cart_frame
 
@@ -88,6 +89,8 @@ UICODE_BANK   = 6               ; ...and the screens' code behind the pictures
                                  ;   in bank 6, running after CODE5
 CODE6_BANK    = 6               ; ...and the pulsar behind that, running after
                                  ;   UICODE
+CODE7_BANK    = 7               ; ...and the base's code behind MSGDATA in bank 7,
+                                 ;   running in upper RAM, after HIDATA
 SHAPES_BANK   = 2               ; ...and the vertex tables behind RODATA in bank
                                  ;   2, running in the RAM under the window at
                                  ;   $9800 - a write there reaches the RAM whatever
@@ -148,6 +151,8 @@ boot_segs:
         .word   __CODE6_LOAD__, __CODE6_RUN__, __CODE6_SIZE__
         .byte   SHAPES_BANK
         .word   __SHAPES_LOAD__, __SHAPES_RUN__, __SHAPES_SIZE__
+        .byte   CODE7_BANK
+        .word   __CODE7_LOAD__, __CODE7_RUN__, __CODE7_SIZE__
 boot_segs_end:
 
 ; -----------------------------------------------------------------------------

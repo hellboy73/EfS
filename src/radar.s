@@ -386,7 +386,7 @@ ring_frame:
 ; time rather than looked up in QS.
 ;
 ; It is registered right after the ship's, from do_objects, and that is not
-; arbitrary: the list is capped at 16 and the discs the rocks add would
+; arbitrary: the list is capped (OCC_MAX) and the discs the rocks add would
 ; otherwise be able to fill it first. The two things that are ALWAYS on screen
 ; take their slots before anything can compete for them.
 ; -----------------------------------------------------------------------------

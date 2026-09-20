@@ -603,6 +603,9 @@ do_objects:
                                         ;   spin, it is four cycles cheaper here
                                         ;   than the table read was.
 
+        jsr     base_rock               ; the human base is a wall: a rock inside
+                                        ;   it is put back on it and turned, BEFORE
+                                        ;   its cell is looked up (base.s)
         jsr     cell_of                 ; it moved, so it may have left its cell
         cmp     OBJCEL,x
         beq     :+

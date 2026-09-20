@@ -591,7 +591,10 @@ shot_move:
         lda     SHTYH,x
         adc     SHTVYT,x
         sta     SHTYH,x
-
+        jsr     base_shot_p             ; the human base takes it (base.s)
+        bcc     :+
+        jmp     @next
+:
         sec                             ; world delta from the ship - wrap-correct
         lda     SHTXL,x                 ;   for free, a signed 16-bit subtract IS
         sbc     SHXL                    ;   the short way round the torus

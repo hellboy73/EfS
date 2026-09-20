@@ -270,8 +270,8 @@ SPR_H2      = 8                 ;   so half of that, for the occluder box
 ;
 ; 16 half-res rows a band (OCCB_SH = 4) keeps the list index in a byte -
 ; band*16 + slot is at most 9*16+15 = 159 - and it is why the base offset comes
-; out as FBY & $F0 with no shifting at all. 16 slots a band is the OCCN maximum,
-; so a band can never overflow and the build needs no capacity test.
+; out as FBY & $F0 with no shifting at all. A band holds 16 (OCCB_SLOTS) and the
+; list holds OCC_MAX = 32, so a band CAN fill: occ_bands tests for it (occlude.s).
 OCCB_SH     = 4                 ; FBY >> this = band
 OCCB_N      = 10                ; bands covering FBY 0..149
 
@@ -1318,6 +1318,10 @@ frame_body:
                                         ; ...the pixel puffs its hits threw off,
                                         ;   which outlive the bullet that made
                                         ;   them by a few frames
+        jsr     do_base                 ; the human base, if the sector has one:
+                                        ;   its squares and, above all, their
+                                        ;   discs - do_stars reads the list, so
+                                        ;   this is the last place (base.s)
         jsr     do_stars
         jsr     do_motes
         jsr     emit_ship
@@ -1509,6 +1513,10 @@ frame_body:
                                         ; it, and SECTOR COMPLETED. CODE6, after
                                         ; shield.s (its state follows that
                                         ; file's) and screens.s (SC_SECTOR)
+        .include "base.s"               ; the human base: fifteen squares drawn
+                                        ; by a rule, their star-occlusion discs,
+                                        ; and the field the ship cannot enter.
+                                        ; CODE6, its state behind gate.s's
         .include "pickup.s"             ; the laser and the shield, dropped by
                                         ; a kill and homing like Saturnium.
                                         ; CODE6, its art in SPRART

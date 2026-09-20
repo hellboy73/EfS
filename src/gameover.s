@@ -347,6 +347,8 @@ level_begin:
                                         ;   into init_cells and nothing may come
                                         ;   between the two (see load_level)
         jsr     gate_load               ; ...and the exit, closed (gate.s)
+        jsr     base_load               ; ...and the human base, if this sector
+                                        ;   has one (base.s)
         jsr     indicate_reset          ; ...no message left over from the
         jsr     hud_reset               ;   last sector, and every row repaints
         lda     #HUD_PH_OVER - 1       ; ...and the paint schedule is wound to

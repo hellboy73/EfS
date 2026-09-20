@@ -13,7 +13,19 @@
 ; occ_bands exists because asking every star about every occluder is a product
 ; of two numbers that both grow with the zoom. Indexing the occluders by the
 ; screen rows they touch turns that product into a short list per row.
+;
+; THE LIST HOLDS OCC_MAX AND A BAND HOLDS OCCB_SLOTS - two numbers, since the
+; human base (base.s) put fifteen discs in at once. The list was 16 and a band
+; was 16, so a band could not overflow and the build never tested it. The arrays
+; (main.s OCCX0..OCCR2H) were always spaced 32 apart, so 32 ids fit them; a band
+; is still 16 wide, and an id that finds its band full is left out of THAT band
+; only - the stars in those rows show through it - rather than written past it.
 ; =============================================================================
+OCC_MAX     = 32                ; occluders: the ship, the radar, the rocks, the
+                                ;   base's fifteen. The arrays are $20 apart
+OCCB_SLOTS  = 16                ; ids in one band: OCCBL's stride, which the star
+                                ;   loop takes as FBY & $F0
+        .assert OCC_MAX <= $20, error, "occlude.s: the OCC arrays are spaced $20 apart"
 ; -----------------------------------------------------------------------------
 ; add_ship_occluder — the star-suppression list, which is now one box.
 ; -----------------------------------------------------------------------------
@@ -93,7 +105,7 @@ add_ship_occluder:
 ; -----------------------------------------------------------------------------
 add_disc:
         ldy     OCCN
-        cpy     #16
+        cpy     #OCC_MAX
         bcc     :+
         rts                             ; the list is full
 :       lda     CX2L
@@ -268,10 +280,12 @@ occ_bands:
         lda     #OCCB_N-1               ;   not get to rest on a caller keeping
 :       sta     T1                      ;   a promise.
 @band:  ldx     T0
-        lda     OCCBN,x                 ; append at band*16 + count. The count
-        inc     OCCBN,x                 ;   cannot reach 16: OCCN is capped at 16
-        sta     T2                      ;   and an occluder is appended once per
-        txa                             ;   band, so no capacity test is needed.
+        lda     OCCBN,x                 ; append at band*16 + count - unless the
+        cmp     #OCCB_SLOTS             ;   band is full. The list is 32 now and
+        bcs     @skip                   ;   a band 16, so the count CAN reach
+        inc     OCCBN,x                 ;   16: an occluder that finds it there
+        sta     T2                      ;   is left out of this band, and never
+        txa                             ;   written past it (see OCC_MAX)
         asl     a
         asl     a
         asl     a
@@ -281,7 +295,7 @@ occ_bands:
         tay
         lda     T3
         sta     OCCBL,y
-        inc     T0
+@skip:  inc     T0
         lda     T0
         cmp     T1
         beq     @band

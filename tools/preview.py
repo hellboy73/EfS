@@ -835,6 +835,10 @@ def boot_cart():
         _BOOT_LVL.extend((lbl["LVL_MISN"], lbl["LVL_MPAR"]))
     cpu_mem[_BOOT_LVL[0]] = cpu_mem[_BOOT_LVL[1]] = 0
     cpu_mem[asm_consts("satn.s", "emp.s", "shield.s", "gate.s")["GTON"]] = 0
+    # ...and without the human base level 0 now has (src/base.s): a wall and
+    # eight squares in the way would be counted as their own by every rock,
+    # star and radar check below. base_bench turns it on.
+    cpu_mem[asm_consts("satn.s", "emp.s", "shield.s", "gate.s", "base.s")["BSON"]] = 0
 # The OS boot leaves the cartridge ENABLED on bank 0 (cart_bank <- $80, see the
 # Boot Procedure) and CART_SHADOW holding that byte. This bench skips OS boot and
 # calls the cartridge directly, so it has to stand in for that step: cart_load
@@ -5050,15 +5054,21 @@ def gate_bench():
         b = ram_block(GTXL_A, 4)
         return b[0] | b[1] << 8, b[2] | b[3] << 8
 
+    gsrc = (SRC / "gate.s").read_text()
+    MARK = list(zip(*(
+        [sb8(int(v.replace("<", ""))) for v in
+         re.search(rf"^{lab}:\s*\.byte\s+(.+)$", gsrc, re.M).group(1).split(",")]
+        for lab in ("GX_DX", "GX_DY"))))
+
     def xmarks(cmds):
-        """DOT_PIXELS lists of exactly GTR_N dots shaped like an X."""
+        """DOT_PIXELS lists of exactly GTR_N dots in gate.s's GX_DX/GX_DY shape
+        - the radar's mark for the gate - and the centre each is drawn round."""
         out = []
         for op, pl in cmds:
             if op == 0x47 and pl[0] == GX:
                 pts = [(pl[1 + 2 * i], pl[2 + 2 * i]) for i in range(GX)]
-                c = pts[0]
-                if sorted((x - c[0], y - c[1]) for x, y in pts) == sorted(
-                        [(0, 0), (1, 1), (2, 2), (-1, -1), (-2, -2), (1, -1), (2, -2), (-1, 1), (-2, 2)]):
+                c = (pts[0][0] - MARK[0][0], pts[0][1] - MARK[0][1])
+                if sorted((x - c[0], y - c[1]) for x, y in pts) == sorted(MARK):
                     out.append(c)
         return out
 
@@ -5180,6 +5190,693 @@ def gate_bench():
 
 
 gate_bench()
+
+
+# =============================================================================
+# The human base (src/base.s): EA_BASE, six triangles drawn by the gate's own
+# routine, a circle a triangle (its occlusion disc and its wall), a radar mark
+# =============================================================================
+def base_bench():
+    import math
+    import random
+    B = asm_consts("enemies.s", "satn.s", "emp.s", "shield.s", "gate.s", "cam.s", "radar.s", "base.s")
+    BSON_A, BSXL_A, BSAST_A = B["BSON"], B["BSXL"], B["BSAST"]
+    SHIPR, FOE_R, CR, HR, BSLIVE_A = B["BS_SHIPR"], B["BS_FOE_R"], B["BS_CR"], B["BS_HR"], B["BSLIVE"]
+    BN, HOLD = B["EN_BASE_PN"], B["EN_BASE_AHOLD"]
+    RAD = asm_consts("radar.s")
+    JOYPORT_A, CURLEV_A = SCR["JOYPORT"], SCR["CURLEV"]
+    ZP = {n: main_zp(n) for n in ("HEAD", "HEADF", "SHXL", "SHXH", "SHXF", "SHYL", "SHYH", "SHYF",
+                                  "VELXL", "VELXH", "VELXT", "VELYL", "VELYH", "VELYT", "OCCN", "ZEASH", "ZOOMH",
+                                  "SINV", "COSV", "TRAVL", "TRAVH")}
+    OCC = {n: cart_addr(n) for n in ("OCCX0", "OCCX1", "OCCY0", "OCCY1", "OCCCX", "OCCCY", "OCCR2L",
+                                     "OCCR2H", "OCCBN", "OCCBL", "PEND")}
+    OBJ = {n: cart_addr(n) for n in ("OBJXL", "OBJXH", "OBJYL", "OBJYH", "OBJVXL", "OBJVXH",
+                                     "OBJVYL", "OBJVYH", "OBJSHP")}
+    R = asm_consts("radar.s")
+    FOE = {"XL": R["FOEXL"], "XH": R["FOEXH"], "YL": R["FOEYL"], "YH": R["FOEYH"],
+           "VXL": foes_addr("FOEVXL"), "VXH": foes_addr("FOEVXH"),
+           "VYL": foes_addr("FOEVYL"), "VYH": foes_addr("FOEVYH")}
+    NFOE_A = R["NFOE"]
+    BODY_R = [int(v) for v in re.search(r"^BODY_R:\s+\.byte\s+([^;\n]+)", (SRC / "physics.s").read_text(),
+                                        re.M).group(1).split(",")]
+
+    def wrap16(v):
+        return ((v + 0x8000) % 0x10000) - 0x8000
+
+    def frame(joy=0):
+        port = cpu_mem[JOYPORT_A]
+        cpu_mem[JOY1_PREV] = cpu_mem[JOY1] = cpu_mem[JOY1_PRESS] = 0
+        cpu_mem[JOY1_PREV + 3] = cpu_mem[JOY1 + 3] = cpu_mem[JOY1_PRESS + 3] = 0
+        if joy:
+            cpu_mem[JOY1 + port] = joy
+        call(cpu, API_GPU_BEGIN)
+        call(cpu, CART_FRAME)
+        call(cpu, API_GPU_END)
+        return emitted()
+
+    def emitted():
+        end = cpu_mem[0x04] | (cpu_mem[0x05] << 8)
+        return bytes(cpu_mem[PPRAM + i] for i in range(end - PPRAM + 1))
+
+    def timed(name, x=None):
+        """One cart routine inside the window bracket. -> (cycles, X on return)."""
+        call(cpu, API_GPU_BEGIN)
+        call(cpu, LBL["win_off"])
+        if x is not None:
+            cpu.x = x
+        c = call(cpu, LBL[name])
+        rx = cpu.x
+        call(cpu, LBL["win_on"])
+        call(cpu, API_GPU_END)
+        return c, rx
+
+    def anchor():
+        b = ram_block(BSXL_A, 4)
+        return b[0] | b[1] << 8, b[2] | b[3] << 8
+
+    def put_ship(dx, dy, fx=0, fy=0):
+        ax, ay = anchor()
+        x, y = (ax + dx) & 0xFFFF, (ay + dy) & 0xFFFF
+        for n, v in (("SHXL", x & 0xFF), ("SHXH", x >> 8), ("SHYL", y & 0xFF), ("SHYH", y >> 8),
+                     ("SHXF", fx), ("SHYF", fy)):
+            cpu_mem[ZP[n]] = v
+
+    def set_vel(vx, vy):
+        """8.8 world units a frame, 24-bit signed, as do_ship keeps it."""
+        for pre, v in (("VELX", vx), ("VELY", vy)):
+            cpu_mem[ZP[pre + "L"]] = v & 0xFF
+            cpu_mem[ZP[pre + "H"]] = (v >> 8) & 0xFF
+            cpu_mem[ZP[pre + "T"]] = (v >> 16) & 0xFF
+
+    def get_vel():
+        return (s24(cpu_mem[ZP["VELXL"]], cpu_mem[ZP["VELXH"]], cpu_mem[ZP["VELXT"]]),
+                s24(cpu_mem[ZP["VELYL"]], cpu_mem[ZP["VELYH"]], cpu_mem[ZP["VELYT"]]))
+
+    def inside(dx, dy, r):
+        return abs(dx) < HX + r and abs(dy) < HY + r
+
+    def tris(cmds):
+        """The base's DOT_POLYGONs ($4C, three vertices) with their corners in half-res px."""
+        out = []
+        for op, pl in decode(cmds):
+            if op == 0x4C and (pl[6] & 0x7F) == 3:
+                offs = [(sb8(pl[7 + 2 * k]), sb8(pl[8 + 2 * k])) for k in range(3)]
+                C, sgc, S, sgs = pg_matrix(pl[4], pl[5])
+                cx, cy = s16(pl[0], pl[1]), s16(pl[2], pl[3])
+                out.append({"cx": cx, "cy": cy, "ang": pl[4], "scale": pl[5], "offs": offs,
+                            "pts": [pg_vertex(dx, dy, cx, cy, C, sgc, S, sgs) for dx, dy in offs]})
+        return out
+
+    def marks(cmds):
+        """DOT_PIXELS lists of exactly the base's six dots, as the hexagon's mark - and where."""
+        want = sorted([(-1, 0), (-1, -1), (0, 1), (0, -2), (1, 0), (1, -1)])
+        out = []
+        for op, pl in decode(cmds):
+            if op == 0x47 and pl[0] == 6:
+                pts = [(pl[1 + 2 * i], pl[2 + 2 * i]) for i in range(6)]
+                c = (pts[0][0] + 1, pts[0][1])
+                if sorted((x - c[0], y - c[1]) for x, y in pts) == want:
+                    out.append(c)
+        return out
+
+    # ---- the base is put where level 0 says --------------------------------------------------
+    boot_cart()
+    cpu_mem[CURLEV_A] = 0
+    timed("base_load")
+    ax, ay = anchor()
+    check("BASE: base_load puts level 0's base at its anchor, on the first step of its playlist",
+          ram(BSON_A) == 1 and (ax, ay) == (0x8000, 0x5800) and ram(BSAST_A) == 0 and ram(BSAST_A + 1) == HOLD,
+          f"BSON {ram(BSON_A)} anchor ({ax:#x}, {ay:#x})")
+
+    # ---- the shape: six triangles as a hexagon, the gate's own way -----------------------------
+    cpu_mem[ZP["HEAD"]], cpu_mem[ZP["HEADF"]] = 64, 0
+    put_ship(0, 0)
+    for _ in range(2):
+        cmds = frame()
+    T = tris(cmds)
+    zs = ram(ZP["ZEASH"])
+    z = zs / 128
+    print(f"        {len(T)} triangles on the screen, scale {T[0]['scale'] if T else '-'} (ZEASH {zs}), "
+          f"angles {sorted({t['ang'] for t in T})}")
+    check(f"BASE: {BN} parts, each ONE DOT_POLYGON of three vertices, all round one centre",
+          len(T) == BN and len({(t['cx'], t['cy']) for t in T}) == 1)
+    check("...turned by -HEAD, at the scale the numbers are authored for (half-res units: ZEASH, not halved)",
+          {t["ang"] for t in T} == {(-64) & 0xFF} and {t["scale"] for t in T} == {zs})
+    side = lambda t: math.dist(t["pts"][1], t["pts"][2]) * 2          # full-res px
+    sides = sorted(round(side(t)) for t in T)
+    big, lit = 140 * z, 84 * z
+    check(f"...five equilateral triangles of the gate's largest, {big:.0f} px a side, and ONE smaller, {lit:.0f}",
+          len([x for x in sides if abs(x - big) <= 3]) == BN - 1 and len([x for x in sides if abs(x - lit) <= 3]) == 1,
+          str(sides))
+    cxy = (T[0]["cx"], T[0]["cy"]) if T else (0, 0)
+    cents = [(sum(p[0] for p in t["pts"]) / 3, sum(p[1] for p in t["pts"]) / 3) for t in T]
+    rs = [math.dist(c, cxy) * 2 for c in cents]
+    angs = sorted(math.degrees(math.atan2(c[1] - cxy[1], c[0] - cxy[0])) % 360 for c in cents)
+    gaps = [(angs[(i + 1) % len(angs)] - angs[i]) % 360 for i in range(len(angs))]
+    check(f"...in a hexagon: the six centres {96 * z:.0f} px out (a 40 unit apex and 16 px between them), 60 degrees apart",
+          all(abs(r - 96 * z) <= 3 for r in rs) and all(abs(g - 60) <= 2 for g in gaps),
+          f"radii {[round(r) for r in rs]}, gaps {[round(g) for g in gaps]}")
+    apex = sorted(round(math.dist(t["pts"][0], cxy) * 2) for t in T)
+    check("...their apexes toward the middle, 16 px from it (the lit one further)",
+          len([a_ for a_ in apex if abs(a_ - 16 * z) <= 3]) == BN - 1, str(apex))
+    lit_at = [k for k, t in enumerate(T) if abs(side(t) - lit) <= 6]
+    check("...the small one is the part BSAST names", lit_at == [ram(BSAST_A)], f"{lit_at} vs {ram(BSAST_A)}")
+    model = next(e for e in _enemy_model().enemies if e.name == "BASE")
+    cents, rad = [], []
+    for k in range(BN):
+        pts = model.frames[(k + 1) % BN][k].pts                     # a frame where part k is the big one
+        c = (sum(q[0] for q in pts) / 3, sum(q[1] for q in pts) / 3)
+        cents.append((round(-c[1] * 32), round(c[0] * 32)))         # world = (-fb y, fb x), 32 units a unit
+        rad.append(max(math.dist(c, q) for q in pts))
+    raw = ram_block(LBL["BS_OFF"], 4 * BN)
+    OFF = [(wrap16(raw[4 * k] | raw[4 * k + 1] << 8), wrap16(raw[4 * k + 2] | raw[4 * k + 3] << 8)) for k in range(BN)]
+    check(f"...each triangle's circle is centred on it, and passes through its corners ({CR} units)",
+          OFF == cents and all(0 <= CR - r_ <= 1 for r_ in rad), f"{OFF} vs {cents}, radii {[round(r_, 1) for r_ in rad]}")
+
+    # ---- the animation: the gate's playlist, six steps of 60 frames ---------------------------
+    his, seen = [], []
+    for i in range(BN * HOLD * 2 + 5):
+        cpu_mem[ZP["OCCN"]] = 0
+        timed("do_base")
+        his.append(ram(BSAST_A))
+        if i % 17 == 0:
+            tt = tris(emitted())
+            if [k for k, t in enumerate(tt) if abs(math.dist(t["pts"][1], t["pts"][2]) * 2 - lit) <= 6] != [ram(BSAST_A)]:
+                print("        MISMATCH at", i, "BSAST", ram(BSAST_A), [round(math.dist(t["pts"][1], t["pts"][2]) * 2) for t in tt], "lit", lit)
+            seen.append([k for k, t in enumerate(tt) if abs(math.dist(t["pts"][1], t["pts"][2]) * 2 - lit) <= 6]
+                        == [ram(BSAST_A)])
+    runs, last, n = [], his[0], 0
+    for h in his:
+        if h == last:
+            n += 1
+        else:
+            runs.append((last, n))
+            last, n = h, 1
+    full = runs[1:]
+    print(f"        lit triangles in turn: {[h for h, _ in full]}, holds {[n for _, n in full]} frames")
+    check(f"...each is shown smaller for exactly {HOLD} frames", bool(full) and all(n == HOLD for _, n in full))
+    seq = [h for h, _ in full]
+    check(f"...in turn, round the hexagon, {BN} to a round",
+          all((b_ - a_) % BN == 1 for a_, b_ in zip(seq, seq[1:])) and len(set(seq)) == BN, str(seq))
+    check("...and the drawn small one is the step BSAST names, on every frame looked at", bool(seen) and all(seen))
+
+    # ---- all standing: ONE disc round the whole hexagon ---------------------------------------
+    cpu_mem[ZP["OCCN"]] = 0
+    timed("do_base")
+    tt = tris(emitted())
+    occn = cpu_mem[ZP["OCCN"]]
+    c0 = (tt[0]["cx"], tt[0]["cy"])
+    r2 = cpu_mem[OCC["OCCR2L"]] | cpu_mem[OCC["OCCR2H"]] << 8
+    r = math.isqrt(r2)
+    reach = max(math.dist(q, c0) for t in tt for q in t["pts"])
+    check("BASE: while all six stand, ONE disc, on the hexagon's centre",
+          occn == 1 and (cpu_mem[OCC["OCCCX"]], cpu_mem[OCC["OCCCY"]]) == (c0[0] & 0xFF, c0[1] & 0xFF), f"OCCN {occn}")
+    check(f"...{HR} half-res px at this zoom, and it holds every corner of every triangle",
+          r * r == r2 and r == (HR * ram(ZP["ZOOMH"]) + 64) >> 7 and r >= reach - 1, f"R {r}, farthest corner {reach:.1f}")
+
+    # ---- a triangle gone: a disc a triangle that stands, through its corners --------------------
+    cpu_mem[BSLIVE_A] = 0x3E
+    cpu_mem[ZP["OCCN"]] = 0
+    timed("do_base")
+    tt = tris(emitted())
+    occn = cpu_mem[ZP["OCCN"]]
+    cents_px = [(sum(q[0] for q in t["pts"]) / 3, sum(q[1] for q in t["pts"]) / 3) for t in tt]
+    ok_c = ok_r = True
+    for k, t in enumerate(tt[:occn]):
+        cx, cy = cents_px[k]
+        ok_c &= (abs(((cpu_mem[OCC["OCCCX"] + k] - round(cx) + 128) & 255) - 128) <= 2
+                 and abs(((cpu_mem[OCC["OCCCY"] + k] - round(cy) + 128) & 255) - 128) <= 2)
+        r2 = cpu_mem[OCC["OCCR2L"] + k] | cpu_mem[OCC["OCCR2H"] + k] << 8
+        r = math.isqrt(r2)
+        far_c = max(math.dist(q, (cx, cy)) for q in t["pts"])
+        ok_r &= r * r == r2 and r == (CR * ram(ZP["ZOOMH"]) + 64) >> 7 and r >= far_c - 1
+    check(f"...with one gone, a disc for each of the {BN - 1} that stand, on its triangle's centre",
+          occn == BN - 1 and ok_c, f"OCCN {occn}, centres {ok_c}")
+    check(f"...{CR} half-res px at this zoom - through the corners - so it holds every one", ok_r)
+    cpu_mem[BSLIVE_A] = 0x3F
+
+    def star_list(cmds):
+        """The starfield: the last DOT_PIXELS list, or the one before it when the near motes
+        (MOTEN, $E4) emitted theirs after it - and its length must be what the star loop says
+        it kept (STARN, $A0), or it is not the stars."""
+        ls = dotlists(cmds)
+        pick = ls[-2] if ram(0xE4) and len(ls) >= 2 else (ls[-1] if ls else [])
+        return pick if len(pick) == ram(0xA0) else []
+
+    def in_tris(cmds, stars):
+        pgs = [t["pts"] for t in tris(cmds)]
+        return sum(any(poly_hit(pg, x + 0.5, y + 0.5) for pg in pgs) for x, y in stars)
+
+    shown = hidden = leaked = 0
+    for hd in range(0, 256, 32):                        # every side of it, with the ship in the middle
+        cpu_mem[ZP["HEAD"]], cpu_mem[ZP["HEADF"]] = hd, 0
+        put_ship(0, 0)
+        cpu_mem[BSON_A] = 1
+        for _ in range(2):
+            frame()
+        with_base = frame()
+        stars_on = star_list(with_base)
+        n_leak = in_tris(with_base, stars_on)
+        leaked += n_leak
+        if n_leak:
+            tt_ = tris(with_base)
+            c_ = (tt_[0]["cx"], tt_[0]["cy"])
+            pg_ = [t["pts"] for t in tt_]
+            print("        LEAK heading", hd, "centre", c_, "ZOOMH", ram(ZP["ZOOMH"]), "OCCN", ram(ZP["OCCN"]),
+                  [(x, y, round(math.dist((x, y), c_), 1)) for x, y in stars_on
+                   if any(poly_hit(q, x + 0.5, y + 0.5) for q in pg_)])
+        shown += len(stars_on)
+        cpu_mem[BSON_A] = 0                             # the same scene without it: what it hides
+        for _ in range(2):
+            without = frame()
+        hidden += in_tris(with_base, star_list(without))
+    cpu_mem[BSON_A] = 1
+    print(f"        eight headings: {shown} stars drawn, {leaked} of them inside a triangle; "
+          f"the same scene without the base would draw {hidden} more there")
+    check("...so no star shows through a triangle, and the base does hide the ones behind it",
+          shown > 0 and leaked == 0 and hidden > 0)
+
+    # ---- the radar mark: the hexagon's six dots -----------------------------------------------
+    cpu_mem[ZP["HEAD"]], cpu_mem[ZP["HEADF"]] = 0, 0
+    put_ship(0, 0)
+    cmds = frame()
+    mk = marks(cmds)
+    check("RADAR: six dots, the hexagon's own shape, on the radar's centre when the ship is over the base",
+          len(mk) == 1 and abs(mk[0][0] - RAD["RADCX"]) <= 1 and abs(mk[0][1] - RAD["RADCY"]) <= 1,
+          f"{mk} vs ({RAD['RADCX']}, {RAD['RADCY']})")
+    put_ship(0, 30000)                                  # far past the radar's reach
+    RBL, ON = RAD["RBLINK"], RAD["RAD_BLINK_ON"]
+    lit_m, dark_m = None, None
+    for blink in (0, ON):
+        cpu_mem[RBL] = blink
+        cpu_mem[ZP["OCCN"]] = 0
+        timed("do_base")
+        m = marks(emitted())
+        if blink == 0:
+            lit_m = m
+        else:
+            dark_m = m
+    rim = math.dist(lit_m[0], (RAD["RADCX"], RAD["RADCY"])) if lit_m else 0
+    print(f"        out of reach: mark {lit_m} lit, {dark_m} dark, {rim:.1f} half-res px from the radar's centre")
+    check("...out of reach it is pinned to the rim, and blinks with the enemies", len(lit_m) == 1 and not dark_m and rim > 8)
+
+    # ---- occ_bands never writes past a band -----------------------------------------------------
+    guard = ram_block(OCC["PEND"], 16)
+    for k in range(32):
+        cpu_mem[OCC["OCCY0"] + k] = cpu_mem[OCC["OCCY1"] + k] = 10
+    cpu_mem[ZP["OCCN"]] = 32
+    timed("occ_bands")
+    counts = ram_block(OCC["OCCBN"], 10)
+    check("OCC: 32 occluders in one band fill it to 16 and no further, and nothing past it is written",
+          counts[0] == 16 and ram_block(OCC["PEND"], 16) == guard and sum(counts[1:]) == 0, str(counts))
+    cpu_mem[ZP["OCCN"]] = 0
+
+    # ---- the wall: a circle a triangle ------------------------------------------------------------
+    def alg_in(dx, dy, r_cu, live=0x3F):
+        """bs_circle's own test: floored magnitudes in units, the sum of squares against rsum^2."""
+        for k in range(BN):
+            if not live >> k & 1:
+                continue
+            ex, ey = dx - OFF[k][0], dy - OFF[k][1]
+            if abs(ex) >> 8 >= 13 or abs(ey) >> 8 >= 13:
+                continue
+            if (abs(ex) >> 5) ** 2 + (abs(ey) >> 5) ** 2 < (CR + r_cu) ** 2:
+                return True
+        return False
+
+    def true_slack(dx, dy, r_cu, live=0x3F):
+        return min(math.dist((dx, dy), OFF[k]) - (CR + r_cu) * 32 for k in range(BN) if live >> k & 1)
+
+    rnd = random.Random(65)
+    stats = {"far": 0, "free": 0, "braked": 0, "inside": 0}
+    bad = []
+    for n in range(3000):
+        dx, dy = rnd.randint(-5200, 5200), rnd.randint(-5200, 5200)
+        if n % 10 not in (0, 1):                        # most of them within a step of a circle
+            k = rnd.randrange(BN)
+            a_ = rnd.uniform(0, 2 * math.pi)
+            r_ = (CR + SHIPR) * 32 + rnd.randint(-40, 140)
+            dx, dy = round(OFF[k][0] + r_ * math.cos(a_)), round(OFF[k][1] + r_ * math.sin(a_))
+        vx, vy = rnd.randint(-127 * 256, 127 * 256), rnd.randint(-127 * 256, 127 * 256)
+        fx, fy = rnd.randrange(256), rnd.randrange(256)
+        put_ship(dx, dy, fx, fy)
+        set_vel(vx, vy)
+        sv, cv = rnd.randint(-127, 127), rnd.randint(-127, 127)
+        cpu_mem[ZP["SINV"]], cpu_mem[ZP["COSV"]] = sv & 0xFF, cv & 0xFF
+        cpu_mem[ZP["TRAVL"]] = cpu_mem[ZP["TRAVH"]] = 0
+        timed("base_brake")
+        vx2, vy2 = get_vel()
+        trav = s16(ram(ZP["TRAVL"]), ram(ZP["TRAVH"]))
+        # the stars' travel loses what the wall took off along the heading (sin, -cos), in
+        # TRAV's units: two a world unit; the two truncating multiplies are 2 units apart at most
+        want_trav = 2 * ((vx2 - vx) / 256 * sv - (vy2 - vy) / 256 * cv) / 128
+        if abs(trav - want_trav) > 6:
+            bad.append(("stars' travel", dx, dy, vx, vy, vx2, vy2, sv, cv, trav, round(want_trav, 1)))
+        ships = (ram(ZP["SHXH"]) << 8 | ram(ZP["SHXL"]), ram(ZP["SHYH"]) << 8 | ram(ZP["SHYL"]))
+
+        def step(v_x, v_y):
+            nx = ((ships[0] << 8 | fx) + v_x) & 0xFFFFFF
+            ny = ((ships[1] << 8 | fy) + v_y) & 0xFFFFFF
+            return wrap16((nx >> 8) - ax), wrap16((ny >> 8) - ay)
+        was_in = alg_in(dx, dy, SHIPR)
+        would = alg_in(*step(vx, vy), SHIPR)
+        after = alg_in(*step(vx2, vy2), SHIPR)
+        if was_in:
+            stats["inside"] += 1
+            if (vx2, vy2) != (vx, vy):
+                bad.append(("inside, braked", dx, dy, vx, vy, vx2, vy2))
+        elif not would:
+            stats["free" if abs(dx) < 6000 and abs(dy) < 6000 else "far"] += 1
+            if (vx2, vy2) != (vx, vy):
+                bad.append(("free, but changed", dx, dy, vx, vy, vx2, vy2))
+        else:
+            stats["braked"] += 1
+            if after or true_slack(*step(vx2, vy2), SHIPR) < 0:
+                bad.append(("braked, still in", dx, dy, vx, vy, vx2, vy2))
+    print(f"        base_brake, 3000 random ships and velocities round the circles: {stats}")
+    check("BRAKE: a step that would enter a circle is cut so it does not, and one that would not is left alone",
+          not bad and stats["braked"] > 100, str(bad[:3]))
+
+    # straight at a circle's middle, along the line of centres: it stops on the circle, unturned
+    put_ship(OFF[0][0], OFF[0][1] + (CR + SHIPR) * 32 + 40)
+    set_vel(0, -200 * 256)
+    cpu_mem[ZP["SINV"]], cpu_mem[ZP["COSV"]] = 0, 127          # heading 0: forward is up the y axis
+    cpu_mem[ZP["TRAVL"]] = cpu_mem[ZP["TRAVH"]] = 0
+    timed("base_brake")
+    vx2, vy2 = get_vel()
+    check("...head on it stops ON the circle, along the line of centres, and does not turn",
+          vx2 == 0 and vy2 == -40 * 256, f"({vx2 / 256}, {vy2 / 256})")
+    check("...and the stars, that scroll off the throttle, lose the 160 units it took off the way forward (-316)",
+          abs(s16(ram(ZP["TRAVL"]), ram(ZP["TRAVH"])) + 316) <= 2, str(s16(ram(ZP["TRAVL"]), ram(ZP["TRAVH"]))))
+
+    # ---- rocks: put back on a circle and turned --------------------------------------------------
+    def rock_put(dx, dy, vx, vy, cls):
+        ax_, ay_ = anchor()
+        x, y = (ax_ + dx) & 0xFFFF, (ay_ + dy) & 0xFFFF
+        for n, v in (("OBJXL", x & 0xFF), ("OBJXH", x >> 8), ("OBJYL", y & 0xFF), ("OBJYH", y >> 8),
+                     ("OBJVXL", vx & 0xFF), ("OBJVXH", (vx >> 8) & 0xFF),
+                     ("OBJVYL", vy & 0xFF), ("OBJVYH", (vy >> 8) & 0xFF), ("OBJSHP", cls)):
+            cpu_mem[OBJ[n]] = v
+
+    def rock_get():
+        w = lambda lo, hi: s16(ram(OBJ[lo]), ram(OBJ[hi]))
+        ax_, ay_ = anchor()
+        return (wrap16(w("OBJXL", "OBJXH") - ax_), wrap16(w("OBJYL", "OBJYH") - ay_),
+                w("OBJVXL", "OBJVXH"), w("OBJVYL", "OBJVYH"))
+
+    def mover_check(kind, get, put, call_name, mode, count, seed, radius):
+        """kind: rocks turn a component (v -> -v), enemies drop it (v -> 0)."""
+        rnd_ = random.Random(seed)
+        pushed, bad_, xbad_ = 0, [], 0
+        for n in range(count):
+            r_cu = radius(rnd_)
+            k = rnd_.randrange(BN)
+            if n % 4:
+                a_ = rnd_.uniform(0, 2 * math.pi)
+                rr = (CR + r_cu) * 32 + rnd_.randint(-1500, 200)
+                dx, dy = round(OFF[k][0] + rr * math.cos(a_)), round(OFF[k][1] + rr * math.sin(a_))
+            else:
+                dx, dy = rnd_.randint(-5600, 5600), rnd_.randint(-5600, 5600)
+            vx, vy = rnd_.randint(-3000, 3000), rnd_.randint(-3000, 3000)
+            put(dx, dy, vx, vy, r_cu)
+            _, rx = timed(call_name, x=0)
+            xbad_ += rx != 0
+            gx, gy, gvx, gvy = get()
+            was = alg_in(dx, dy, r_cu)
+            pushed += was
+            if not was:
+                if (gx, gy, gvx, gvy) != (dx, dy, vx, vy):
+                    bad_.append((r_cu, "moved, but was outside", (dx, dy, vx, vy), (gx, gy, gvx, gvy)))
+                continue
+            ok_v = all(g_ == v_ or g_ == (wrap16(-v_) if mode else 0) for g_, v_ in ((gvx, vx), (gvy, vy)))
+            if alg_in(gx, gy, r_cu) or true_slack(gx, gy, r_cu) < 0 or not ok_v:
+                bad_.append((r_cu, "still in / bad velocity", (dx, dy, vx, vy), (gx, gy, gvx, gvy)))
+        return pushed, bad_, xbad_
+
+    cls_of = {}
+
+    def rock_put_r(dx, dy, vx, vy, r_cu):
+        rock_put(dx, dy, vx, vy, cls_of[r_cu])
+    for c_, r_ in enumerate(BODY_R):
+        cls_of.setdefault(r_, c_)
+    radii = sorted(cls_of)
+    pushed, bad, xbad = mover_check("rock", rock_get, rock_put_r, "base_rock", 1, 2000, 66,
+                                    lambda r_: r_.choice(radii))
+    print(f"        base_rock, 2000 random rocks of every class: {pushed} put back on a circle")
+    check("ROCK: one inside a circle - grown by its own radius - is put outside them all and its velocity "
+          "into it turned, the rest untouched", not bad and pushed > 300, str(bad[:2]))
+    check("...and the slot it was called with comes back in X", xbad == 0)
+
+    # ---- the pocket in the middle: a rock born there is put OUT (a dump found one stuck) --------
+    ok_p, cases = True, []
+    for cls_p in sorted(cls_of.values()):
+        for dx0, dy0, vx0, vy0 in ((0, -16, -2048, 512), (0, 0, 0, 0), (200, 300, 100, -100), (-500, 40, 0, 0)):
+            r_p = BODY_R[cls_p]
+            rock_put(dx0, dy0, vx0, vy0, cls_p)
+            timed("base_rock", x=0)
+            gx, gy, gvx, gvy = rock_get()
+            out_p = not alg_in(gx, gy, r_p) and true_slack(gx, gy, r_p) >= 0
+            ok_p &= out_p
+            cases.append((cls_p, (dx0, dy0), (gx, gy), out_p))
+    check("ROCK: one in the middle of the hexagon - the pocket the circles leave - is put out of the base, "
+          "whatever its size", ok_p, str([c for c in cases if not c[3]][:3]))
+    rock_put(0, -16, -2048, 512, 3)
+    timed("base_rock", x=0)
+    gx, gy, gvx, gvy = rock_get()
+    check("...and out of it, not jittering in it: the dump's rock (class 3, at 0,-16) ends outside every circle",
+          math.hypot(gx, gy) > 60 * 32, f"({gx}, {gy}) v ({gvx}, {gvy})")
+
+    # ---- enemies: put back on a circle, the velocity into it taken away --------------------------
+    def foe_set(dx, dy, vx, vy, r_cu=None):
+        ax_, ay_ = anchor()
+        x, y = (ax_ + dx) & 0xFFFF, (ay_ + dy) & 0xFFFF
+        for n, v in (("XL", x & 0xFF), ("XH", x >> 8), ("YL", y & 0xFF), ("YH", y >> 8),
+                     ("VXL", vx & 0xFF), ("VXH", (vx >> 8) & 0xFF), ("VYL", vy & 0xFF), ("VYH", (vy >> 8) & 0xFF)):
+            cpu_mem[FOE[n]] = v
+
+    def foe_read():
+        ax_, ay_ = anchor()
+        return (wrap16(s16(ram(FOE["XL"]), ram(FOE["XH"])) - ax_), wrap16(s16(ram(FOE["YL"]), ram(FOE["YH"])) - ay_),
+                s16(ram(FOE["VXL"]), ram(FOE["VXH"])), s16(ram(FOE["VYL"]), ram(FOE["VYH"])))
+
+    pushed, bad, xbad = mover_check("foe", foe_read, foe_set, "base_foe", 0, 1500, 67, lambda r_: FOE_R)
+    print(f"        base_foe, 1500 random enemies: {pushed} put back on a circle")
+    check("ENEMY: put outside them all, and the velocity INTO the circle taken away, so it slides",
+          not bad and pushed > 250 and xbad == 0, str(bad[:2]))
+
+    # ---- a segment that is not live has no disc, no wall and no drawing ---------------------------
+    cpu_mem[BSLIVE_A] = 0x3E                            # triangle 0 gone
+    cpu_mem[ZP["HEAD"]], cpu_mem[ZP["HEADF"]] = 64, 0
+    put_ship(0, 0)
+    cpu_mem[ZP["OCCN"]] = 0
+    timed("do_base")
+    tt = tris(emitted())
+    check("SEGMENT: a triangle the mask has dropped is not drawn and has no disc",
+          len(tt) == BN - 1 and cpu_mem[ZP["OCCN"]] == BN - 1, f"{len(tt)} drawn, OCCN {cpu_mem[ZP['OCCN']]}")
+    dead_c = OFF[0]
+    r4 = cls_of[min(radii)]                             # the smallest rock: outside every other circle at this spot
+    rock_put(dead_c[0], dead_c[1], 500, 500, r4)
+    timed("base_rock", x=0)
+    still = rock_get()
+    cpu_mem[BSLIVE_A] = 0x3F
+    rock_put(dead_c[0], dead_c[1], 500, 500, r4)
+    timed("base_rock", x=0)
+    moved = rock_get()
+    check("...and no wall: a rock in it stays where it is, where with the triangle live it is put out",
+          still == (dead_c[0], dead_c[1], 500, 500) and moved != still, f"{still} vs {moved}")
+
+    # ---- bullets: stopped by the triangle, not by its circle --------------------------------------
+    shots_src = (SRC / "shots.s").read_text()
+    SHT = {n: int(re.search(rf"^{n}\s*=\s*[$]([0-9A-Fa-f]{{4}})", shots_src, re.M).group(1), 16)
+           for n in ("SHTLIVE", "SHTXL", "SHTXH", "SHTYL", "SHTYH", "EXLIVE")}
+    FS = {"LIVE": foes_addr("FSLIVE"), "XL": foes_addr("FSXL"), "XH": foes_addr("FSXH"),
+          "YL": foes_addr("FSYL"), "YH": foes_addr("FSYH")}
+    ax_, ay_ = anchor()
+
+    def puffs():
+        return sum(1 for k in range(6) if cpu_mem[SHT["EXLIVE"] + k])   # EXPL_N puffs
+
+    def bullet_at(dx, dy, kind):
+        x, y = (ax_ + dx) & 0xFFFF, (ay_ + dy) & 0xFFFF
+        if kind == "p":
+            for n_, v in (("XL", x & 0xFF), ("XH", x >> 8), ("YL", y & 0xFF), ("YH", y >> 8)):
+                cpu_mem[SHT["SHT" + n_]] = v
+            cpu_mem[SHT["SHTLIVE"]] = 1
+        else:
+            for n_, v in (("XL", x & 0xFF), ("XH", x >> 8), ("YL", y & 0xFF), ("YH", y >> 8)):
+                cpu_mem[FS[n_]] = v
+            cpu_mem[FS["LIVE"]] = 1
+        for k in range(6):
+            cpu_mem[SHT["EXLIVE"] + k] = 0
+
+    def shot_result(dx, dy, kind):
+        bullet_at(dx, dy, kind)
+        _, rx = timed("base_shot_p" if kind == "p" else "base_shot_f", x=0)
+        hit = bool(cpu.p & cpu.CARRY)
+        return hit, rx, puffs(), cpu_mem[SHT["SHTLIVE"]] if kind == "p" else ram(FS["LIVE"])
+
+    def tri_signed(dx, dy, k):
+        """The most-outside edge distance of (dx, dy) world units from triangle k, in units: negative = inside."""
+        cxk, cyk = OFF[k][0] / 32, OFF[k][1] / 32
+        ul = math.hypot(cxk, cyk)
+        u = (cxk / ul, cyk / ul)
+        qx, qy = dx / 32 - cxk, dy / 32 - cyk
+        nrm = [u, (-0.5 * u[0] - math.sqrt(3) / 2 * -u[1], -0.5 * u[1] - math.sqrt(3) / 2 * u[0]),
+               (-0.5 * u[0] + math.sqrt(3) / 2 * -u[1], -0.5 * u[1] + math.sqrt(3) / 2 * u[0])]
+        return max(n[0] * qx + n[1] * qy for n in nrm) - 20
+
+    # the reference must itself be the triangle: the apex and the corners lie on it
+    ok_ref = all(abs(tri_signed(*(OFF[k][0] + s * 32 * ex, OFF[k][1] + s * 32 * ey), k)) < 0.7
+                 for k in range(BN)
+                 for (ex, ey), s in [((-40 * OFF[k][0] / 1536 * 1.0, -40 * OFF[k][1] / 1536), 1)])
+    check("SHOT: (the reference triangle's apex lies on its own edge)", ok_ref)
+
+    rnd_s = random.Random(70)
+    mism, inside_n, near = [], 0, 0
+    hit_d, miss_d = [], []
+    for n in range(1500):
+        dx, dy = rnd_s.randint(-2600, 2600), rnd_s.randint(-2600, 2600)
+        if n % 2:
+            k = rnd_s.randrange(BN)
+            dx, dy = OFF[k][0] + rnd_s.randint(-1500, 1500), OFF[k][1] + rnd_s.randint(-1500, 1500)
+        hit, rx, pf, live = shot_result(dx, dy, "p" if n % 3 else "f")
+        d = min(tri_signed(dx, dy, k) for k in range(BN))
+        inside_n += hit
+        (hit_d if hit else miss_d).append(d)
+        if abs(d - 2) < 2.0:
+            near += 1                                   # the edge's band (2 unit lip, floors, 7/8): either is right
+            continue
+        if hit != (d < 2):
+            mism.append((dx, dy, hit, round(d, 1)))
+    print(f"        base_shot, 1500 random points at the triangles: {inside_n} inside, {near} in an edge's band; "
+          f"the farthest out it stopped one {max(hit_d):.2f}, the nearest in it let one go {min(miss_d):.2f} (want 2)")
+    check("SHOT: a point is stopped exactly when it is in a triangle (two units of lip), and not in the gaps or the circle's corners",
+          not mism and inside_n > 200, str(mism[:4]))
+
+    hit, rx, pf, live = shot_result(OFF[0][0], OFF[0][1], "p")
+    check("SHOT: the player's bullet in a triangle: stopped, a puff on it, its slot freed, X kept",
+          hit and pf == 1 and live == 0 and rx == 0, f"{hit} puffs {pf} live {live} X {rx}")
+    hit, rx, pf, live = shot_result(OFF[0][0], OFF[0][1], "f")
+    check("SHOT: an enemy's bullet the same: stopped and a puff (the caller frees the slot)",
+          hit and pf == 1, f"{hit} puffs {pf}")
+    hit, rx, pf, live = shot_result(0, 0, "p")
+    check("SHOT: in the middle of the hexagon, in the gap, it is not stopped", not hit and pf == 0 and live == 1)
+    hit, rx, pf, live = shot_result(6000, 0, "p")
+    check("SHOT: far from the base it is not stopped", not hit and pf == 0 and live == 1)
+    cpu_mem[BSLIVE_A] = 0x3E
+    hit, rx, pf, live = shot_result(OFF[0][0], OFF[0][1], "p")
+    check("SHOT: in a triangle that is gone it flies on", not hit and pf == 0 and live == 1)
+    cpu_mem[BSLIVE_A] = 0x3F
+    cpu_mem[BSON_A] = 0
+    hit, rx, pf, live = shot_result(OFF[0][0], OFF[0][1], "p")
+    check("SHOT: in a sector with no base nothing is stopped", not hit and pf == 0 and live == 1)
+    cpu_mem[BSON_A] = 1
+    for k in range(6):
+        cpu_mem[SHT["EXLIVE"] + k] = 0
+    cpu_mem[SHT["SHTLIVE"]] = cpu_mem[FS["LIVE"]] = 0
+
+    # ...and in flight, in the passes that fly them: at 192 units a frame, straight at the middle of
+    # triangle 0's outer edge (y = 1536 + 20 * 32 = 2176 from the anchor), from 3000 units out
+    for kind, fly, name in (("p", "shot_move", "the player's"), ("f", "fsh_all", "an enemy's")):
+        cpu_mem[ZP["HEAD"]], cpu_mem[ZP["HEADF"]] = 0, 0
+        put_ship(0, 4000)
+        for k in range(6):
+            cpu_mem[SHT["EXLIVE"] + k] = 0
+        base_a = SHT["SHTLIVE"] if kind == "p" else FS["LIVE"]
+        vel = {"p": (0x7138, 0x7140, 0x7148, 0x7150, 0x7158, 0x7160), "f": (0x9338, 0x9340, 0x9348, 0x9350, 0x9358, 0x9360)}[kind]
+        for a_ in vel:
+            cpu_mem[a_] = 0
+        cpu_mem[vel[4]], cpu_mem[vel[5]] = (-192) & 0xFF, 0xFF          # vy = -192 units a frame
+        cpu_mem[base_a + 0x68] = 0                                      # SHTANG / FSANG: heading 0
+        if kind == "f":
+            cpu_mem[foes_addr("FSAGE")] = cpu_mem[foes_addr("FSSEEN")] = cpu_mem[foes_addr("FSPOK")] = 0
+        bullet_at(0, 3000, kind)
+        frames = 0
+        for frames in range(1, 40):
+            timed(fly)
+            if not ram(base_a):                               # (the enemy bullets are under the window)
+                break
+        yy = s16(ram(SHT["SHTYL"] if kind == "p" else FS["YL"]), ram(SHT["SHTYH"] if kind == "p" else FS["YH"]))
+        rel = wrap16(yy - ay_)
+        check(f"SHOT, in flight: {name} bullet dies on the triangle's edge (4 frames, at y ~ 2176 - 2240 from the anchor)",
+              frames == 4 and 2000 <= rel <= 2260 and puffs() >= 1, f"{frames} frames, y {rel}, puffs {puffs()}")
+    for k in range(6):
+        cpu_mem[SHT["EXLIVE"] + k] = 0
+    cpu_mem[SHT["SHTLIVE"]] = cpu_mem[FS["LIVE"]] = 0
+
+    # ---- and on a real frame, in the order the frame runs them ----------------------------------
+    cpu_mem[ZP["HEAD"]], cpu_mem[ZP["HEADF"]] = 0, 0
+    GOBJ_A = cart_addr("GOBJ")
+    i = next(k for k in range(NOBJ) if ram(OBJ["OBJSHP"] + k) not in (SHP_DEAD, 4))
+    cls = ram(OBJ["OBJSHP"] + i)
+    r = BODY_R[cls]
+    call(cpu, LBL["win_off"])
+    cpu_mem[GOBJ_A] = i
+    cpu.x = i
+    call(cpu, LBL["cell_unlink"])
+    call(cpu, LBL["win_on"])
+    ax_, ay_ = anchor()
+    x, y = (ax_ + OFF[0][0]) & 0xFFFF, (ay_ + OFF[0][1] + (CR + r) * 32 + 90) & 0xFFFF   # off the far side of a circle
+    for n_, v in (("OBJXL", x & 0xFF), ("OBJXH", x >> 8), ("OBJYL", y & 0xFF), ("OBJYH", y >> 8),
+                  ("OBJVXL", 0), ("OBJVXH", 0), ("OBJVYL", (-1800) & 0xFF), ("OBJVYH", ((-1800) >> 8) & 0xFF)):
+        cpu_mem[OBJ[n_] + i] = v
+    cpu_mem[cart_addr("OBJXF") + i] = cpu_mem[cart_addr("OBJYF") + i] = 0
+    cpu_mem[cart_addr("OBJSLP") + i] = 0
+    call(cpu, LBL["win_off"])
+    cpu.x = i
+    call(cpu, LBL["cell_link"])
+    call(cpu, LBL["win_on"])
+    put_ship(OFF[0][0], OFF[0][1] + (CR + r) * 32 + 2500)
+    seen_in, turned = False, False
+    for f in range(40):
+        frame()
+        dx = wrap16(s16(ram(OBJ["OBJXL"] + i), ram(OBJ["OBJXH"] + i)) - ax_)
+        dy = wrap16(s16(ram(OBJ["OBJYL"] + i), ram(OBJ["OBJYH"] + i)) - ay_)
+        vy = s16(ram(OBJ["OBJVYL"] + i), ram(OBJ["OBJVYH"] + i))
+        seen_in |= alg_in(dx, dy, r) or true_slack(dx, dy, r) < 0
+        turned |= vy > 0
+    check("ROCK, on a real frame: it never gets in, and it comes back out", not seen_in and turned,
+          f"class {cls}: in {seen_in}, turned {turned}, ended ({dx}, {dy}) v {vy}")
+    check("...and the sector grid is whole after it", grid_ok() is None, str(grid_ok()))
+
+    cpu_mem[NFOE_A] = 1
+    out_ = math.hypot(*OFF[2])                                      # a post INSIDE a circle, near its outer rim
+    foe_put(0, (ax + round(OFF[2][0] * (1 + 1600 / out_))) & 0xFFFF,
+            (ay + round(OFF[2][1] * (1 + 1600 / out_))) & 0xFFFF)
+    put_ship(0, 4000)
+    seen_in = False
+    for f in range(6):
+        frame()
+        dx, dy, _, _ = foe_read()
+        seen_in |= alg_in(dx, dy, FOE_R) or true_slack(dx, dy, FOE_R) < 0
+    check("ENEMY, on a real frame: a UFO whose post is inside a circle is not inside one", not seen_in,
+          f"ended at {foe_read()}")
+    cpu_mem[NFOE_A] = 0
+    cpu_mem[foes_addr("FOEST")] = 0
+
+    # ---- what it costs ------------------------------------------------------------------------
+    put_ship(0, 0)
+    cpu_mem[ZP["HEAD"]] = 64
+    frame()
+    cpu_mem[ZP["OCCN"]] = 0
+    drawn, _ = timed("do_base")
+    put_ship(0, 40000)
+    far, _ = timed("do_base")
+    put_ship(OFF[0][0], OFF[0][1] + (CR + SHIPR) * 32 + 1500)
+    set_vel(-100 * 256, 0)
+    near_b, _ = timed("base_brake")
+    put_ship(0, 30000)
+    far_b, _ = timed("base_brake")
+    rock_put(20000, 0, 0, 0, 1)
+    rock_far, _ = timed("base_rock", x=0)
+    rock_put(OFF[0][0], OFF[0][1] + (CR + 39) * 32 - 300, 0, -1000, 0)
+    rock_near, _ = timed("base_rock", x=0)
+    print(f"        do_base {drawn} cycles drawn ({100 * drawn / 237000:.1f}% of a frame), {far} far; "
+          f"base_brake {near_b} near, {far_b} far; base_rock {rock_far} far, {rock_near} on the wall")
+    cpu_mem[BSON_A] = 0
+
+
+base_bench()
 
 
 # =============================================================================

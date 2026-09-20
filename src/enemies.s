@@ -343,6 +343,40 @@ EN_GATE_S14:   .byte     3,   <-21,     0,    10,   <-18,    10,    18
 ; f4p3
 EN_GATE_S15:   .byte     3,   <-8,     0,     4,   <-7,     4,     7
 
+; ---- BASE ----
+EN_BASE_PN     = 6      ; parts, the same in every frame
+EN_BASE_PW     = 0      ; ...of which the LEADING ones become wreck pieces
+EN_BASE_FN     = 6      ; authored frames
+EN_BASE_AN     = 6      ; playlist steps - any number
+EN_BASE_AHOLD  = 60      ; game frames one step lasts
+EN_BASE_R      = 77      ; collision circle, collision units: radius 154 full-res px
+EN_BASE_RBASE  = 90      ; its first row in EN_PLO/EN_PHI...
+EN_BASE_ABASE  = 26      ; ...and its first step in EN_ANIM
+; f0p0
+EN_BASE_S0:    .byte     3,    24,     0,    60,   <-21,    60,    21
+; f0p1, f2p1, f3p1, f4p1, f5p1
+EN_BASE_S1:    .byte     3,     4,     7,    64,    41,     4,    76
+; f0p2, f1p2, f3p2, f4p2, f5p2
+EN_BASE_S2:    .byte     3,   <-4,     7,   <-4,    76,   <-64,    41
+; f0p3, f1p3, f2p3, f4p3, f5p3
+EN_BASE_S3:    .byte     3,   <-8,     0,   <-68,    35,   <-68,   <-35
+; f0p4, f1p4, f2p4, f3p4, f5p4
+EN_BASE_S4:    .byte     3,   <-4,   <-7,   <-64,   <-41,   <-4,   <-76
+; f0p5, f1p5, f2p5, f3p5, f4p5
+EN_BASE_S5:    .byte     3,     4,   <-7,     4,   <-76,    64,   <-41
+; f1p0, f2p0, f3p0, f4p0, f5p0
+EN_BASE_S6:    .byte     3,     8,     0,    68,   <-35,    68,    35
+; f1p1
+EN_BASE_S7:    .byte     3,    12,    21,    48,    41,    12,    62
+; f2p2
+EN_BASE_S8:    .byte     3,   <-12,    21,   <-12,    62,   <-48,    41
+; f3p3
+EN_BASE_S9:    .byte     3,   <-24,     0,   <-60,    21,   <-60,   <-21
+; f4p4
+EN_BASE_S10:   .byte     3,   <-12,   <-21,   <-48,   <-41,   <-12,   <-62
+; f5p5
+EN_BASE_S11:   .byte     3,    12,   <-21,    12,   <-62,    48,   <-41
+
 ; ---- the appearance table ----
 ; Which shape a foe wears is one byte, EA_*, and every table below is
 ; indexed by it. A behaviour KIND picks an appearance; two appearances
@@ -352,22 +386,23 @@ EA_SPIDER         = 1
 EA_SPIDER_FLOAT   = 2
 EA_PULSAR         = 3
 EA_GATE           = 4
-EN_APPN = 5      ; how many appearances there are
+EA_BASE           = 5
+EN_APPN = 6      ; how many appearances there are
 EN_PWMAX = 5      ; the most wreck pieces one appearance throws - foes.s asserts FW_N covers it
 ; parts per frame
-EN_PN:         .byte EN_UFO_PN, EN_SPIDER_PN, EN_SPIDER_FLOAT_PN, EN_PULSAR_PN, EN_GATE_PN
+EN_PN:         .byte EN_UFO_PN, EN_SPIDER_PN, EN_SPIDER_FLOAT_PN, EN_PULSAR_PN, EN_GATE_PN, EN_BASE_PN
 ; ...of which become wreck pieces
-EN_PW:         .byte EN_UFO_PW, EN_SPIDER_PW, EN_SPIDER_FLOAT_PW, EN_PULSAR_PW, EN_GATE_PW
+EN_PW:         .byte EN_UFO_PW, EN_SPIDER_PW, EN_SPIDER_FLOAT_PW, EN_PULSAR_PW, EN_GATE_PW, EN_BASE_PW
 ; playlist steps
-EN_AN:         .byte EN_UFO_AN, EN_SPIDER_AN, EN_SPIDER_FLOAT_AN, EN_PULSAR_AN, EN_GATE_AN
+EN_AN:         .byte EN_UFO_AN, EN_SPIDER_AN, EN_SPIDER_FLOAT_AN, EN_PULSAR_AN, EN_GATE_AN, EN_BASE_AN
 ; game frames a step lasts
-EN_AHOLD:      .byte EN_UFO_AHOLD, EN_SPIDER_AHOLD, EN_SPIDER_FLOAT_AHOLD, EN_PULSAR_AHOLD, EN_GATE_AHOLD
+EN_AHOLD:      .byte EN_UFO_AHOLD, EN_SPIDER_AHOLD, EN_SPIDER_FLOAT_AHOLD, EN_PULSAR_AHOLD, EN_GATE_AHOLD, EN_BASE_AHOLD
 ; collision circle, collision units
-EN_R:          .byte EN_UFO_R, EN_SPIDER_R, EN_SPIDER_FLOAT_R, EN_PULSAR_R, EN_GATE_R
+EN_R:          .byte EN_UFO_R, EN_SPIDER_R, EN_SPIDER_FLOAT_R, EN_PULSAR_R, EN_GATE_R, EN_BASE_R
 ; first row in EN_PLO/EN_PHI
-EN_RBASE:      .byte EN_UFO_RBASE, EN_SPIDER_RBASE, EN_SPIDER_FLOAT_RBASE, EN_PULSAR_RBASE, EN_GATE_RBASE
+EN_RBASE:      .byte EN_UFO_RBASE, EN_SPIDER_RBASE, EN_SPIDER_FLOAT_RBASE, EN_PULSAR_RBASE, EN_GATE_RBASE, EN_BASE_RBASE
 ; first step in EN_ANIM
-EN_ABASE:      .byte EN_UFO_ABASE, EN_SPIDER_ABASE, EN_SPIDER_FLOAT_ABASE, EN_PULSAR_ABASE, EN_GATE_ABASE
+EN_ABASE:      .byte EN_UFO_ABASE, EN_SPIDER_ABASE, EN_SPIDER_FLOAT_ABASE, EN_PULSAR_ABASE, EN_GATE_ABASE, EN_BASE_ABASE
 ; every playlist, end to end: step -> the frame's ROW within its own
 ;   appearance, already multiplied by the part count
 EN_ANIM:       .byte 0*EN_UFO_PN, 1*EN_UFO_PN, 2*EN_UFO_PN, 3*EN_UFO_PN, 0*EN_SPIDER_PN
@@ -375,7 +410,8 @@ EN_ANIM:       .byte 0*EN_UFO_PN, 1*EN_UFO_PN, 2*EN_UFO_PN, 3*EN_UFO_PN, 0*EN_SP
                .byte 1*EN_SPIDER_FLOAT_PN, 2*EN_SPIDER_FLOAT_PN, 3*EN_SPIDER_FLOAT_PN, 0*EN_PULSAR_PN, 1*EN_PULSAR_PN
                .byte 2*EN_PULSAR_PN, 3*EN_PULSAR_PN, 4*EN_PULSAR_PN, 3*EN_PULSAR_PN, 2*EN_PULSAR_PN
                .byte 1*EN_PULSAR_PN, 0*EN_GATE_PN, 1*EN_GATE_PN, 2*EN_GATE_PN, 3*EN_GATE_PN
-               .byte 4*EN_GATE_PN
+               .byte 4*EN_GATE_PN, 0*EN_BASE_PN, 1*EN_BASE_PN, 2*EN_BASE_PN, 3*EN_BASE_PN
+               .byte 4*EN_BASE_PN, 5*EN_BASE_PN
 ; every row, end to end, frame-major within each appearance
 EN_PLO:        .byte <EN_UFO_S0, <EN_UFO_S1, <EN_UFO_S2, <EN_UFO_S3, <EN_UFO_S4, <EN_UFO_S0
                .byte <EN_UFO_S1, <EN_UFO_S5, <EN_UFO_S6, <EN_UFO_S4, <EN_UFO_S0, <EN_UFO_S1
@@ -392,6 +428,12 @@ EN_PLO:        .byte <EN_UFO_S0, <EN_UFO_S1, <EN_UFO_S2, <EN_UFO_S3, <EN_UFO_S4,
                .byte <EN_GATE_S2, <EN_GATE_S3, <EN_GATE_S0, <EN_GATE_S4, <EN_GATE_S5, <EN_GATE_S6
                .byte <EN_GATE_S0, <EN_GATE_S7, <EN_GATE_S8, <EN_GATE_S9, <EN_GATE_S0, <EN_GATE_S10
                .byte <EN_GATE_S11, <EN_GATE_S12, <EN_GATE_S0, <EN_GATE_S13, <EN_GATE_S14, <EN_GATE_S15
+               .byte <EN_BASE_S0, <EN_BASE_S1, <EN_BASE_S2, <EN_BASE_S3, <EN_BASE_S4, <EN_BASE_S5
+               .byte <EN_BASE_S6, <EN_BASE_S7, <EN_BASE_S2, <EN_BASE_S3, <EN_BASE_S4, <EN_BASE_S5
+               .byte <EN_BASE_S6, <EN_BASE_S1, <EN_BASE_S8, <EN_BASE_S3, <EN_BASE_S4, <EN_BASE_S5
+               .byte <EN_BASE_S6, <EN_BASE_S1, <EN_BASE_S2, <EN_BASE_S9, <EN_BASE_S4, <EN_BASE_S5
+               .byte <EN_BASE_S6, <EN_BASE_S1, <EN_BASE_S2, <EN_BASE_S3, <EN_BASE_S10, <EN_BASE_S5
+               .byte <EN_BASE_S6, <EN_BASE_S1, <EN_BASE_S2, <EN_BASE_S3, <EN_BASE_S4, <EN_BASE_S11
 EN_PHI:        .byte >EN_UFO_S0, >EN_UFO_S1, >EN_UFO_S2, >EN_UFO_S3, >EN_UFO_S4, >EN_UFO_S0
                .byte >EN_UFO_S1, >EN_UFO_S5, >EN_UFO_S6, >EN_UFO_S4, >EN_UFO_S0, >EN_UFO_S1
                .byte >EN_UFO_S7, >EN_UFO_S8, >EN_UFO_S4, >EN_UFO_S0, >EN_UFO_S1, >EN_UFO_S9
@@ -407,6 +449,12 @@ EN_PHI:        .byte >EN_UFO_S0, >EN_UFO_S1, >EN_UFO_S2, >EN_UFO_S3, >EN_UFO_S4,
                .byte >EN_GATE_S2, >EN_GATE_S3, >EN_GATE_S0, >EN_GATE_S4, >EN_GATE_S5, >EN_GATE_S6
                .byte >EN_GATE_S0, >EN_GATE_S7, >EN_GATE_S8, >EN_GATE_S9, >EN_GATE_S0, >EN_GATE_S10
                .byte >EN_GATE_S11, >EN_GATE_S12, >EN_GATE_S0, >EN_GATE_S13, >EN_GATE_S14, >EN_GATE_S15
+               .byte >EN_BASE_S0, >EN_BASE_S1, >EN_BASE_S2, >EN_BASE_S3, >EN_BASE_S4, >EN_BASE_S5
+               .byte >EN_BASE_S6, >EN_BASE_S7, >EN_BASE_S2, >EN_BASE_S3, >EN_BASE_S4, >EN_BASE_S5
+               .byte >EN_BASE_S6, >EN_BASE_S1, >EN_BASE_S8, >EN_BASE_S3, >EN_BASE_S4, >EN_BASE_S5
+               .byte >EN_BASE_S6, >EN_BASE_S1, >EN_BASE_S2, >EN_BASE_S9, >EN_BASE_S4, >EN_BASE_S5
+               .byte >EN_BASE_S6, >EN_BASE_S1, >EN_BASE_S2, >EN_BASE_S3, >EN_BASE_S10, >EN_BASE_S5
+               .byte >EN_BASE_S6, >EN_BASE_S1, >EN_BASE_S2, >EN_BASE_S3, >EN_BASE_S4, >EN_BASE_S11
 ; === END GENERATED ===
 
         .popseg

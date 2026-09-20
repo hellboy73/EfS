@@ -315,6 +315,9 @@ do_ship:
         BUILD_ROT ZSI, ZSF, ZOOMH, #$00 ;  @-scope this sits in)
 :
 
+        jsr     base_brake              ; the human base's field: the velocity
+                                        ;   that would enter it is not taken
+                                        ;   (base.s)
         clc                             ; position += velocity, 16.8 + 16.8.
         lda     SHXF                    ;   The velocity carries its own top byte
         adc     VELXL                   ;   now, so the two sign extensions this

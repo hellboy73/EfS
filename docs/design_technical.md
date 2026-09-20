@@ -581,6 +581,11 @@ Two details that follow:
   vector layer needs the mask — which is another quiet argument for the sprite LOD
   in 5.1.
 
+- **The list holds 32**, not the 16 it held with a ship, a radar and a screenful of
+  rocks: the human base (11.48) puts in one disc round the hexagon while all six of its
+  triangles stand, and a disc through the corners of each that stands once one is gone. A
+  band holds 16 ids and `occ_bands` tests for a full one.
+
 ### 5.5 The HUD lives on the background, and it is rate-limited
 
 **Text erases what is under it.** `TEXT` / `VTEXT` write whole character cells,
@@ -1859,7 +1864,8 @@ These are settled and should not be re-opened without a reason:
     replacing the GAME OVER banner are agreed but deferred.
 
 46. **Mining stations: one fixed, indestructible landmark in some sectors.**
-    Decided 2026-09-18 (the user), not built; the open parts are
+    Decided 2026-09-18 (the user); **the figure and its wall are built as the
+    human base, 48**; the rest is not, and the open parts are
     `open_questions.md` E11.
 
     **What one is.** A human mining base, the fiction's (`story_full.md`),
@@ -2056,9 +2062,20 @@ These are settled and should not be re-opened without a reason:
       between the knockback and the position integration). `bs_keep` runs on where
       the true 24-bit step would put it, and the velocity is corrected by however
       far it was put back, so the ship ends on the circle and **slides along it**.
-      It is done by velocity and not by pushing the position back because the
-      star layers scroll off the velocity: a ship pushed back after it had moved
-      would slide the stars under a world that stood still. The ship's radius is 12
+      It is done by velocity, not by pushing the position back, so that the ship
+      is never drawn inside the wall for a frame. **The stars do not follow the
+      velocity, though** - `do_stars` scrolls them off the throttle (`SPD`, times the
+      tier's `vel_shl`), and the wall does not touch that - so the first version
+      left the ship held at the base with the starfield flowing past it at full
+      speed (the user's dump `00002080`: `SPD` 23.8 k, the ship's velocity -2 units
+      a frame). `base_brake` therefore takes what it took off the velocity **along
+      the heading** off the stars' travel as well: forward is (sin, -cos), so the
+      correction's projection is `cx * SINV - cy * COSV` (two `smul16q7`), and a
+      world unit of travel is two of `TRAVL`/`TRAVH`'s 256ths of a pixel (parallax
+      1/4, 32 units a pixel), so twice the projection is added to `TRAV`. Head on
+      the stars stop; along a wall they slow by the way forward that is lost. What
+      the stars cannot show is a sideways slide - they scroll along the heading
+      only, for the knockback's sideways part as well. The ship's radius is 12
       units (its own 16 px and eight more, so it stops short of the line); it loses
       no hull. **Answers E11's brake question**: the ship slides.
     **How a circle pushes, without a square root.** Distances are in collision
@@ -2070,7 +2087,7 @@ These are settled and should not be re-opened without a reason:
     the test errs toward "inside", and a mover is never left in a circle: it stands
     off it by up to a unit and a half (3 px), and the velocity that is reversed or
     dropped is that axis's, not the true normal's. The six circles overlap, so a
-    push out of one can land in the next; they are walked up to three times.
+    push out of one can land in the next; they are walked up to six times.
     **Three consequences.** **The middle of the hexagon is a trap for a circle wall,
     and is closed.** The six circles overlap and leave one small pocket free there
     (8 units across the middle): a mover pushed out of one circle lands in the next,
@@ -2098,8 +2115,29 @@ These are settled and should not be re-opened without a reason:
     the end of the frame. `base_brake` costs 316 cycles, `base_rock` 31 a rock
     that is far and 4.6 k one that is on a circle.
 
-    **Not stopped yet**: the player's **bullets** and the enemies' pass through it
-    (46 says shots end on it), and a rock **frozen** outside `do_objects` window is
+    **Bullets end on the triangle** (the user, 2026-09-20: they were flying through
+    it). The player's, in `shot_move` right after the bullet has moved
+    (`base_shot_p`), and the UFOs' and spiders', in `fsh_all` before the ship is
+    tested (`base_shot_f`): a bullet that is in a live triangle is spent, with the
+    same puff on its tip a hit on a rock gives, and pays nothing. **It is the
+    triangle, not its circle** - the circle stands 20 units off the middle of an
+    edge, and a bullet that dies in empty air reads as a shield - and it is cheap:
+    the three edges of an equilateral triangle are 20 units (`BS_TI`) from its
+    centroid and 120 degrees apart, and all six triangles point their apexes at the
+    anchor, so in world axes the normals are one of two sets (the odd triangles are
+    the even ones turned half a turn), and a point q from the centroid is inside when
+    `qy < TI` and `|7/8 qx| - qy/2 < TI` - whole units, floored, `7/8` for 0.866, a
+    shift and a subtract each. Only the segments whose centroid is within six
+    pages are looked at, and a bullet a base's window away is rejected on its high
+    bytes. The bullet is a point with a two-unit lip (`SHOT_HITR`), and it flies at
+    most 14 units a frame against a triangle 40 across, so it is tested where it
+    is and not swept; through the **gap** between two triangles it flies on, as it
+    should. **Measured** (`base_bench`): 1500 random points, stopped exactly when
+    inside a triangle to within 2.5 units either way; the player's and an enemy's
+    bullet in flight at 192 units a frame stop on the edge of triangle 0 on the
+    fourth frame; a dead segment (`BSLIVE`) stops nothing. **Not done**: the base
+    takes no damage from a shot (no hit points yet, E11), **the laser's beam and the
+    pulsar's** still go through, and a rock **frozen** outside `do_objects` window is
     not tested - a rock the scatter dropped inside the base is put back on a circle
     the first frame it is awake, which can be a visible jump.
 
@@ -2107,8 +2145,9 @@ These are settled and should not be re-opened without a reason:
     tables in **`CODE7`**, a segment stored in ROM **bank 7** (5.9 KB of it free)
     and **run in upper RAM** after `HIDATA` (`cart.cfg`, and one more row in
     `bootstrap.s`'s `boot_segs`): 937 bytes, of the 1,796 upper RAM had. The place,
-    the discs and the mark are `CODE6` (`CART_HIRAM`). **Free now: `CART_HIRAM`
-    30 B, upper RAM 859 B, the RUN area 597 B, bank 0 34 B**, SHAPES 386 B. 55 bytes
+    the discs and the mark are `CODE6` (`CART_HIRAM`). **Free now (before the bullets and the star correction added 430 B to
+    `CODE7`, 1,367 B in all): `CART_HIRAM` 30 B, the RUN area 597 B, bank 0
+    34 B, SHAPES 386 B; upper RAM 429 B**. 55 bytes
     of state under the window behind `gate.s`'s, three `jsr`s in the flight code
     (`do_ship`, `do_objects`, `foe_integrate`), and a dozen small edits to
     `gate.s`. CODE7 was first the RUN area's, then upper RAM's: both `HIRAM` and

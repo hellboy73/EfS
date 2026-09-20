@@ -66,6 +66,11 @@ and everything under `tools/` points at `src/` on purpose.
   content around them.
 - **Physics is the long pole** and is expected to be re-tuned many times. Keep it
   parameterised and keep the headless soak test (physics.md section 8) working.
+- **Enemy density is a budget** (`design_technical.md` 11.49, mechanism F9). The GPU
+  is the tight side: a solid polygon costs ~1.4 k cycles a command and ~1.2 k a
+  segment whatever its length, and a real dump had four UFOs at 38% of a GPU
+  frame. A screen holds only as many enemies as a budget in GPU cycles allows and
+  they arrive gradually; price a new enemy's appearance when it is drawn.
 - **Do not use `mul16` in hot paths** — the engine's multiply is a quarter-square
   table. See design_technical 4.4.
 - **The wrap is free.** Any code that tests for a world boundary is a bug: 16-bit

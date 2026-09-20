@@ -357,14 +357,38 @@ Needs a per-level parameter set, and it must be designed together with the HUD
 ## F. Content and structure
 
 **E11. Mining stations — the open parts of `design_technical.md` 11.46 (TBD).**
+The figure, its radar mark, its circles and its brake are built and settled:
+**11.48** (the human base - six dotted triangles as a hexagon, a circle a triangle
+for the stars and the wall, a wall of infinite mass for rocks, a slide for the
+ship, enemies stopped and sliding). What is still open:
 
-* **The ship's brake:** straight to zero (the first idea), or cancel only the
-  part of the velocity toward the station, so the ship slides along it. The
-  second is less sticky. Fly both.
-* **The shape:** its size (bigger than the screen or not), and its collision
-  shape. A circle, or a few circles, is what the collision pass can afford.
-* **Enemies and the station:** do they go round it or bounce off it? Do the
-  UFOs' shots at a besieged station hit it visibly (sparks, no damage)?
+* **Segments (the user, 2026-09-19):** the base will take **bullets**, be
+  **attacked by aliens** and lose its **segments one by one**. What exists is the
+  structure - a live bit, a circle, and a drawing mask a triangle (`BSLIVE`); what
+  does not is the **hit points** a triangle has, what a bullet or an alien's
+  shot does to one (a spark on the circle? the triangle's own outline as the
+  target?), **how it falls** (`debris.s`'s way, pieces, a sound), what the
+  hexagon does with a hole in it (rocks and the ship can now pass through the gap
+  a dead triangle leaves), and whether the alien attackers target a segment or the
+  base.
+* **CPU cost of the star discs once a triangle is gone:** the one disc round the
+  hexagon (11.48) is the cheap case, 19 k cycles a frame for `do_base` and
+  `do_stars` with the base on the screen; with a triangle gone the base falls back
+  to a disc a triangle that stands, about 2.7 k each more. A base that loses its
+  segments one by one is at its dearest with five or four standing (about 28 k).
+* **Enemies and the station:** the circles stop them and they slide along them,
+  but they do not GO ROUND them as `foe_avoid` takes them round a rock, so a UFO
+  after the ship on the far side stays pressed to the base. Do they need to steer
+  round? Do the UFOs' shots at a besieged station hit it visibly (sparks, no
+  damage)?
+* **The circle is not the triangle:** it stands about 40 px off the middle of an
+  edge. Fine circles need more of them; is this close enough? (The pocket in the
+  middle of the hexagon, where a rock born inside used to get stuck, is closed:
+  `bs_eject`, 11.48.)
+* **Shots:** the player's bullets and the enemies' end on a live triangle, in a puff
+  (11.48), and do it no harm. What is open: the hit points and what a shot takes off
+  (Segments, above); the **laser's beam** (`laser.s`) and the pulsar's, which still go
+  through the base, and whether they end on the first triangle or burn it.
 * **The siege (4-3, 11.46; the fall, the pod and the gate are settled):**
   - What counts as "in the player's presence": on screen, or within a
     distance? And how long after that does the station fall?
@@ -372,10 +396,14 @@ Needs a per-level parameter set, and it must be designed together with the HUD
   - How far off do the UFOs "see" the ship?
   - What the pieces of the fall are, and how long they last.
   - Is the wreck left behind solid like the station, or only a picture?
-* **The radar mark:** which cluster of dots, told apart from the gate's X and
-  a rock's point, and whether it blinks.
-* **Which sectors** have one. Fixed: the siege station in 4-3. Candidates for
-  the rest: 1-1 (the station the field is cleared for), a dark station in L3.
+* **Which sectors** have one. Level 0 has one now, only to fly against. Fixed:
+  the siege station in 4-3. Candidates for the rest: 1-1 (the station the field
+  is cleared for), a dark station in L3.
+* **Placement in the level editor**, and rocks the scatter drops inside the base
+  (they are put back on a circle the first frame they are awake).
+* **The GPU cost in madsim** of six dotted triangles beside the rocks: measured in
+  py65 at about 121 k GPU cycles, half a frame, when the hexagon fills the screen
+  (11.48); the F3 meter is owed a look.
 
 **F1. Mission types (TBD).** ~~Number of levels~~ — **settled: 5 levels**
 (MINING ZONE / CONTACT / HUNT / the station siege / ESCAPE, re-cut 2026-09-18, see `story.md`). What
@@ -531,6 +559,57 @@ readout needs its own GPU/VRAM budget check alongside the shield's.
   starting point to test the feel before spending the budget on more.
 
 ---
+
+**F9. Enemy pool, cap and conditions - the mechanism for `design_technical.md` 11.49 (TBD).**
+The rule is decided: an enemy budget in GPU cycles (proposed, a quarter of the frame),
+kept by the LEVEL SCRIPT (the user, 2026-09-20): **a pool of enemies a level sends in
+all, a cap on how many are alive at once, spawned one after another, each with a
+condition** - "as soon as there is room" or something that has to happen first, such as
+the level being cleared (then they are at the gate). What is open is how it is written
+and run.
+
+* **The level's records.** `levels.s` has, per level, an enemy list of seven-byte
+  records read once by `load_foes` (position, kind, heading, speed). Proposed: a
+  per-level **cap** (`LVL_FCAP`), and a record gets a **condition** byte with its
+  parameter. Pool records wait as data, not as enemies; **the pool may be longer than
+  the 16 enemy slots** (`FOE_MAX`), because only the living hold a slot. One record
+  may stand for several enemies (a count), so that a pool of forty is not forty rows.
+* **The conditions.** A first set, each a byte: *room* (the default); *after N seconds
+  of the sector*; *the ship within R of a point* (a place); *the mission is done* (the
+  gate has opened, `gate_open`); *the previous entry is dead* (a chain, for a scripted
+  order). Which of these a level needs is what to decide first - the example the user
+  gave, the ambush at the gate, needs only "the mission is done".
+* **Where a spawned enemy appears.** At its record's position; for an entry that waits
+  for the gate, at the gate (or on a ring round it, out of the ship's view, so that it
+  arrives instead of popping up). A spawn **never happens on the screen**: a minimum
+  distance from the ship, or the spawn waits. The radar and the enemy arrow (`cam.s`)
+  show it from the moment it exists.
+* **The cadence.** One after another with an interval (a second or two) so that two
+  entries whose conditions come true together do not appear in one frame; the same
+  interval keeps a kill from being answered by an instant replacement.
+* **Missions.** `MS_FOES` (F1) is "every enemy dead": with a pool it must mean the pool
+  empty **and** none alive. An ambush that waits for "the mission is done" cannot be
+  part of the mission it waits for: which enemies are the mission's and which are the
+  ambush's (a flag on the record)?
+* **The editor.** `tools/level_editor.py` writes the cap and the conditions and flags a
+  level whose cap times its dearest appearance is over the budget; that needs the
+  cost table below.
+* **What the player is told.** A message on the bar when the reinforcements come
+  (`ENEMY DETECTED` already exists, `cam.s`), and a sound?
+* **The camera.** `cam.s` frames the nearest enemy and pulls out for it, and every
+  zoom-out puts more on the screen: with a cap, the zoom cannot be what brings the
+  crowd, but does the budget still assume the widest zoom?
+* **The cost table.** One number an appearance, measured by replaying a dump's
+  command list on the GPU (as 11.49 did), stored beside `EN_R` in `enemies.s`, or
+  worked out by the enemy editor from the vertex count. The clipping penalty is real
+  (a UFO half off the edge cost 14.8 k for its hull against 9 k) and is not in a
+  per-appearance number.
+* **The CPU side.** The dump was at 80% CPU1 as well; `do_foes` was 10-19 k cycles for
+  six UFOs. The same limiter that keeps the GPU inside its frame keeps the enemies'
+  thinking bounded; is one budget enough, or two?
+* **Cheaper enemies.** Not part of the mechanism but of the same budget: do not emit a
+  part that is absent in its frame (one vertex, 1.4 k a command); fold the UFO's
+  few-pixel detail parts into its hull. Together about a fifth of a UFO's cost.
 
 ## G. HUD & radar
 

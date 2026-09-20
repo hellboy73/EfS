@@ -22,7 +22,7 @@ MODULES = src/math.s src/input.s src/camera.s src/ship.s src/thrust.s \
           src/shots.s src/foes.s src/laser.s src/sfx.s src/window.s \
           src/music.s src/satn.s src/cam.s src/hiscore.s src/screens.s \
           src/pulsar.s src/emp.s src/shield.s src/trainer.s src/gate.s \
-          src/pickup.s src/sprites.s
+          src/pickup.s src/sprites.s src/base.s
 DATA    = src/shapes.s src/enemies.s src/levels.s src/radar_bg.s \
           src/flames.s src/arrows.s src/screens_art.s src/scroller_text.s \
           src/pickups_art.s

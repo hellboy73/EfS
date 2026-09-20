@@ -9,7 +9,7 @@
 ;              a frame the mission is checked (gate_check): what it asks is
 ;              levels.s's LVL_MISN / LVL_MPAR, one of the MS_* below.
 ;   OPEN       the mission is done: EXIT GATE OPEN on the message bar, and from
-;              that frame the gate is drawn where levels.s put it, an X marks
+;              that frame the gate is drawn where levels.s put it, a triangle marks
 ;              it on the radar, and while it is off the screen the enemy
 ;              arrow's own sprite points at it from the edge.
 ;   ARRIVED    the ship's centre reaches the middle of the X: SC_SECTOR, a
@@ -60,14 +60,15 @@ GATE_IN     = 48 * 16           ; the ship is IN when its centre is within this
                                 ;   many world units of the gate's on both axes:
                                 ;   48 px at 1:1, the middle of the X
 GATE_GR     = 192               ; draw cull margin, full-res px round the screen:
-                                ;   the X's reach, 127 * sqrt(2) at any angle
-GATE_RX     = RAD_RH - 8        ; the radar X's reach, position-high-byte units:
-                                ;   92 -> 23 cells, and the X's +/-2 keeps it
+                                ;   the gate's reach, 127 * sqrt(2) at any angle;
+                                ;   the base's (base.s) is 154 from its centre
+GATE_RX     = RAD_RH - 8        ; the radar mark's reach, position-high-byte units:
+                                ;   92 -> 23 cells, and the mark's +/-2 keeps it
                                 ;   inside the 25 the box holds
-GTR_N       = 9                 ; dots in the radar X
+GTR_N       = 9                 ; dots in the radar's triangle
 
         .assert (2 * GATE_IN) .MOD 256 = 0, error, "gate.s: the arrival test compares the high byte of P + GATE_IN only"
-        .assert (GATE_RX >> RAD_SH) + 2 <= RAD_SCR, error, "gate.s: the radar X would reach outside the radar's box"
+        .assert (GATE_RX >> RAD_SH) + 2 <= RAD_SCR, error, "gate.s: the radar mark would reach outside the radar's box"
         .assert 2 * GATE_RX <= 254, error, "gate.s: d*d = f(2d) needs 2d to index QS"
 
 ; --- SECTOR COMPLETED, the placeholder ------------------------------------------
@@ -98,7 +99,15 @@ GTROW       = SHLD_END + 15     ; ...and the frame's first row in EN_PLO/EN_PHI
 GTRX        = SHLD_END + 16     ; the radar X's centre, half-res
 GTRY        = SHLD_END + 17
 GTRB        = SHLD_END + 18     ; ONE DOT_PIXELS: the count, then GTR_N pairs
-GATE_END    = GTRB + 1 + 2 * GTR_N
+GBAP        = GTRB + 1 + 2 * GTR_N  ; gb_draw's appearance (EA_*)...
+GBST        = GBAP + 1              ; ...the playlist step it shows...
+GBAN        = GBAP + 2              ; ...its own angle, brad...
+GBSH        = GBAP + 3              ; ...and 1 to halve the scale (the gate's
+                                    ;   numbers are full-res px), 0 not (the
+                                    ;   base's are half-res units)
+GBMK        = GBAP + 4              ; ...and which parts to draw, bit j = part j:
+                                    ;   $FF for the gate, the base's live segments
+GATE_END    = GBMK + 1
         .assert GATE_END <= SHAPES_AT, error, "gate.s: past the RAM under the window"
 
         .pushseg
@@ -314,6 +323,17 @@ gate_arrive:
 ; -----------------------------------------------------------------------------
 gb_off: rts
 gate_body:
+        lda     #EA_GATE                ; the gate's own: its appearance, its step,
+        sta     GBAP                    ;   its spin, and half scale
+        lda     GTAST
+        sta     GBST
+        lda     GTANH
+        sta     GBAN
+        lda     #$01
+        sta     GBSH
+        lda     #$FF
+        sta     GBMK
+gb_draw:                                ; ...and base.s comes in here with its own
         clc                             ; FX + GR read unsigned below
         lda     FXL                     ;   400 + 2GR: on the screen, or near
         adc     #<GATE_GR               ;   enough that an arm reaches onto it
@@ -333,17 +353,20 @@ gate_body:
         sbc     #>(300 + 2 * GATE_GR)
         bcs     gb_off
 
-        ldy     #EA_GATE                ; the frame's first row, as foe_anim
+        ldy     GBAP                    ; the frame's first row, as foe_anim
         lda     EN_ABASE,y
         clc
-        adc     GTAST
+        adc     GBST
         tax
         lda     EN_ANIM,x
         clc
         adc     EN_RBASE,y
         sta     GTROW
         stz     GTJ
-@part:  lda     GTROW
+@part:  lsr     GBMK                    ; a part the mask has dropped is not drawn
+        bcs     :+
+        jmp     @next
+:       lda     GTROW
         clc
         adc     GTJ
         tay
@@ -367,7 +390,10 @@ gate_body:
         ror     a
         sta     PBUF+2
         lda     ZEASH
+        ldx     GBSH
+        beq     :+
         lsr     a
+:
 .else
         lda     FXL
         sta     PBUF+0
@@ -380,7 +406,7 @@ gate_body:
         lda     ZEASH
 .endif
         sta     PBUF+5                  ; SCALE
-        lda     GTANH                   ; ANGLE: its own, and the camera's
+        lda     GBAN                    ; ANGLE: its own, and the camera's
         sec
         sbc     HEAD
         sta     PBUF+4
@@ -405,15 +431,15 @@ gate_body:
 .else
         jsr     API_GPU_POLYGON16
 .endif
-        inc     GTJ
-        ldy     #EA_GATE
+@next:  inc     GTJ
+        ldy     GBAP
         lda     GTJ
         cmp     EN_PN,y
         bcc     @part
         rts
 
 ; -----------------------------------------------------------------------------
-; gate_radar - an X on the radar where the gate is, or on its rim toward it.
+; gate_radar - a triangle on the radar where the gate is, or on its rim toward it.
 ; -----------------------------------------------------------------------------
 ; radar_plot's own mapping, on the same high bytes. Out of reach the delta is
 ; taken down by an eighth at a time until it is inside GATE_RX, so the X sits
@@ -422,15 +448,51 @@ gate_body:
 ; lists in the command list, and nothing while the instrument is down.
 ; -----------------------------------------------------------------------------
 gate_radar:
-        lda     RADDOWN
-        beq     :+
+        lda     GTXH
+        ldy     GTYH
+        jsr     gr_pos
+        bcc     :+
         rts
-:       lda     GTXH
+:
+        ldx     #$00                    ; the mark: GTR_N dots round its centre
+        ldy     #$01
+@pt:    lda     GTRX
+        clc
+        adc     GX_DX,x
+        sta     GTRB,y
+        iny
+        lda     GTRY
+        clc
+        adc     GX_DY,x
+        sta     GTRB,y
+        iny
+        inx
+        cpx     #GTR_N
+        bne     @pt
+        lda     #GTR_N
+        sta     GTRB
+        lda     #<GTRB
+        sta     OS_ARG+0
+        lda     #>GTRB
+        sta     OS_ARG+1
+        jmp     API_GPU_DOTPIXELS       ; tail
+
+; -----------------------------------------------------------------------------
+; gr_pos - A / Y = a world position's high bytes -> GTRX/GTRY, where it is on
+; the radar or on its rim toward it. Carry CLEAR: draw it. Carry SET: the
+; instrument is down, or the mark is pinned to the rim and dark this half of the
+; blink. The gate's mark and the base's (base.s) both go through here.
+; -----------------------------------------------------------------------------
+gr_pos:
+        ldx     RADDOWN
+        beq     :+
         sec
+        rts
+:       sec
         sbc     SHXH
         jsr     @fix
         sta     GTDX
-        lda     GTYH
+        tya
         sec
         sbc     SHYH
         jsr     @fix
@@ -470,6 +532,7 @@ gate_radar:
         lda     RBLINK
         cmp     #RAD_BLINK_ON
         bcc     :+
+        sec
         rts
 :       ldx     GTDX                    ; the rotation - radar_plot's, line for
         ldy     GTDY                    ;   line
@@ -504,28 +567,8 @@ gate_radar:
         sbc     GTRY
         sta     GTRY
 
-        ldx     #$00                    ; the X: GTR_N dots round its centre
-        ldy     #$01
-@pt:    lda     GTRX
         clc
-        adc     GX_DX,x
-        sta     GTRB,y
-        iny
-        lda     GTRY
-        clc
-        adc     GX_DY,x
-        sta     GTRB,y
-        iny
-        inx
-        cpx     #GTR_N
-        bne     @pt
-        lda     #GTR_N
-        sta     GTRB
-        lda     #<GTRB
-        sta     OS_ARG+0
-        lda     #>GTRB
-        sta     OS_ARG+1
-        jmp     API_GPU_DOTPIXELS       ; tail
+        rts
 
 ; A = a signed high-byte delta; -128 has no magnitude in a byte, so it is -127.
 @fix:   cmp     #$80
@@ -557,10 +600,13 @@ gate_radar:
         adc     GTJ
         rts
 
-; The X: its centre and two dots out along each diagonal, half-res.
-GX_DX:  .byte   0,  1,  2, <-1, <-2,  1,  2, <-1, <-2
-GX_DY:  .byte   0,  1,  2, <-1, <-2, <-1, <-2,  1,  2
-        .assert GX_DY - GX_DX = GTR_N, error, "gate.s: GTR_N no longer counts the X's dots"
+; The mark: a small SOLID triangle, apex UP the player's screen and never
+; turned - rows of 1, 3 and 5 half-res dots, the middle row on the gate's own
+; point. Written in FRAMEBUFFER axes like everything the GPU is handed (TATE:
+; fb x runs down the screen, fb y to the left), so the apex is -1 on fb x.
+GX_DX:  .byte   <-1, 0, 0, 0, 1, 1, 1, 1, 1
+GX_DY:  .byte   0, 1, 0, <-1, 2, 1, 0, <-1, <-2
+        .assert GX_DY - GX_DX = GTR_N, error, "gate.s: GTR_N no longer counts the mark's dots"
 
         .segment "MSGDATA"          ; was CODE6 - see hud_game.s's
                                     ;   msg_open/msg_close
