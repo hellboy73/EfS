@@ -25,8 +25,11 @@ placing a byte.
 labels* → `MSGDATA` (ROM bank 7, read through `msg_open`/`msg_close`, no RAM);
 *sprites* → `SPRART` + the definition pages in `src/sprites.s` (ROM, streamed to
 the GPU at power-on, no RAM); *vertex tables* (rocks, ship, enemies) → `SHAPES`
-(the RAM under the window at `$9800`, read only inside `win_off` brackets). Do
-not put any of them in `RODATA`/`HIDATA`: upper RAM is for what the IRQ reads.
+(the RAM under the window at `$9800`, read only inside `win_off` brackets);
+*level data* (`levels.s`, the base's `BASE_*`) → `LEVELS` (ROM bank 8, read
+between `lv_open`/`lv_close`, once a sector, no RAM - the rules are in
+`levels.s`'s header). Do not put any of them in `RODATA`/`HIDATA`: upper RAM is
+for what the IRQ reads.
 
 `D:\GitHub\CETAS` is the sister project — the first MAD-65 game, and the
 structural template for this one (cart.cfg / Model B bootstrap / asset tooling /

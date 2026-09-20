@@ -91,6 +91,67 @@
 ; rock or reroll a seed, but the numbers are just numbers, so editing them by
 ; hand and running `make` works exactly as it always did.
 ; =============================================================================
+; WHERE IT LIVES, AND HOW IT IS READ
+;
+; Every table below is in LEVELS - ROM bank LVL_BANK (cart.cfg, ROM8) - and is
+; read straight out of the $8000-$9FFF window, never copied to RAM: a sector
+; loads once, so the cartridge's wait states are not felt, and the level count
+; is bounded by the bank (8 KB) and not by the 391 bytes CART_HIRAM had left
+; when the tables lived in CODE6. A LABEL HERE IS ITS WINDOW ADDRESS.
+;
+; The window shows the level bank only between lv_open and lv_close, and
+; level_begin runs INSIDE win_off (window.s) - the object pool and the enemies'
+; state are the RAM under that window. So, in every reader:
+;
+;   1. READ a level table only between lv_open and lv_close. Outside them the
+;      window shows the RAM under it and the read returns whatever the object
+;      pool left there, silently.
+;   2. Between them, WRITE the RAM under the window but never READ it: a write
+;      reaches the RAM whatever CART_EN says, a read returns the ROM. `inc GTON`
+;      is a read; `sta GTON` is not.
+;   3. A per-frame reader keeps its own RAM copy, taken once at load - gate.s
+;      GTMIS / GTMPR are the mission's.
+;   4. No nesting: there is one save byte, LVSAVE.
+;
+; A pointer read from a table (LVL_ROCKLO/HI, LVL_FOELO/HI) is a window address
+; and is followed under the same rule.
+; =============================================================================
+LVL_BANK    = 8                 ; cart.cfg: the LEVELS segment's bank
+LVSAVE      = $73B4             ; the bank byte lv_open borrowed the window from.
+                                ;   pickup.s's block ends at $73B3; window.s's
+                                ;   WINSAVE starts at $73C0
+
+        .pushseg
+        .segment "CODE6"
+
+; -----------------------------------------------------------------------------
+; lv_open / lv_close - show the level bank in the window, and hand it back.
+; -----------------------------------------------------------------------------
+; The same borrow as hud_game.s's msg_open / msg_close: save CART_SHADOW, select
+; the bank with CART_EN set, restore the whole saved byte. Clobber A only.
+; -----------------------------------------------------------------------------
+lv_open:
+        lda     CART_SHADOW
+        sta     LVSAVE
+        lda     #LVL_BANK | CART_EN
+        jmp     API_CART_BANK
+
+lv_close:
+        lda     LVSAVE
+        jmp     API_CART_BANK
+
+; lv_rec6 - the rock record at (T0) into LVREC, six bytes. Y, A clobbered.
+lv_rec6:
+        jsr     lv_open
+        ldy     #$05
+:       lda     (T0),y
+        sta     LVREC,y
+        dey
+        bpl     :-
+        jmp     lv_close                ; tail
+        .popseg
+
+        .segment "LEVELS"
 
 ; === GENERATED (tools/level_editor.py) - rewritten whole on Save =============
 NLEVELS     = 1

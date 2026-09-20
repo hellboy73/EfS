@@ -790,7 +790,15 @@ The level plan also sets the initial population, the size-class
 mix, the enemy roster, physics parameter overrides and the music.
 
 Level scripts are data, read straight out of the cartridge window (the CETAS
-pattern), not copied to RAM.
+pattern), not copied to RAM. **They are, since 2026-09-20:** `levels.s` and the
+base's `BASE_*` rows live in the `LEVELS` segment, ROM bank 8 (`LVL_BANK`), and
+the three readers of a level (`load_level`, `load_foes`, `gate_load`, plus
+`base_load`) take their reads between `lv_open` and `lv_close`, the same borrow
+`msg_open` makes for `MSGDATA`. `level_begin` runs inside `win_off`, so the rules
+are the ones in `levels.s`'s header: read a level table only inside the pair,
+write (never read) the RAM under the window while it is open, and keep a RAM copy
+of anything a frame reads (`GTMIS`/`GTMPR`, gate.s). The bank is 8 KB, so the
+level count is no longer bounded by what `CART_HIRAM` has spare.
 
 The **population** half of that plan now exists, in
 [`src/levels.s`](../src/levels.s), authored with
@@ -1725,7 +1733,8 @@ These are settled and should not be re-opened without a reason:
     moves — and `Lx_MISN`/`Lx_MPAR`, what opens it: `MS_ROCKS` (every rock of
     classes 0..MPAR gone, off `RKLIVE`; level 0 asks for the 192s), `MS_FOES`
     (every placed enemy dead), `MS_OPEN` (open from the first frame).
-    `levels.s` moved from RODATA to CODE6 to make room (UPPER had 15 B).
+    `levels.s` moved from RODATA to CODE6 to make room (UPPER had 15 B), and
+    on 2026-09-20 on to its own cartridge bank, `LEVELS` (section 9).
 
     **Closed** it costs one mission test a frame and draws nothing. **Open**
     it says EXIT GATE OPEN, and from then: its polygon at its world position

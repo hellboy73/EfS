@@ -684,7 +684,7 @@ DISPATCH = gpu_symbol("dispatch_loop")
 
 CPU_ROM = open(f"{ROMS}/cpu_os.bin", "rb").read()
 GPU_ROM = open(f"{ROMS}/gpu_os.bin", "rb").read()
-CART = open(ROOT / "cart.bin", "rb").read()
+CART = bytearray(open(ROOT / "cart.bin", "rb").read())    # bytearray: boot_cart's mission patch
 assert len(CPU_ROM) == 0x4000 and len(GPU_ROM) == 0x4000
 assert len(CART) % 0x2000 == 0, f"cartridge must be whole 8 KB banks, got {len(CART)}"
 NBANKS = len(CART) // 0x2000
@@ -811,7 +811,22 @@ def asm_consts(*files):
 SCR = asm_consts("hud_game.s", "hiscore.s", "screens.s")
 
 
-_BOOT_LVL = []
+# ...and whatever mission the level editor last gave level 0, the bench flies
+# MS_ROCKS on the 192s with the gate CLOSED: an exit that is open from the first
+# frame puts an X on the radar and an arrow on the edge, which every radar and
+# camera check below would count as its own. The tables are in the LEVELS bank
+# (levels.s, LVL_BANK), read through the window and never copied, so it is the
+# cartridge IMAGE that is patched - once, before the first boot - and gate_load
+# copies what it finds there into GTMIS / GTMPR as it would any level. The same
+# lookup checks that the bank the source names is the bank the linker filled.
+_LVL = asm_consts("levels.s")
+_LBL = {m.group(2): int(m.group(1), 16) for m in
+        re.finditer(r"^al ([0-9A-Fa-f]+) \.(\w+)\s*$",
+                    (ROOT / "cart.lbl").read_text(), re.M)}
+_LVL_AT = _LVL["LVL_BANK"] * 0x2000 - 0x8000
+assert CART[_LVL_AT + _LBL["LVL_N192"]] == _LVL["L0_N192"], \
+    "the LEVELS bank is not bank LVL_BANK - levels.s and cart.cfg disagree"
+CART[_LVL_AT + _LBL["LVL_MISN"]] = CART[_LVL_AT + _LBL["LVL_MPAR"]] = 0
 
 
 def boot_cart():
@@ -822,18 +837,6 @@ def boot_cart():
     always had, command for command."""
     call(cpu, CART_INIT)
     cpu_mem[SCR["SCR_STATE"]] = SCR["SC_PLAY"]
-    # ...and whatever mission the level editor last gave level 0, the bench
-    # flies MS_ROCKS on the 192s with the gate CLOSED: an exit that is open
-    # from the first frame puts an X on the radar and an arrow on the edge,
-    # which every radar and camera check below would count as its own. The
-    # table is CODE6, which RUNS in CART_HIRAM RAM, so a write simply lands.
-    # (Read once: a later bench rebuilds the cartridge and cart.lbl with it.)
-    if not _BOOT_LVL:
-        lbl = {m.group(2): int(m.group(1), 16) for m in
-               re.finditer(r"^al ([0-9A-Fa-f]+) \.(\w+)\s*$",
-                           (ROOT / "cart.lbl").read_text(), re.M)}
-        _BOOT_LVL.extend((lbl["LVL_MISN"], lbl["LVL_MPAR"]))
-    cpu_mem[_BOOT_LVL[0]] = cpu_mem[_BOOT_LVL[1]] = 0
     cpu_mem[asm_consts("satn.s", "emp.s", "shield.s", "gate.s")["GTON"]] = 0
     # ...and without the human base level 0 now has (src/base.s): a wall and
     # eight squares in the way would be counted as their own by every rock,
@@ -1357,6 +1360,33 @@ def pix(fx, fy):
 
 
 print("\nchecks:")
+
+# --- the level's tables are in their own cartridge bank (levels.s) ------------
+# What load_level, load_foes and gate_load found in bank LVL_BANK is what the
+# machine holds now: a read made with the window showing the pool's RAM instead
+# would come back as whatever the pool had left there, and none of this would
+# match. The window is handed back the way the loader found it.
+_G = asm_consts("satn.s", "emp.s", "shield.s", "gate.s")
+_R = asm_consts("radar.s")
+_FK_N = asm_consts("foes.s")["FK_N"]
+_ct = lambda name: CART[_LVL_AT + _LBL[name]]
+_scatter = sum(_LVL[f"L0_N{c}"] for c in (192, 128, 64, 32, 16))
+_foe_rec = _LVL_AT + _ct("LVL_FOELO") + (_ct("LVL_FOEHI") << 8)
+_kinds = [CART[_foe_rec + 7 * i + 4] for i in range(_ct("LVL_FOEN"))]
+_kinds = [k for k in _kinds if k < _FK_N][:_R["FOE_MAX"]]
+check("LEVEL: the field is the level's - the scatter and the placed rocks it names",
+      nrockf[0] == _scatter + _ct("LVL_ROCKN"),
+      f"NROCK {nrockf[0]}, want {_scatter + _ct('LVL_ROCKN')}")
+check("LEVEL: the enemies come out of the bank kind for kind, through the pointer",
+      cpu_mem[_R["NFOE"]] == len(_kinds)
+      and [cpu_mem[_R["FOEKIND"] + i] for i in range(len(_kinds))] == _kinds,
+      f"NFOE {cpu_mem[_R['NFOE']]}, kinds {[cpu_mem[_R['FOEKIND'] + i] for i in range(len(_kinds))]}, want {_kinds}")
+check("LEVEL: the gate stands where the level put it",
+      (ram(_G["GTXL"]) | ram(_G["GTXH"]) << 8) == _LVL["L0_GTX"]      # ram(): the gate's
+      and (ram(_G["GTYL"]) | ram(_G["GTYH"]) << 8) == _LVL["L0_GTY"])   # state is under the window
+check("LEVEL: the mission was copied out of the bank, and the window is handed back as found",
+      ram(_G["GTMIS"]) == _ct("LVL_MISN") and ram(_G["GTMPR"]) == _ct("LVL_MPAR")
+      and cart_bank[0] == 0x80)
 
 if MUSIC_ON:
     # THE MEASUREMENT src/music.s EXISTS FOR - open_questions.md F5. The song's

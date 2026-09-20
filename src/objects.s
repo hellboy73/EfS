@@ -95,7 +95,11 @@ rock_kin:
 load_level:
         stx     LVLIX
 
-        lda     LVL_SHXL,x              ; the ship first: init_cells is about to
+        jsr     lv_open                 ; the level's tables are in their own
+                                        ;   cartridge bank (levels.s): read them
+                                        ;   between here and lv_close, and only
+                                        ;   write what is under the window
+        lda     LVL_SHXL,x             ; the ship first: init_cells is about to
         sta     SHXL                    ;   bucket the field, and the very first
         lda     LVL_SHXH,x              ;   frame culls against the ship's own
         sta     SHXH                    ;   cell, so it has to already be where
@@ -123,6 +127,7 @@ load_level:
         sta     SCATN+3
         lda     LVL_N16,x
         sta     SCATN+4
+        jsr     lv_close
 
         stz     SLOT
         stz     SCATC                   ; pour class 0 (the 192s) first, one
@@ -162,20 +167,20 @@ load_level:
         bne     @clslp
 
         ldx     LVLIX                   ; the hand-placed set-pieces, appended
-        lda     LVL_ROCKN,x             ;   after the scatter. SCATC is done
-        sta     SCATC                   ;   being a class index; it is the record
-        beq     @done                   ;   countdown now
-        lda     LVL_ROCKLO,x
-        sta     T0
+        jsr     lv_open                 ;   after the scatter. SCATC is done
+        lda     LVL_ROCKLO,x            ;   being a class index; it is the record
+        sta     T0                      ;   countdown now
         lda     LVL_ROCKHI,x
         sta     T1
+        ldy     LVL_ROCKN,x
+        jsr     lv_close                ; (A only - Y is the count)
+        sty     SCATC
+        tya
+        beq     @done
 
-@plp:   ldy     #$05                    ; stage the record first: Y has to be the
-:       lda     (T0),y                  ;   record cursor here and the object
-        sta     LVREC,y                 ;   slot below, and it cannot be both
-        dey
-        bpl     :-
-        ldy     SLOT
+@plp:   jsr     lv_rec6                 ; stage the record first: Y has to be the
+        ldy     SLOT                    ;   record cursor there and the object
+                                        ;   slot here, and it cannot be both
         lda     LVREC+0
         sta     OBJXL,y
         lda     LVREC+1

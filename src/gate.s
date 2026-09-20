@@ -7,7 +7,8 @@
 ;
 ;   CLOSED     nothing of it exists on the screen, the radar or the edge. Once
 ;              a frame the mission is checked (gate_check): what it asks is
-;              levels.s's LVL_MISN / LVL_MPAR, one of the MS_* below.
+;              levels.s's LVL_MISN / LVL_MPAR, one of the MS_* below - copied
+;              out of the level bank into GTMIS / GTMPR when the sector loads.
 ;   OPEN       the mission is done: EXIT GATE OPEN on the message bar, and from
 ;              that frame the gate is drawn where levels.s put it, a triangle marks
 ;              it on the radar, and while it is off the screen the enemy
@@ -107,7 +108,10 @@ GBSH        = GBAP + 3              ; ...and 1 to halve the scale (the gate's
                                     ;   base's are half-res units)
 GBMK        = GBAP + 4              ; ...and which parts to draw, bit j = part j:
                                     ;   $FF for the gate, the base's live segments
-GATE_END    = GBMK + 1
+GTMIS       = GBMK + 1          ; the sector's mission and its parameter, copied
+GTMPR       = GBMK + 2          ;   out of levels.s's bank once, by gate_load:
+                                ;   gate_check reads them every frame
+GATE_END    = GTMPR + 1
         .assert GATE_END <= SHAPES_AT, error, "gate.s: past the RAM under the window"
 
         .pushseg
@@ -118,14 +122,20 @@ GATE_END    = GBMK + 1
 ; -----------------------------------------------------------------------------
 gate_load:
         ldx     CURLEV
-        lda     LVL_GTXL,x
-        sta     GTXL
-        lda     LVL_GTXH,x
+        jsr     lv_open                 ; levels.s is in its own bank: what is
+        lda     LVL_GTXL,x              ;   read from it is read here, and what
+        sta     GTXL                    ;   is written under the window stays a
+        lda     LVL_GTXH,x              ;   write (GTON's inc waits for the close)
         sta     GTXH
         lda     LVL_GTYL,x
         sta     GTYL
         lda     LVL_GTYH,x
         sta     GTYH
+        lda     LVL_MISN,x
+        sta     GTMIS
+        lda     LVL_MPAR,x
+        sta     GTMPR
+        jsr     lv_close
         stz     GTON
         stz     GTAST
         stz     GTANL
@@ -133,7 +143,7 @@ gate_load:
         ldy     #EA_GATE
         lda     EN_AHOLD,y
         sta     GTACD
-        lda     LVL_MISN,x              ; MS_OPEN: open from the first frame,
+        lda     GTMIS                   ; MS_OPEN: open from the first frame,
         cmp     #MS_OPEN                ;   quietly - the level's own line is
         bne     :+                      ;   on the bar
         inc     GTON
@@ -154,14 +164,13 @@ gate_open:
 ; gate_check - C SET when this sector's mission is done.
 ; -----------------------------------------------------------------------------
 gate_check:
-        ldx     CURLEV
-        lda     LVL_MISN,x
+        lda     GTMIS                   ; the sector's own copy - see gate_load
         beq     @rocks                  ; MS_ROCKS
         cmp     #MS_FOES
         beq     @foes
         sec                             ; MS_OPEN, or a type nothing knows:
         rts                             ;   open rather than a sector with no exit
-@rocks: ldy     LVL_MPAR,x              ; classes MPAR down to 0, all empty
+@rocks: ldy     GTMPR                   ; classes MPAR down to 0, all empty
 :       lda     RKLIVE,y
         bne     @no
         dey

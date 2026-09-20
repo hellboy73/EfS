@@ -1562,13 +1562,18 @@ frame_body:
                                         ; (enemies.s is NOT here - it moved
                                         ; above the code, see the note there)
         .pushseg                        ; ...and every level's opening state. See
-        .segment "CODE6"                ; that file's header and
-        .include "levels.s"             ; tools/level_editor.py. CODE6 and not
-        .popseg                         ; RODATA: UPPER ran out when the exit
-                                        ; gate (gate.s) joined enemies.s's
-                                        ; tables, and nothing reads a level but
-                                        ; load_level, load_foes and gate.s, once
-                                        ; a sector - CART_HIRAM is always mapped
+        .include "levels.s"             ; that file's header and
+        .popseg                         ; tools/level_editor.py. It puts its
+                                        ; tables in LEVELS - a cartridge bank of
+                                        ; their own, read through the window, no
+                                        ; RAM - and its two window helpers in
+                                        ; CODE6. It was CODE6 and RODATA before:
+                                        ; UPPER ran out when the exit gate
+                                        ; (gate.s) joined enemies.s's tables,
+                                        ; and CART_HIRAM would have run out at
+                                        ; the third sector. Nothing reads a level
+                                        ; but load_level, load_foes, gate.s and
+                                        ; base.s, once a sector
         .include "radar_bg.s"           ; the radar's ring and ship icon as a
                                         ; background bitmap - GENERATED from
                                         ; assets/png/radar100.png by

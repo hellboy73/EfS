@@ -3900,20 +3900,25 @@ load_foes:
         dex
         bpl     :-
         ldx     LVLIX
-        lda     LVL_FOEN,x
+        jsr     lv_open                 ; the level's tables are in their own
+        lda     LVL_FOELO,x             ;   cartridge bank (levels.s), and FEREC
+        sta     T0                      ;   is under the window: written with
+        lda     LVL_FOEHI,x             ;   the bank showing, read after
+        sta     T1
+        ldy     LVL_FOEN,x
+        jsr     lv_close
+        tya
         bne     :+
         rts
 :       sta     FELN
-        lda     LVL_FOELO,x
-        sta     T0
-        lda     LVL_FOEHI,x
-        sta     T1
-@lp:    ldy     #FOE_REC-1              ; stage the record
+@lp:    jsr     lv_open
+        ldy     #FOE_REC-1              ; stage the record
 :       lda     (T0),y
         sta     FEREC,y
         dey
         bpl     :-
-        lda     NFOE                    ; a level that authors more than there
+        jsr     lv_close
+        lda     NFOE                   ; a level that authors more than there
         cmp     #FOE_MAX                ;   are slots loses the tail, quietly
         bcs     @skip
         lda     FEREC+4
