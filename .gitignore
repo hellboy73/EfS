@@ -39,3 +39,8 @@ dumps/
 
 # Claude Code local config
 .claude/
+
+# Scratch and superseded material: any directory named old/ or tmp/, at any depth,
+# with everything in it. Nothing in the build reads them.
+old/
+tmp/
