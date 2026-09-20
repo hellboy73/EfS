@@ -5124,7 +5124,7 @@ def gate_bench():
     # the reach is radar_plot's round test, GATE_RX high-byte pages: at it the X is
     # steady, a page past it there is none - in every phase of the enemies' blink,
     # so nothing flickers on the edge, and the X does not step inward on leaving
-    REACH, BLINK_N = G["GATE_RX"], G["RAD_BLINK_N"]
+    REACH, BLINK_N = asm_consts("radar.s", "gate.s")["GATE_RX"], G["RAD_BLINK_N"]   # (GATE_RX = RAD_RH - 8: radar.s first)
     seen = {}
     for name, pages in (("at the reach", REACH), ("a page past it", REACH + 1)):
         put_ship(gx, (gy + pages * 256) & 0xFFFF)
@@ -5479,7 +5479,7 @@ def base_bench():
           f"{mk} vs ({RAD['RADCX']}, {RAD['RADCY']})")
     # the reach is gate.s's GATE_RX pages (radar_plot's round test): at it the mark is steady in
     # every phase of the enemies' blink, a page past it there is none - no rim, no blinking
-    RBL, REACH = RAD["RBLINK"], B["GATE_RX"]
+    RBL, REACH = RAD["RBLINK"], asm_consts("radar.s", "gate.s")["GATE_RX"]   # (GATE_RX = RAD_RH - 8: radar.s first)
     seen = {}
     for name, pages in (("at the reach", REACH), ("a page past it", REACH + 1)):
         put_ship(0, pages * 256)
