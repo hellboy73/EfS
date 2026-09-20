@@ -43,7 +43,8 @@
 ;
 ;         . .
 ;        .   .          in the player's screen axes, never turned,
-;         . .           and pinned to the rim, blinking, when out of reach
+;         . .           and on the radar only while it is in reach, as a
+;                       rock or an enemy is
 ;
 ; through gate.s's gr_pos, which is what puts the gate's mark there.
 ;
@@ -214,7 +215,7 @@ do_base:
         bcc     @radar
         stz     BSAST
 
-@radar: lda     BSXH                    ; the mark, wherever the base is
+@radar: lda     BSXH                    ; the mark, if the base is in the radar's reach
         ldy     BSYH
         jsr     gr_pos
         bcs     @near

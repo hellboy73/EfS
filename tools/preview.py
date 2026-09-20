@@ -5116,10 +5116,23 @@ def gate_bench():
     check("...ahead of the ship it is the UP arrow and the X sits above the radar's centre",
           heads["ahead"][0] == [2] and heads["ahead"][1] and heads["ahead"][1][0][0] < RC[0],
           str(heads["ahead"]))
-    check("...out past the reach it still points, and the X is pinned toward it",
-          heads["far behind"][0] == [3] and (not heads["far behind"][1]
-                                              or heads["far behind"][1][0][0] > RC[0]),
+    check("...behind it, still in reach, the arrow is the DOWN one and the X sits below the centre",
+          heads["far behind"][0] == [3] and heads["far behind"][1]
+          and heads["far behind"][1][0][0] > RC[0],
           str(heads["far behind"]))
+
+    # the reach is radar_plot's round test, GATE_RX high-byte pages: at it the X is
+    # steady, a page past it there is none - in every phase of the enemies' blink,
+    # so nothing flickers on the edge, and the X does not step inward on leaving
+    REACH, BLINK_N = G["GATE_RX"], G["RAD_BLINK_N"]
+    seen = {}
+    for name, pages in (("at the reach", REACH), ("a page past it", REACH + 1)):
+        put_ship(gx, (gy + pages * 256) & 0xFFFF)
+        frame()
+        seen[name] = [len(xmarks(frame())) for _ in range(BLINK_N)]     # a whole blink cycle
+    print(f"        X marks a frame over one blink cycle: {seen}")
+    check("...at the reach the X is on the radar every frame of the blink cycle; a page past it, on none",
+          seen["at the reach"] == [1] * BLINK_N and seen["a page past it"] == [0] * BLINK_N, str(seen))
 
     put_ship((gx) & 0xFFFF, (gy + 200 * 16) & 0xFFFF)   # 200 px short of it, on screen
     cmds = frame()
@@ -5464,21 +5477,22 @@ def base_bench():
     check("RADAR: six dots, the hexagon's own shape, on the radar's centre when the ship is over the base",
           len(mk) == 1 and abs(mk[0][0] - RAD["RADCX"]) <= 1 and abs(mk[0][1] - RAD["RADCY"]) <= 1,
           f"{mk} vs ({RAD['RADCX']}, {RAD['RADCY']})")
-    put_ship(0, 30000)                                  # far past the radar's reach
-    RBL, ON = RAD["RBLINK"], RAD["RAD_BLINK_ON"]
-    lit_m, dark_m = None, None
-    for blink in (0, ON):
-        cpu_mem[RBL] = blink
-        cpu_mem[ZP["OCCN"]] = 0
-        timed("do_base")
-        m = marks(emitted())
-        if blink == 0:
-            lit_m = m
-        else:
-            dark_m = m
-    rim = math.dist(lit_m[0], (RAD["RADCX"], RAD["RADCY"])) if lit_m else 0
-    print(f"        out of reach: mark {lit_m} lit, {dark_m} dark, {rim:.1f} half-res px from the radar's centre")
-    check("...out of reach it is pinned to the rim, and blinks with the enemies", len(lit_m) == 1 and not dark_m and rim > 8)
+    # the reach is gate.s's GATE_RX pages (radar_plot's round test): at it the mark is steady in
+    # every phase of the enemies' blink, a page past it there is none - no rim, no blinking
+    RBL, REACH = RAD["RBLINK"], B["GATE_RX"]
+    seen = {}
+    for name, pages in (("at the reach", REACH), ("a page past it", REACH + 1)):
+        put_ship(0, pages * 256)
+        seen[name] = []
+        for phase in range(RAD["RAD_BLINK_N"]):
+            cpu_mem[RBL] = phase
+            cpu_mem[ZP["OCCN"]] = 0
+            timed("do_base")
+            seen[name].append(len(marks(emitted())))
+    print(f"        base marks by blink phase: {seen}")
+    check("...at the reach the mark is steady through the whole blink cycle; a page past it there is none",
+          seen["at the reach"] == [1] * RAD["RAD_BLINK_N"] and seen["a page past it"] == [0] * RAD["RAD_BLINK_N"],
+          str(seen))
 
     # ---- occ_bands never writes past a band -----------------------------------------------------
     guard = ram_block(OCC["PEND"], 16)

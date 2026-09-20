@@ -91,8 +91,8 @@ GTACD       = SHLD_END + 7      ; ...and the frames left on it, like FOEACD
 GTANL       = SHLD_END + 8      ; its own angle, 8.8 brad
 GTANH       = SHLD_END + 9
 GTFAR       = SHLD_END + 10     ; nonzero: the delta was halved (see the header)
-GTPIN       = SHLD_END + 11     ; nonzero: the radar X is pinned to the rim
-GTDX        = SHLD_END + 12     ; the radar's delta, high bytes, signed
+                                ; SHLD_END + 11 is spare
+GTDX       = SHLD_END + 12     ; the radar's delta, high bytes, signed
 GTDY        = SHLD_END + 13
 GTJ         = SHLD_END + 14     ; gate_body: the part...
 GTROW       = SHLD_END + 15     ; ...and the frame's first row in EN_PLO/EN_PHI
@@ -439,13 +439,14 @@ gb_draw:                                ; ...and base.s comes in here with its o
         rts
 
 ; -----------------------------------------------------------------------------
-; gate_radar - a triangle on the radar where the gate is, or on its rim toward it.
+; gate_radar - a triangle on the radar where the gate is, while it is in reach.
 ; -----------------------------------------------------------------------------
-; radar_plot's own mapping, on the same high bytes. Out of reach the delta is
-; taken down by an eighth at a time until it is inside GATE_RX, so the X sits
-; on the rim in the gate's direction - and blinks there, with the enemies, to
-; say it is further than it looks. Its own DOT_PIXELS, ahead of the radar's
-; lists in the command list, and nothing while the instrument is down.
+; radar_plot's own mapping and round test, on the same high bytes, so the gate is
+; on the radar exactly as a rock or an enemy is: inside the catchment, steady, and
+; outside it not at all. (The catchment is GATE_RX and not RAD_RH: the mark is
+; five dots wide and the box holds the last one only for a centre 2 cells in.)
+; Its own DOT_PIXELS, ahead of the radar's lists in the command list, and
+; nothing while the instrument is down.
 ; -----------------------------------------------------------------------------
 gate_radar:
         lda     GTXH
@@ -479,9 +480,9 @@ gate_radar:
 
 ; -----------------------------------------------------------------------------
 ; gr_pos - A / Y = a world position's high bytes -> GTRX/GTRY, where it is on
-; the radar or on its rim toward it. Carry CLEAR: draw it. Carry SET: the
-; instrument is down, or the mark is pinned to the rim and dark this half of the
-; blink. The gate's mark and the base's (base.s) both go through here.
+; the radar. Carry CLEAR: draw it. Carry SET: the instrument is down, or it is
+; out of reach (radar_plot's round test, against GATE_RX) and is not on the radar
+; at all. The gate's mark and the base's (base.s) both go through here.
 ; -----------------------------------------------------------------------------
 gr_pos:
         ldx     RADDOWN
@@ -497,9 +498,8 @@ gr_pos:
         sbc     SHYH
         jsr     @fix
         sta     GTDY
-        stz     GTPIN
 
-@fit:   lda     GTDX                    ; dx^2 + dy^2 against GATE_RX^2, off
+        lda     GTDX                    ; dx^2 + dy^2 against GATE_RX^2, off
         jsr     @sq                     ;   the quarter-square table
         sta     GTRX                    ;   (GTRX/GTRY as the sum's scratch)
         sty     GTRY
@@ -516,25 +516,11 @@ gr_pos:
         lda     GTRX
         cmp     #<(GATE_RX * GATE_RX)
         bcc     @in
-        beq     @in
-@out:   lda     GTDX                    ; d -= d >> 3, both axes
-        jsr     @shrink
-        sta     GTDX
-        lda     GTDY
-        jsr     @shrink
-        sta     GTDY
-        lda     #$01
-        sta     GTPIN
-        bra     @fit
-
-@in:    lda     GTPIN                   ; on the rim: dark on the enemies' dark
-        beq     :+                      ;   half of RBLINK
-        lda     RBLINK
-        cmp     #RAD_BLINK_ON
-        bcc     :+
-        sec
+        beq     @in                     ; the rim is inside
+@out:   sec
         rts
-:       ldx     GTDX                    ; the rotation - radar_plot's, line for
+
+@in:    ldx     GTDX                    ; the rotation - radar_plot's, line for
         ldy     GTDY                    ;   line
         clc
         lda     ROTC_F,x
@@ -584,20 +570,6 @@ gr_pos:
         tax
         lda     QSL,x
         ldy     QSH,x
-        rts
-
-; A = d: d - (d >> 3), arithmetic, so -1 goes to 0 and the loop ends.
-@shrink:
-        sta     GTJ
-        cmp     #$80
-        ror     a
-        cmp     #$80
-        ror     a
-        cmp     #$80
-        ror     a
-        eor     #$FF                    ; d + ~(d >> 3) + 1 = d - (d >> 3)
-        sec
-        adc     GTJ
         rts
 
 ; The mark: a small SOLID triangle, apex UP the player's screen and never

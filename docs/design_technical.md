@@ -1729,8 +1729,9 @@ These are settled and should not be re-opened without a reason:
 
     **Closed** it costs one mission test a frame and draws nothing. **Open**
     it says EXIT GATE OPEN, and from then: its polygon at its world position
-    when near the screen; an X of nine dots on the radar, pinned to the rim
-    and blinking with the enemies when out of reach; and, while its centre is
+    when near the screen; an X of nine dots on the radar while it is in
+    reach (`GATE_RX`, radar_plot's round test) and not on the radar at all when it
+    is not, as a rock or an enemy; and, while its centre is
     off the screen, the enemy arrow's sprite on that edge (`cam.s arrow_fb`,
     the second half of `cam_arrow`), blinking in turn with an enemy arrow when
     there is one and steady when there is not.
@@ -1886,9 +1887,11 @@ These are settled and should not be re-opened without a reason:
     anti-collision field brakes it, so it can neither ram the station nor
     fly through it, and loses no hull.
 
-    **The radar always shows it**, whatever classes G8's window is showing,
-    with its own mark, and pins it to the rim when it is out of reach, as it
-    does the gate.
+    **The radar shows it**, whatever classes G8's window is showing, with its
+    own mark, while it is in reach, and not at all when it is not, as it does
+    the gate. (It once pinned both to the rim and blinked them there; on the
+    edge of reach that read as flicker, and the mark jumped inward as the pin
+    took hold.)
 
     **The station under siege is L4** (`story.md`), and the one station
     that is destroyed. It is spread over the level:
@@ -2037,13 +2040,13 @@ These are settled and should not be re-opened without a reason:
     with the hit points and the fall itself (E11).
 
     **The radar mark is six dots, the hexagon's own shape** - two above, one to
-    each side, two below - in the player's screen axes and never turned, pinned
-    to the rim and blinking with the enemies when the base is out of reach.
+    each side, two below - in the player's screen axes and never turned, on the
+    radar while the base is in reach and absent when it is not.
     `gate.s`'s `gate_radar` was split for it: `gr_pos` (its position half, from a
-    world position's high bytes to the radar cell or the rim toward it) is what
-    `do_base` calls too, and the dots are the only part that is the base's own. It
-    is on the radar **whatever the base's distance**: it is drawn before the near
-    test.
+    world position's high bytes to the radar cell, or "out of reach" as carry set)
+    is what `do_base` calls too, and the dots are the only part that is the base's
+    own. It is drawn before the near test, so the mark does not depend on the
+    base being near the screen.
 
     **Nothing can enter a live segment.** One routine, `bs_keep`, puts a mover
     back outside every live circle - each grown by the mover's own radius, so its
