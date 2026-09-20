@@ -1967,7 +1967,7 @@ These are settled and should not be re-opened without a reason:
     **What it looks like.** **One sprite for every pickup**, laser and
     shield alike (`assets/png/bonusbox1.png` .. `bonusbox4.png`, 2026-09-20):
     16x16 with an overlay, one GPU page, never scaled, so it is the same size
-    at every zoom, and **four frames in a loop, one every 8 game frames**
+    at every zoom, and **four frames in a loop, one every 6 game frames**
     (`PK_FRAMES`, `PK_HOLD`). It is drawn in the hardware's axes, like the
     enemy arrow, so it is not turned for TATE. The frame count and the size
     are the art's: `tools/pickupgen.py` takes as many `<set>N.png` as there

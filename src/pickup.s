@@ -29,7 +29,7 @@
 
 PK_SLOT0    = ARW_SLOT0 + 4     ; the frames' slots, after the arrows
 PK_PAGE     = $13               ; GPU RAM page (arrows $12), and PK_PAGES on
-PK_HOLD     = 8                 ; game frames each animation frame is shown
+PK_HOLD     = 6                 ; game frames each animation frame is shown
 PK_SLOW     = 1                 ; FRAME mask: it takes its step one frame in
                                 ;   PK_SLOW+1 and drifts with the ship on the
                                 ;   others, so it closes at 1/(PK_SLOW+1) of a
