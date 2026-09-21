@@ -36,7 +36,10 @@
 ; =============================================================================
 
 spr_art     = flames_data       ; the art's first page - SPRART opens with it
-SPR_BANK    = 7                 ; cart.cfg: SPRART's bank (MSGDATA shares it)
+SPR_BANK    = 7                 ; cart.cfg: SPRART's bank. CODE7 (base.s) rides
+                                ;   behind it; MSGDATA used to as well and has
+                                ;   its own bank now, so the two numbers are
+                                ;   independent and nothing asserts them equal.
 SPR_ART_PAGES = PK_PAGE + PK_PAGES - FLAME_PAGE ; $11 flames, $12 arrows,
                                         ;   $13 on the pickup's frames
 SPR_DEF_PAGES = 4               ; $03-$06
@@ -44,7 +47,6 @@ SPR_DEF_PAGES = 4               ; $03-$06
         .assert FLAME_PAGE = $11 && ARW_PAGE = FLAME_PAGE + 1 && PK_PAGE = ARW_PAGE + 1, error, "sprites.s: the art pages are not contiguous"
         .assert ARW_SLOT0 = FLAME_SLOT0 + FLAME_N && PK_SLOT0 = ARW_SLOT0 + 4, error, "sprites.s: the slot ranges are not adjacent"
         .assert PK_SLOT0 + PK_FRAMES <= 256, error, "sprites.s: slots past 255"
-        .assert SPR_BANK = MSG_BANK, error, "sprites.s: SPRART and MSGDATA are one bank"
 
         .pushseg
         .segment "CODE"                 ; bank 0: the flight engine's neighbour -

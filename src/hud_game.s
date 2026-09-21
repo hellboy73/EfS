@@ -181,7 +181,14 @@ IM_LASER_GOT = 11               ; a laser was picked up (pickup.s)
 ; as window.s's win_off/win_on, so a borrow nests correctly with whatever else
 ; is holding the window.
 ; -----------------------------------------------------------------------------
-MSG_BANK    = 7                 ; cart.cfg: the MSGDATA segment
+MSG_BANK    = 9                 ; cart.cfg: the MSGDATA segment, a bank to
+                                ;   ITSELF. IND_LO/IND_HI below are the halves
+                                ;   of a plain 16-bit pointer and this constant
+                                ;   is what makes that enough - the day the
+                                ;   messages need a second bank, every one of
+                                ;   them needs a bank byte too and msg_open has
+                                ;   to take an argument. See cart.cfg's THE
+                                ;   MESSAGE BANK.
 MSGSAVE     = $73AE             ; the bank byte msg_open borrowed the window
                                 ;   from. pickup.s's block follows it;
                                 ;   window.s's WINSAVE starts at $73C0

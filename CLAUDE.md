@@ -22,7 +22,9 @@ the rules for every area are `design_technical.md` 11.19; read it before
 placing a byte.
 
 **Where new data goes** (2026-09-18, `design_technical.md` 11.19): *messages and
-labels* → `MSGDATA` (ROM bank 7, read through `msg_open`/`msg_close`, no RAM);
+labels* → `MSGDATA` (ROM bank 9, a bank to **itself** since 2026-09-20, read
+through `msg_open`/`msg_close`, no RAM — the dedication is what keeps
+`IND_LO`/`IND_HI` flat 16-bit pointers, so keep every message in that one bank);
 *sprites* → `SPRART` + the definition pages in `src/sprites.s` (ROM, streamed to
 the GPU at power-on, no RAM); *vertex tables* (rocks, ship, enemies) → `SHAPES`
 (the RAM under the window at `$9800`, read only inside `win_off` brackets);

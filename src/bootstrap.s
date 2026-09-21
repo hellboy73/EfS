@@ -89,7 +89,7 @@ UICODE_BANK   = 6               ; ...and the screens' code behind the pictures
                                  ;   in bank 6, running after CODE5
 CODE6_BANK    = 6               ; ...and the pulsar behind that, running after
                                  ;   UICODE
-CODE7_BANK    = 7               ; ...and the base's code behind MSGDATA in bank 7,
+CODE7_BANK    = 7               ; ...and the base's code behind SPRART in bank 7,
                                  ;   running in upper RAM, after HIDATA
 SHAPES_BANK   = 2               ; ...and the vertex tables behind RODATA in bank
                                  ;   2, running in the RAM under the window at

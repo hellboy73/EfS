@@ -1044,10 +1044,18 @@ These are settled and should not be re-opened without a reason:
     **Three things left CPU RAM's scarce areas on 2026-09-18**, none of them by
     shrinking anything:
 
-    * **Every HUD label and indicator message** — `MSGDATA`, bank 7, read
-      straight out of the window by `msg_open`/`msg_close` (`hud_game.s`) on the
-      rare frame a row rebuilds or a message queues. A new message is a `.byte`
-      in that segment and one table byte; it costs no RAM.
+    * **Every HUD label and indicator message** — `MSGDATA`, **bank 9, a bank to
+      itself** since 2026-09-20, read straight out of the window by
+      `msg_open`/`msg_close` (`hud_game.s`) on the rare frame a row rebuilds or a
+      message queues. A new message is a `.byte` in that segment and one table
+      byte; it costs no RAM. It rode behind `SPRART` in bank 7 until the message
+      set was planned to grow: `IND_LO`/`IND_HI` are the halves of a plain 16-bit
+      pointer and `msg_open` maps `MSG_BANK` as a constant, so **one bank is
+      where that model stops working** — a second would cost a third index table,
+      a bank byte at every reference and a `msg_open` that takes an argument, in
+      five source files. The bank is dedicated to hold that limit on purpose:
+      8 KB at the measured 13-byte average is ~600 messages, against 4.8 KB
+      shared with a neighbour that grows with every sprite.
     * **Every sprite** — the flames', the arrows', the pickup's art and the four
       GPU definition pages, `SPRART`, bank 7, page aligned in the order they
       land in GPU RAM (`sprites.s`). Nothing is staged in CPU RAM: `cart_init`
@@ -2157,7 +2165,8 @@ These are settled and should not be re-opened without a reason:
     the first frame it is awake, which can be a visible jump.
 
     **Where it lives.** `EA_BASE`'s vertices in SHAPES; all of `base.s`'s wall and
-    tables in **`CODE7`**, a segment stored in ROM **bank 7** (5.9 KB of it free)
+    tables in **`CODE7`**, a segment stored in ROM **bank 7** (4.9 KB of it free,
+    and 195 bytes more since `MSGDATA` moved out to its own bank on 2026-09-20)
     and **run in upper RAM** after `HIDATA` (`cart.cfg`, and one more row in
     `bootstrap.s`'s `boot_segs`): 937 bytes, of the 1,796 upper RAM had. The place,
     the discs and the mark are `CODE6` (`CART_HIRAM`). **Free now (before the bullets and the star correction added 430 B to

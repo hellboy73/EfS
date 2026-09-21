@@ -38,10 +38,15 @@
 ; =============================================================================
 
 MUSIC_ON    = 1                 ; 0 = no song, no banks, no player calls
-MUSIC_BANK  = 9                 ; the stream's first bank. Banks 0-6 are the
+MUSIC_BANK  = 10                ; the stream's first bank. Banks 0-6 are the
                                 ;   code, the tables, COLD and the screens'
-                                ;   pictures, bank 7 is MSGDATA and bank 8 the
-                                ;   levels - see cart.cfg
+                                ;   pictures, bank 7 the sprite art, bank 8 the
+                                ;   levels and bank 9 the messages - see
+                                ;   cart.cfg. The song is declared LAST on
+                                ;   purpose, so every one of those keeps its
+                                ;   number when MUSIC_ON is switched off; the
+                                ;   price is that this constant follows each
+                                ;   time a bank is added before it.
 MUSIC_BANKS = 2                 ; ...and how many it takes. TEMPORARY: the song
                                 ;   is the title-theme sketch
                                 ;   (efs_title_theme_sketch_rearranged10.vgm,
