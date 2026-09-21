@@ -96,7 +96,7 @@
 ; Every table below is in LEVELS - ROM bank LVL_BANK (cart.cfg, ROM8) - and is
 ; read straight out of the $8000-$9FFF window, never copied to RAM: a sector
 ; loads once, so the cartridge's wait states are not felt, and the level count
-; is bounded by the bank (8 KB) and not by the 391 bytes CART_HIRAM had left
+; is bounded by the bank (8 KB) and not by the 391 bytes DEMO_RAM had left
 ; when the tables lived in CODE6. A LABEL HERE IS ITS WINDOW ADDRESS.
 ;
 ; The window shows the level bank only between lv_open and lv_close, and
@@ -127,11 +127,11 @@ LVSAVE      = $73B4             ; the bank byte lv_open borrowed the window from
 ; -----------------------------------------------------------------------------
 ; lv_open / lv_close - show the level bank in the window, and hand it back.
 ; -----------------------------------------------------------------------------
-; The same borrow as hud_game.s's msg_open / msg_close: save CART_SHADOW, select
+; The same borrow as hud_game.s's msg_open / msg_close: save CART_BANK_MIR, select
 ; the bank with CART_EN set, restore the whole saved byte. Clobber A only.
 ; -----------------------------------------------------------------------------
 lv_open:
-        lda     CART_SHADOW
+        lda     CART_BANK_MIR
         sta     LVSAVE
         lda     #LVL_BANK | CART_EN
         jmp     API_CART_BANK
@@ -186,7 +186,7 @@ L0_SEED     = $3CA5
 L0_SHX      = $8000
 L0_SHY      = $8000
 L0_SHHD     = 0
-L0_MISN     = 2
+L0_MISN     = 0
 L0_MPAR     = 0
 L0_GTX      = $B046
 L0_GTY      = $5130
