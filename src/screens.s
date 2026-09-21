@@ -24,7 +24,7 @@
 ; that band has landed in the second of the two background buffers - so a
 ; picture is only ever seen whole.
 ;
-; WHERE IT LIVES. The code is UICODE, copied by the bootstrap into CART_HIRAM
+; WHERE IT LIVES. The code is UICODE, copied by the bootstrap into DEMO_RAM
 ; behind CODE5. Its state is in KEEP (hiscore.s), straight after the hiscore
 ; table: always mapped, no bracket, and a pointer into it may be handed to the
 ; OS. The state is set by scr_boot from cart_init, because KEEP holds the CPU
@@ -108,7 +108,7 @@ SCR_SKIP    = HOF_END + 12      ; nonzero: FIRE skipped the intro, so the title
 SC_BUF      = HOF_END + 13      ; SC_WIN characters + NUL, handed to VTEXT
         .assert JOY2 - JOY1 = 3 && JOY2_PRESS - JOY1_PRESS = 3 && JOY2_PREV - JOY1_PREV = 3, error, "screens.s: JOYPORT indexes the two ports' triples by one stride"
 SCR_END     = SC_BUF + SC_WIN + 1
-        .assert SCR_END <= HIRAM_TOP, error, "screens.s: the screens' state runs out of KEEP"
+        .assert SCR_END <= DEMO_TOP, error, "screens.s: the screens' state runs out of KEEP"
         .assert SC_PLAY = 0, error, "screens.s: cart_frame tests SCR_STATE for zero"
 
         .pushseg

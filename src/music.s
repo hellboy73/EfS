@@ -15,7 +15,7 @@
 ; brackets that clear CART_EN. The OS's VGM player is the one thing in the
 ; machine that re-banks that window FROM THE IRQ - `vgm_tick` fires at VSYNC,
 ; wherever the game happens to be, including in the middle of a bracket. It
-; saves CART_SHADOW, maps the song's bank, reads, and restores the whole saved
+; saves CART_BANK_MIR, maps the song's bank, reads, and restores the whole saved
 ; byte (cpu_os.s), so it SHOULD hand a bracket back its cleared CART_EN rather
 ; than a set one. Until a song plays, that "should" is all there is, and it is
 ; the prerequisite open_questions.md F5 names. With MUSIC_ON = 1 the bench fires

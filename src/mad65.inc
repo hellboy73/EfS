@@ -63,7 +63,7 @@ API_VGM_TICK        = $FF6C     ; advance the song one frame. The OS's own IRQ
                                 ;   stand in for that IRQ - see tools/preview.py
 API_CART_BANK       = $FF03     ; A = CART_EN | bank -> select the $8000-$9FFF
                                 ;   window's bank. THE ONLY legal way to do it:
-                                ;   $BF60 is a WRITE-ONLY latch, and CART_SHADOW
+                                ;   $BF60 is a WRITE-ONLY latch, and CART_BANK_MIR
                                 ;   below is the system's only record of what is
                                 ;   selected. Storing to the register directly
                                 ;   desynchronises the shadow and breaks every
@@ -162,10 +162,12 @@ API_GPU_RECT_BG_CART  = $FFE1   ; OS_ARG+0 = source bank, +1..2 = window
 
 ; --- published OS RAM ---------------------------------------------------------
 OS_ARG            = $20         ; $20-$2F - builder argument block
-CART_SHADOW       = $09         ; the OS's software copy of the write-only bank
+CART_BANK_MIR     = $09         ; the OS's software copy of the write-only bank
                                 ;   latch. READ it to find out which bank is
                                 ;   selected; never write it - go through
                                 ;   API_CART_BANK, which writes both.
+CART_SHADOW       = CART_BANK_MIR ; the name this byte carried until 2026-09-21,
+                                ;   kept so sources not yet renamed still build.
 CART_EN           = $80         ; bit 7 of the bank byte: 1 = cartridge enabled
 OVERRUN_FLAG      = $03         ; the OS sets this when a VSYNC fired before
                                 ;   gpu_end - i.e. the GPU drew nothing that

@@ -798,7 +798,7 @@ the three readers of a level (`load_level`, `load_foes`, `gate_load`, plus
 are the ones in `levels.s`'s header: read a level table only inside the pair,
 write (never read) the RAM under the window while it is open, and keep a RAM copy
 of anything a frame reads (`GTMIS`/`GTMPR`, gate.s). The bank is 8 KB, so the
-level count is no longer bounded by what `CART_HIRAM` has spare.
+level count is no longer bounded by what `DEMO_RAM` has spare.
 
 The **population** half of that plan now exists, in
 [`src/levels.s`](../src/levels.s), authored with
@@ -1001,7 +1001,7 @@ These are settled and should not be re-opened without a reason:
     161, and bank 0 has 103 free. A seventh segment is one row. Every address
     in it is still the linker's.
 
-    **And a second place code can run: `CART_HIRAM`, `$C000-$DFFF`** (19), 8 KB
+    **And a second place code can run: `DEMO_RAM`, `$C000-$DFFF`** (19), 8 KB
     the CPU OS gave the cartridge on 2026-09-11. It is the answer to "where does
     the next subsystem go" now that the run area is down to ~850 bytes, and the
     natural home for per-level overlays — enemy behaviour copied in by
@@ -1011,12 +1011,12 @@ These are settled and should not be re-opened without a reason:
     **Its first tenant, 2026-09-15: `CODE5`.** The camera's enemy framing
     (`cam.s`, open_questions C6) is 1,618 bytes against the run area's 850, so
     it is stored last in bank 4, behind `BGDATA` (which keeps its offsets and so
-    `RING_BANK`), and runs at `$C000`: a `HIRAM` memory area in `cart.cfg` and a
+    `RING_BANK`), and runs at `$C000`: a `DEMO_RAM` memory area in `cart.cfg` and a
     seventh `boot_segs` row. Only code lives there — the state it keeps is in
     the `$6Fxx` page the OS clears, so nothing trusts the demo's bytes.
 
     **And its top page is KEEP, `$DF00-$DFFF` (2026-09-15).** `cart.cfg`'s
-    `HIRAM` area is `$1F00` long, not `$2000`, so no segment can be placed on
+    `DEMO_RAM` area is `$1F00` long, not `$2000`, so no segment can be placed on
     the last page. It holds what must outlive a NEW GAME — the hiscore table
     first (`src/hiscore.s`, 8 × 11 B) — which is filled once by `cart_init`
     and never by `game_start`, and lasts one power-on (a RESET copies the demo
@@ -1028,7 +1028,7 @@ These are settled and should not be re-opened without a reason:
     are not interchangeable — each is ruled out for something. Measured, in both
     simulators, before any of it was relied on. (It was four until 2026-09-11,
     when the MAD-65 CPU OS handed `$C000-$DFFF` to the cartridge — see
-    `CART_HIRAM` below.)
+    `DEMO_RAM` below.)
 
     | area | size | free | what belongs there |
     |---|---|---|---|
@@ -1036,9 +1036,9 @@ These are settled and should not be re-opened without a reason:
     | lower RAM `$0400-$0FFF` | 3,072 | ~0 | the hot tables — ROT, the quarter-square multiply, the star layer |
     | under the cart `$8000-$9FFF` | 8,192 | ~750 (231 state + 523 shapes) | bulk data walked in **bracketed passes** — the object pool, the enemies' state (`foes.s`, `$9100-$95FF`) and everything chained behind it up to `SHAPES_AT` (`$9800`); from there **`SHAPES`**, every vertex table in the game (1,525 B) |
     | upper RAM `$A000-$BEFF` | 7,936 | 1,796 | `RODATA`, `HIDATA`: tables and cold code, **and anything the IRQ reads** |
-    | `CART_HIRAM` `$C000-$DFFF` | 8,192 | 475 + 168 | code or data, full speed, always mapped — `CODE5` (`cam.s` + `hof_seed`, 1,505 B) since 2026-09-15; the top page `$DF00-$DFFF` is KEEP (hiscores, 88 B) |
+    | `DEMO_RAM` `$C000-$DFFF` | 8,192 | 475 + 168 | code or data, full speed, always mapped — `CODE5` (`cam.s` + `hof_seed`, 1,505 B) since 2026-09-15; the top page `$DF00-$DFFF` is KEEP (hiscores, 88 B) |
 
-    (Measured 2026-09-18, after the three moves below. `CART_HIRAM` is where new
+    (Measured 2026-09-18, after the three moves below. `DEMO_RAM` is where new
     code goes; `HIDATA` is for what the IRQ reads or runs once a level.)
 
     **Three things left CPU RAM's scarce areas on 2026-09-18**, none of them by
@@ -1073,13 +1073,13 @@ These are settled and should not be re-opened without a reason:
       enemy's outline costs no upper RAM; it costs the 523 bytes left in that
       2 KB, and the state chain behind `foes.s` has 231 before it meets it.
 
-    **`CART_HIRAM`, `$C000-$DFFF`: 8 KB that became the game's on 2026-09-11,
+    **`DEMO_RAM`, `$C000-$DFFF`: 8 KB that became the game's on 2026-09-11,
     and from now on belong to every MAD-65 cartridge.** The CPU1 ROM is two 8 KB
     halves — the built-in demo at `$C000-$DFFF`, the OS at `$E000-$FFFF` — and
     boot copies both into the shadow RAM and runs from there. The demo only runs
     when no cartridge answers, so from `cart_init` on the demo's half is plain
     RAM that the OS never reads, writes or executes again. It is MAD-65 ABI
-    (`CART_HIRAM` / `CART_HIRAM_END` in cpu_os.s; `docs/MAD65_CPU_OS.md`, Memory
+    (`DEMO_RAM` / `DEMO_RAM_END` in cpu_os.s; `docs/MAD65_CPU_OS.md`, Memory
     Map), and MAD-65 proves the "never touches" part instruction by instruction
     (`roms/test_cart_hiram.py`, `carts/hiram_test`, also run in madsim).
 
@@ -1129,7 +1129,7 @@ These are settled and should not be re-opened without a reason:
       `CART_EN` clear.
 
     What makes the brackets safe to nest inside is that **every routine that
-    borrows the window restores the whole `CART_SHADOW` byte**, `CART_EN`
+    borrows the window restores the whole `CART_BANK_MIR` byte**, `CART_EN`
     included — `do_explosions` for `EXPL_OFF`, and the OS's own
     `gpu_rect_bg_cart` on every path out. Only those two read the cartridge in
     flight, which is why two brackets cover the whole frame.
@@ -1685,11 +1685,11 @@ These are settled and should not be re-opened without a reason:
     EMP is the measurement; if it does not fit, the ring gives — every other
     frame, or stopped at the screen edge — and the kill does not.
 
-    **Where it lives**: CODE6 in CART_HIRAM, behind the pulsar; its state
+    **Where it lives**: CODE6 in DEMO_RAM, behind the pulsar; its state
     (`EMPN` and three bytes of scratch) under the window behind satn.s's. Both
     new sound programs and the message's text are in CODE6 too, because UPPER
     had 41 bytes left: sfx.s and hud_game.s keep only their table rows there.
-    CART_HIRAM is otherwise kept for the next enemies' code — nothing else
+    DEMO_RAM is otherwise kept for the next enemies' code — nothing else
     moves there.
 43. **The shield: 30 s of a quarter of every hit, a dotted circle round the
     hull.** `src/shield.s`; `open_questions.md` F6, which still owns the pickup.
@@ -1727,10 +1727,10 @@ These are settled and should not be re-opened without a reason:
     2 and ten 1s paying 2, the warning queued on frame 241 exactly, the blink,
     down at 0, dropped by a lost ship.
 
-    **Where it lives**: CODE2 (bank 1, run area — CART_HIRAM stays for enemy
+    **Where it lives**: CODE2 (bank 1, run area — DEMO_RAM stays for enemy
     code); its three bytes of state under the window behind the EMP's; its two
     strings in CODE2, only their `IND_LO`/`IND_HI` rows in UPPER. `game_start`
-    resets it through a tail call out of `laser.s lsr_reset`, so CART_HIRAM,
+    resets it through a tail call out of `laser.s lsr_reset`, so DEMO_RAM,
     where `game_start` lives, needed no byte.
 44. **The exit gate: invisible until the mission is done, then an X in the
     world, an X on the radar and the enemy arrow pointing at it.**
@@ -1786,7 +1786,7 @@ These are settled and should not be re-opened without a reason:
     polygon and no arrow on the screen, SC_SECTOR on flying in, FIRE refused
     before `SEC_ARM`, and the next sector keeping score, ships and Saturnium.
 
-    **Where it lives**: code, `levels.s` and the strings in CODE6 (CART_HIRAM,
+    **Where it lives**: code, `levels.s` and the strings in CODE6 (DEMO_RAM,
     **391 B left** there after it); 36 B of state under the window behind
     `shield.s`'s; `EA_GATE`'s tables in RODATA (UPPER, 73 B left).
 
@@ -2169,12 +2169,12 @@ These are settled and should not be re-opened without a reason:
     and 195 bytes more since `MSGDATA` moved out to its own bank on 2026-09-20)
     and **run in upper RAM** after `HIDATA` (`cart.cfg`, and one more row in
     `bootstrap.s`'s `boot_segs`): 937 bytes, of the 1,796 upper RAM had. The place,
-    the discs and the mark are `CODE6` (`CART_HIRAM`). **Free now (before the bullets and the star correction added 430 B to
-    `CODE7`, 1,367 B in all): `CART_HIRAM` 30 B, the RUN area 597 B, bank 0
+    the discs and the mark are `CODE6` (`DEMO_RAM`). **Free now (before the bullets and the star correction added 430 B to
+    `CODE7`, 1,367 B in all): `DEMO_RAM` 30 B, the RUN area 597 B, bank 0
     34 B, SHAPES 386 B; upper RAM 429 B**. 55 bytes
     of state under the window behind `gate.s`'s, three `jsr`s in the flight code
     (`do_ship`, `do_objects`, `foe_integrate`), and a dozen small edits to
-    `gate.s`. CODE7 was first the RUN area's, then upper RAM's: both `HIRAM` and
+    `gate.s`. CODE7 was first the RUN area's, then upper RAM's: both `DEMO_RAM` and
     upper RAM are full-speed and unbanked, and upper RAM is where the room is.
 
 49. **Enemy density: a screen holds only as many enemies as the GPU can draw beside

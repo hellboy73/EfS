@@ -26,7 +26,7 @@
 ; this file used to hold. cart_load RUNS FROM ROM, so it is the only code that
 ; may re-bank the window safely: the rule is that you never switch the bank of
 ; the code you are executing, and this stub IS executing from the window. It
-; also saves and restores CART_SHADOW, so the rts lands back in bank 0 and the
+; also saves and restores CART_BANK_MIR, so the rts lands back in bank 0 and the
 ; second call can be written exactly like the first.
 ;
 ; Two calls and not one, even though cart_load crosses bank boundaries by
@@ -169,7 +169,7 @@ boot_segs_end:
 ; in the COLD segment, and level scripts and message text will - must BORROW the
 ; window and hand it back before cart_frame returns. Leave a different bank
 ; selected and the next frame jumps into that bank's data and the machine is
-; gone. Save CART_SHADOW, select, restore: see do_explosions for the pattern.
+; gone. Save CART_BANK_MIR, select, restore: see do_explosions for the pattern.
 ;
 ; (Pointing the header straight at cart_frame in RAM would remove the hazard,
 ; and is a reasonable thing to do later. It is not free to do casually - the

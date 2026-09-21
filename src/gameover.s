@@ -243,7 +243,7 @@ GO_END:
 ; sector grid and free_init rebuilds the free stack, and the pool lives under
 ; the cartridge window.
 ; -----------------------------------------------------------------------------
-        .segment "CODE5"                ; CART_HIRAM, not HIDATA: it runs once a
+        .segment "CODE5"                ; DEMO_RAM, not HIDATA: it runs once a
                                         ;   game, never from the IRQ, and bank 3
                                         ;   (HIDATA + CODE3) ran out of room when
                                         ;   the sticks started reading JOYPORT

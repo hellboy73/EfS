@@ -1344,13 +1344,13 @@ expl_at:
 ; every frame the OS jumps THROUGH the window. Leave bank 4 selected and the next
 ; frame executes this table's bytes as code.
 ;
-; Save/select/restore through CART_SHADOW rather than assuming bank 0: the shadow
+; Save/select/restore through CART_BANK_MIR rather than assuming bank 0: the shadow
 ; is the system's only record of the latch, every OS call that touches the cart
 ; keeps it current, and borrows composed this way nest correctly with whatever
 ; else learns to move the bank later (a bank-aware VGM tick is explicitly
 ; foreseen in cpu_os.s).
 do_explosions:
-        lda     CART_SHADOW             ; remember what the window was showing
+        lda     CART_BANK_MIR             ; remember what the window was showing
         sta     EXBANK
         lda     #COLD_BANK | CART_EN
         jsr     API_CART_BANK           ; ...and page EXPL_OFF in

@@ -180,7 +180,7 @@ wpn_toggle:
         .assert IM_LASER = IM_GUN + 1, error, "laser.s: wpn_toggle indexes the two messages by WEAPON"
 
 ; lsr_reset - game_start: the gun is chosen and the beam is dark - and the
-; shield is down (shield.s), a tail call so game_start, in CART_HIRAM, needs no
+; shield is down (shield.s), a tail call so game_start, in DEMO_RAM, needs no
 ; byte for it. Nothing zeroes cartridge RAM for us.
 lsr_reset:
         stz     WEAPON

@@ -29,7 +29,7 @@
 ; A SHIP LOST TAKES IT WITH IT: while SHIPGONE or SHIPINV (the respawn blink) the
 ; shield is simply dropped - so shield_on during a respawn blink does nothing.
 ;
-; WHERE IT LIVES. CODE2 (bank 1, run from the run area): CART_HIRAM is kept for
+; WHERE IT LIVES. CODE2 (bank 1, run from the run area): DEMO_RAM is kept for
 ; the next enemies' code and UPPER is full. Its state is under the window behind
 ; the EMP's, so it is only touched inside cart_frame's bracket - do_shield,
 ; ship_hurt and the trainer all are.

@@ -6,7 +6,7 @@
 ; is WHERE it lives and WHEN it is filled, because both decide whether it
 ; survives:
 ;
-;   WHERE  the top page of CART_HIRAM, $DF00-$DFFF - "KEEP". cart.cfg's HIRAM
+;   WHERE  the top page of DEMO_RAM, $DF00-$DFFF - "KEEP". cart.cfg's DEMO_RAM
 ;          area stops at $DEFF, so no segment the linker places there can ever
 ;          grow over it, and the screens' code overlays planned for $C000
 ;          (H1) will be sized against the same $1F00. It is always mapped, so
@@ -27,8 +27,8 @@
 ; anything. The table is kept sorted, best first.
 ; =============================================================================
 
-HIRAM_KEEP  = $DF00             ; must match where cart.cfg's HIRAM area ends
-HIRAM_TOP   = $E000             ; ...and never at or past this: the running OS
+DEMO_KEEP   = $DF00             ; must match where cart.cfg's DEMO_RAM area ends
+DEMO_TOP    = $E000             ; ...and never at or past this: the running OS
 
 NUM_HOF     = 8                 ; entries on the board
 HOF_SCORE   = 0                 ; offsets inside a record
@@ -36,9 +36,9 @@ HOF_INIT    = SCORE_DIGITS
 HOF_LEVEL   = SCORE_DIGITS + 3  ; 1-based, as the HUD shows it
 HOF_REC     = SCORE_DIGITS + 4
 
-HOF         = HIRAM_KEEP        ; NUM_HOF * HOF_REC bytes
+HOF         = DEMO_KEEP        ; NUM_HOF * HOF_REC bytes
 HOF_END     = HOF + NUM_HOF * HOF_REC
-        .assert HOF_END <= HIRAM_TOP, error, "hiscore.s: the table runs past KEEP into the OS"
+        .assert HOF_END <= DEMO_TOP, error, "hiscore.s: the table runs past KEEP into the OS"
         .assert NUM_HOF * HOF_REC <= 128, error, "hiscore.s: hof_seed counts the table down with bpl"
 ; KEEP from HOF_END to $DFFF is free for whatever else must outlive an overlay
 ; swap (which overlay is resident, whether the intro has played).

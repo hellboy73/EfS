@@ -30,11 +30,11 @@
 ; WHY THIS COMPOSES WITH EVERYTHING THAT BORROWS THE WINDOW. Only two things in
 ; the whole game read the cartridge in flight - ring_frame (the radar's ring,
 ; out of bank 1, via the OS's gpu_rect_bg_cart) and do_explosions (EXPL_OFF, out
-; of the COLD bank). Both save CART_SHADOW, select their own bank, and restore
+; of the COLD bank). Both save CART_BANK_MIR, select their own bank, and restore
 ; the WHOLE saved byte on every path out - CART_EN included, checked in
 ; cpu_os.s. So a borrow inside a bracket returns the bracket's state, not a
 ; guess at it, and the same is true of these two routines in the other
-; direction. That is why win_off/win_on save through CART_SHADOW as well rather
+; direction. That is why win_off/win_on save through CART_BANK_MIR as well rather
 ; than writing a constant: $BF60 is a write-only latch and the shadow is the
 ; only record of what the window was showing.
 ;
@@ -52,7 +52,7 @@ WINSAVE     = $73C0             ; the bank byte win_off borrowed the window
         .segment "HIDATA"
 
 win_off:
-        lda     CART_SHADOW
+        lda     CART_BANK_MIR
         sta     WINSAVE
         lda     #$00                    ; CART_EN clear: the RAM shows through
         jmp     API_CART_BANK

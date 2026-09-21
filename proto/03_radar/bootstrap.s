@@ -26,7 +26,7 @@
 ; this file used to hold. cart_load RUNS FROM ROM, so it is the only code that
 ; may re-bank the window safely: the rule is that you never switch the bank of
 ; the code you are executing, and this stub IS executing from the window. It
-; also saves and restores CART_SHADOW, so the rts lands back in bank 0 and the
+; also saves and restores CART_BANK_MIR, so the rts lands back in bank 0 and the
 ; second call can be written exactly like the first.
 ;
 ; Two calls and not one, even though cart_load crosses bank boundaries by

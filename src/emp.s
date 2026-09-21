@@ -50,7 +50,7 @@
 ; Distant enemies die on later frames, so a crowd's wrecks spawn over half a
 ; second rather than in one frame.
 ;
-; WHERE IT LIVES. CODE6, behind the pulsar, in CART_HIRAM (cart.cfg). Its state
+; WHERE IT LIVES. CODE6, behind the pulsar, in DEMO_RAM (cart.cfg). Its state
 ; is under the window behind satn.s's, so it is only touched inside cart_frame's
 ; bracket - do_input, do_emp and game_start all are.
 ; =============================================================================
@@ -194,7 +194,7 @@ do_emp:
 
 ; --- the sound programs --------------------------------------------------------
 ; sfx.s's rows point here: UPPER, where the rest of the programs are, has no
-; room left, and CART_HIRAM is as good a home for them - always mapped, full
+; room left, and DEMO_RAM is as good a home for them - always mapped, full
 ; speed, so the IRQ that plays them reads the right bytes whatever the frame
 ; left in the window. The format and the voices are sfx.s's.
 

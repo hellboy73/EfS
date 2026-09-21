@@ -43,7 +43,7 @@
 ; >= $3C00 units on one axis it is >= 480 px out at 2x, and no edge is that far
 ; from the ship. A near gate goes through the plain road a UFO takes.
 ;
-; WHERE IT LIVES. The code is CODE6 (CART_HIRAM). Its state is under the
+; WHERE IT LIVES. The code is CODE6 (DEMO_RAM). Its state is under the
 ; window behind shield.s's, so everything here but sector_frame runs inside
 ; cart_frame's win_off bracket - do_gate is called from it, gate_load from
 ; level_begin, which runs inside it too.

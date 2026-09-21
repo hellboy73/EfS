@@ -30,7 +30,7 @@
 ; FOEST, which lives under the window, and so runs inside cart_frame's bracket -
 ; do_ship and do_flames both do.
 ;
-; The code is CODE5 and runs from CART_HIRAM, $C000 (cart.cfg): the first thing
+; The code is CODE5 and runs from DEMO_RAM, $C000 (cart.cfg): the first thing
 ; there. Its STATE is not - it is in RAM the OS clears.
 ; =============================================================================
 

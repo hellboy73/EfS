@@ -54,7 +54,7 @@
 ; calls pls_teleport.
 ;
 ; WHERE IT LIVES. CODE6, stored in bank 6 behind the screens' code and run in
-; CART_HIRAM after it (cart.cfg): bank 4, where CODE5 is, had 200 bytes left.
+; DEMO_RAM after it (cart.cfg): bank 4, where CODE5 is, had 200 bytes left.
 ; Its hooks are in foes.s - the spin and the think in foe_think_all/foe_think,
 ; the beams in do_foes, the teleport in foe_take_hit.
 ; =============================================================================

@@ -466,7 +466,7 @@ Two things have to be settled before it is used, and neither has been measured:
   firing `vgm_tick` at a different point in every frame so it lands where a real
   one would: **216 of 220 injections fell inside a `win_off` bracket, every one
   handed the window back the way it found it, and the 220-frame trace is
-  byte-identical to the silent build.** So the player's `CART_SHADOW`
+  byte-identical to the silent build.** So the player's `CART_BANK_MIR`
   save/restore covers `CART_EN` in practice and not only in `cpu_os.s`, and
   11.19's brackets are safe against the one thing that could break them
   asynchronously. Still untested is the REVERSE direction — an interrupt landing
@@ -804,14 +804,14 @@ them once rather than the game-over one alone.
   was recorded to.
 * **The screens' code is not resident** — the run area and upper RAM have a few
   hundred bytes between them. The plan is CETAS's overlay (`states.s`
-  `load_uicode`): screen code in its own banks, copied to `CART_HIRAM` at a
+  `load_uicode`): screen code in its own banks, copied to `DEMO_RAM` at a
   state change, split by when it runs (INTRO once; TITLE + ATTRACT + sign-up;
   STORY + ENDINGS). `api_decrunch` can take LZ-packed overlays at 73–95 cycles
   per byte, so one is a loading frame or two. **Open:** how an overlay shares
   `$C000` with `CODE5` (`cam.s`), which the demo needs as much as play does —
   sized beside it, or reloaded on entry to play. **TBM:** what a load costs.
 * **Hiscores live in KEEP**, `$DF00-$DFFF`, the page `cart.cfg` holds back from
-  `CART_HIRAM`: seeded once by `cart_init`, never by `game_start`, so the board
+  `DEMO_RAM`: seeded once by `cart_init`, never by `game_start`, so the board
   outlives a game and lasts one power-on. Built — `src/hiscore.s`.
 * **Built 2026-09-15: the INTRO and the TITLE** (`src/screens.s`). Power-on is
   `SC_INTRO`: black, the MAD-65 logo, MISSION / ASTEROID / DESTRUCTION one on
@@ -827,7 +827,7 @@ them once rather than the game-over one alone.
   GPU's frame - the last band never landed and left a black bar down the
   title's left side. Four is ~90%, and the frame after a batch carries only its
   replay. Every future story screen obeys the same arithmetic. The screens' code is `UICODE`, loaded
-  at boot into `CART_HIRAM` behind `CODE5` — resident for now, not yet an
+  at boot into `DEMO_RAM` behind `CODE5` — resident for now, not yet an
   overlay — and its state is in KEEP. The title-theme sketch plays from
   power-on as a stand-in (`MUSIC_ON` = 1, banks 7-8). Still open: game over
   goes straight back into a game rather than to the title, and a frame of the
@@ -835,7 +835,7 @@ them once rather than the game-over one alone.
 * **Decided 2026-09-18: the tunnel comes after EVERY sector** (11.45), short, and it cannot kill — see H6 for what is in it. Superseded wording: a short in-between STAGE after some levels — a
   mini-game, flying a tunnel. If it comes it is its own state with its own
   code, so it is one more overlay, not resident code, and it has to be weighed
-  against the same `CART_HIRAM` room as the screens.
+  against the same `DEMO_RAM` room as the screens.
 * **Built 2026-09-18: `SC_SECTOR`, the tunnel's placeholder** (`src/gate.s
   sector_frame`). Flying into the exit gate is SECTOR COMPLETED on black, FIRE
   after 1.5 s, and FIRE is `level_begin` — the next sector with the score, the
@@ -844,7 +844,7 @@ them once rather than the game-over one alone.
   state and file, not as a separate program (CLAUDE.md: no `proto/04`), with a
   build switch that boots straight into it for testing, and a `preview.py`
   bench; its code is a SWAP overlay — while it flies, nothing of the field's
-  code in `CART_HIRAM` (CODE5/CODE6) is needed, so the tunnel is copied over it
+  code in `DEMO_RAM` (CODE5/CODE6) is needed, so the tunnel is copied over it
   and the resident code copied back before the next sector loads, and the
   object pool under the window is free scratch for it, since `level_begin`
   rebuilds the field afterwards anyway.

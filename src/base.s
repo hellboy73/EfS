@@ -85,7 +85,7 @@
 ; its circle, and ends in a puff on its tip; the base has no hit points yet, so it
 ; is not hurt. The laser's beam (laser.s) still goes through.
 ;
-; WHERE IT LIVES. The place, the discs and the mark are CODE6 (CART_HIRAM); the
+; WHERE IT LIVES. The place, the discs and the mark are CODE6 (DEMO_RAM); the
 ; wall is CODE7, stored in bank 6 and run in upper RAM. State is under the
 ; window behind gate.s's, so all of it runs inside cart_frame's win_off bracket:
 ; do_base from frame_body just before do_stars (the disc must be in the list

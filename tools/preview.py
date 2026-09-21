@@ -54,7 +54,7 @@ ROMS = str(ROOT / "roms")
 PPRAM = 0x7800
 VRAM_IMG = 0x8000
 CART_BANK_REG = 0xBF60           # WO: bit7 = CART_EN, bits6-0 = bank
-CART_SHADOW_ZP = 0x09            # ...and the OS's readable mirror of it
+CART_BANK_MIR_ZP = 0x09            # ...and the OS's readable mirror of it
 IMG_END = 0xBA98
 # The marker `call` returns to. It has to be an address NEITHER CPU ever
 # executes, because the run loop stops the instant pc reaches it. $1000 was
@@ -706,7 +706,7 @@ def call(mpu, addr, limit=5_000_000, irq_at=None, irq_addr=None):
     re-banks the cartridge window from an interrupt, so it can land in the
     middle of a win_off bracket (src/window.s), where the game is reading the
     object pool out of the RAM underneath. It saves and restores the whole
-    CART_SHADOW byte, CART_EN included, so a bracket should get its cleared bit
+    CART_BANK_MIR byte, CART_EN included, so a bracket should get its cleared bit
     handed back - and firing it at a different point in every frame is how that
     stops being a reading of cpu_os.s and becomes a measurement."""
     ret = SENTINEL - 1
@@ -843,12 +843,12 @@ def boot_cart():
     # star and radar check below. base_bench turns it on.
     cpu_mem[asm_consts("satn.s", "emp.s", "shield.s", "gate.s", "base.s")["BSON"]] = 0
 # The OS boot leaves the cartridge ENABLED on bank 0 (cart_bank <- $80, see the
-# Boot Procedure) and CART_SHADOW holding that byte. This bench skips OS boot and
+# Boot Procedure) and CART_BANK_MIR holding that byte. This bench skips OS boot and
 # calls the cartridge directly, so it has to stand in for that step: cart_load
-# saves CART_SHADOW, selects its own bank and restores it, so a shadow of $00
+# saves CART_BANK_MIR, selects its own bank and restores it, so a shadow of $00
 # would leave the window DISABLED after every copy. That went unnoticed for as
 # long as cart_read ignored CART_EN.
-cpu_mem[CART_SHADOW_ZP] = 0x80
+cpu_mem[CART_BANK_MIR_ZP] = 0x80
 cart_bank[0] = 0x80
 boot_cart()
 

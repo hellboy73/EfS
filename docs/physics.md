@@ -554,7 +554,7 @@ both sides of a crossing has been hit on one of the two frames.
 
 ## 11. The pulsar — a spinning bar with a laser in each end
 
-Built (`src/pulsar.s`, CODE6 in CART_HIRAM). Every number below is still
+Built (`src/pulsar.s`, CODE6 in DEMO_RAM). Every number below is still
 **(TBM)**. Level 0 carries two, near the ship's start.
 
 **Flight** is the UFO's patrol and nothing else: `foe_patrol`, `foe_steer`,

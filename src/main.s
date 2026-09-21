@@ -556,7 +556,7 @@ ADRAWN      = $FE               ; rocks drawn so far this frame
 ; --- cartridge RAM ($0400-$77FF is free game RAM) ----------------------------
 ; ...and so are $A000-$BEFF (RODATA/HIDATA run there), the RAM under the window
 ; at $8000-$9FFF (bracketed - window.s), and since 2026-09-11 $C000-$DFFF,
-; CART_HIRAM: 8 KB the CPU OS hands the cartridge at cart_init, always mapped,
+; DEMO_RAM: 8 KB the CPU OS hands the cartridge at cart_init, always mapped,
 ; code or data, holding the demo's image on entry. Nothing uses it yet. The
 ; map and its rules: design_technical.md 11.19.
 ROTC_I      = $0400             ; the rotation tables, 8.8: ROT[i] = signed(i) *
@@ -1311,7 +1311,7 @@ frame_body:
                                         ;   handing the window over for the
                                         ;   length of it costs nothing. It would
                                         ;   in fact compose without this pair -
-                                        ;   it saves and restores CART_SHADOW
+                                        ;   it saves and restores CART_BANK_MIR
                                         ;   itself - but a pass that needs the
                                         ;   cartridge should SAY so rather than
                                         ;   lean on another routine's internals.
@@ -1504,11 +1504,11 @@ frame_body:
                                         ; and an edge arrow points at one it
                                         ; cannot. CODE4, after laser.s.
         .include "hiscore.s"            ; the hiscore table in KEEP, the page
-                                        ; of CART_HIRAM a new game never
+                                        ; of DEMO_RAM a new game never
                                         ; resets. CODE5, after cam.s.
         .include "screens.s"            ; the intro, the title and the line into
                                         ; the game. UICODE (bank 6), in
-                                        ; CART_HIRAM after CODE5.
+                                        ; DEMO_RAM after CODE5.
         .include "gate.s"               ; the exit gate, the mission that opens
                                         ; it, and SECTOR COMPLETED. CODE6, after
                                         ; shield.s (its state follows that
@@ -1570,7 +1570,7 @@ frame_body:
                                         ; CODE6. It was CODE6 and RODATA before:
                                         ; UPPER ran out when the exit gate
                                         ; (gate.s) joined enemies.s's tables,
-                                        ; and CART_HIRAM would have run out at
+                                        ; and DEMO_RAM would have run out at
                                         ; the third sector. Nothing reads a level
                                         ; but load_level, load_foes, gate.s and
                                         ; base.s, once a sector

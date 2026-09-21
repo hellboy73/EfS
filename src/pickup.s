@@ -48,11 +48,11 @@ PKAGE       = $73B3             ; ...and slot 0's age, to compare
         .assert SPT_LASER & $80 && SPT_SHIELD & $80 && (SPT_SATN & $80) = 0, error, "pickup.s: bit 7 of the tag is 'a pickup'"
 
         .pushseg
-        .segment "CODE4"                ; the run area, not CART_HIRAM: HIRAM
+        .segment "CODE4"                ; the run area, not DEMO_RAM: DEMO_RAM
                                         ;   was down to 8 bytes when the
                                         ;   pickup's half-rate step (satn.s)
                                         ;   needed room, and this file asks
-                                        ;   nothing of HIRAM
+                                        ;   nothing of DEMO_RAM
 
 ; -----------------------------------------------------------------------------
 ; pk_drop - foes.s foe_kill, FEI dying, EXTX/EXTY its position (expl_at's).

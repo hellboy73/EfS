@@ -66,7 +66,7 @@
 ; of one: SATR_C holds r*cos for the 17 directions of the first quadrant at each
 ; of the 4 radius steps - 68 bytes - and satr_pos folds the other three
 ; quadrants out of it by swapping the axes and flipping signs. The full 4 x 64
-; table for both axes was 512 bytes of CART_HIRAM, which is RAM the code wants.
+; table for both axes was 512 bytes of DEMO_RAM, which is RAM the code wants.
 ; So a spark is two table reads, a swap and a negate or two: no multiply, no
 ; rotation (the ship is always nose-up, 11.27). When the camera is zoomed out
 ; past SATR_ZBIG the ring is taken to three quarters, one shift, so it stays

@@ -177,7 +177,7 @@ IM_LASER_GOT = 11               ; a laser was picked up (pickup.s)
 ; (shots.s) uses for EXPL_OFF out of COLD - instead of sitting resident in RAM
 ; that three other areas were spending on it. Occasional only: a row rebuild or
 ; a new indicator starting, never a per-frame walk, so the window's wait states
-; cost nothing measurable here. Save/select/restore through CART_SHADOW, same
+; cost nothing measurable here. Save/select/restore through CART_BANK_MIR, same
 ; as window.s's win_off/win_on, so a borrow nests correctly with whatever else
 ; is holding the window.
 ; -----------------------------------------------------------------------------
@@ -194,7 +194,7 @@ MSGSAVE     = $73AE             ; the bank byte msg_open borrowed the window
                                 ;   window.s's WINSAVE starts at $73C0
 
 msg_open:
-        lda     CART_SHADOW
+        lda     CART_BANK_MIR
         sta     MSGSAVE
         lda     #MSG_BANK | CART_EN
         jmp     API_CART_BANK

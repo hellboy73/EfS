@@ -30,7 +30,7 @@ WHAT IT EMITS (one .s, included by src/screens.s):
   ART_GEO      per picture: XB, WB, GAP, H, first, end  (offsets into ART_TAB)
   ART_TAB      per band:    bank, address.16, Y.16       (5 bytes)
   the blobs    in segments ART5 / ART6, which cart.cfg keeps in the window.
-ART_GEO and ART_TAB go to UICODE, which runs in RAM (CART_HIRAM).
+ART_GEO and ART_TAB go to UICODE, which runs in RAM (DEMO_RAM).
 """
 
 import pathlib
