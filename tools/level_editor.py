@@ -45,8 +45,14 @@ PATROL: a heading (brad, 0 = up the map, the ship's convention) and a speed in
 pixels a second, 0..175, where 0 holds its post. The arrow on an enemy is that
 course, as long as the speed; the dashed circle ("show enemy sight") is how far
 it SEES - the resting screen's height, foes.s FOE_SEE - so which patrols will
-spot the ship where is judged here. KIND 0 is the UFO, the only kind with a
-behaviour; the game does not load any other.
+spot the ship where is judged here. KIND 0 is the UFO, 1 the spider, 2 the
+pulsar, 3 the EMP mine (foes.s FK_*, KIND_NAMES here); a kind nothing knows how
+to fly is skipped at load, not drawn as a UFO in disguise.
+
+The human base (base.s) is placed the same way as the ship and the gate - one
+per level, dragged on the map, never doubled - except it is OPTIONAL: the
+"Base" panel's checkbox is base.s's own BASE_ON, and the marker (and its drag
+handle) only appears while it is ticked.
 
 Mouse: left-click selects, left-drag moves, double-click on empty space adds
 one of whatever the Place panel is set to, Delete removes it. The wheel zooms
@@ -82,7 +88,7 @@ HALF = WORLD // 2                       #   bits: the wrap IS the overflow
 UNITS_PER_PX = 16                       # world units to one full-res pixel
 FOE_KINDS = 8                           # what fits in the editor's spinbox; the
                                         #   roster itself is open_questions E6
-KIND_NAMES = {0: "UFO", 1: "SPIDER", 2: "PULSAR"}                 # ...and the ones foes.s can fly
+KIND_NAMES = {0: "UFO", 1: "SPIDER", 2: "PULSAR", 3: "EMP MINE"}  # ...and the ones foes.s can fly
 FOE_REC = 7                             # bytes an enemy record takes: XL XH YL YH
                                         #   kind heading speed (levels.s header)
 FOE_SPD_MAX = 175                       # px/s - the pursuit speed, foes.s FOE_SPD;
@@ -116,6 +122,9 @@ SHIP_COLOR = "#8dff9a"
 GATE_COLOR = "#e070ff"
 GATE_R_PX = 123                         # the gate's reach from its centre, full-res
                                         #   px - src/enemies.s EN_GATE, for the map
+BASE_COLOR = "#ffd25a"
+BASE_R_PX = 154                         # the hexagon's own reach, full-res px -
+                                        #   base.s's header note
 MISSIONS = ["0 clear rocks", "1 kill enemies", "2 open"]   # gate.s MS_*
 SEL_COLOR = "#ff5566"
 VIEW_COLOR = "#2c3a46"                  # the ship's rotation-sweep circles
@@ -216,7 +225,8 @@ def prng_next(state):
 class Level:
     def __init__(self, name="LEVEL", counts=None, seed=0x3CA5,
                  shx=0x8000, shy=0x8000, shhd=0, rocks=None, foes=None,
-                 misn=0, mpar=0, gtx=0xB000, gty=0x5000):
+                 misn=0, mpar=0, gtx=0xB000, gty=0x5000,
+                 base_on=0, base_x=0x8000, base_y=0x5800):
         self.name = name
         self.counts = list(counts or [0, 0, 0, 0, 0])   # per size class
         self.seed = seed                                 # the scatter's LFSR word
@@ -225,6 +235,9 @@ class Level:
         self.foes = list(foes or [])                     # [{x, y, kind}]
         self.misn, self.mpar = misn, mpar                # what opens the gate
         self.gtx, self.gty = gtx, gty                    # ...and where it stands
+        self.base_on = base_on                            # the human base
+        self.base_x, self.base_y = base_x, base_y        # (base.s) - optional,
+                                                          #   one per level
 
     @property
     def total(self):
@@ -233,7 +246,8 @@ class Level:
     def clone(self, name):
         return Level(name, self.counts, self.seed, self.shx, self.shy, self.shhd,
                      [dict(r) for r in self.rocks], [dict(f) for f in self.foes],
-                     self.misn, self.mpar, self.gtx, self.gty)
+                     self.misn, self.mpar, self.gtx, self.gty,
+                     self.base_on, self.base_x, self.base_y)
 
     def scatter(self, type_pick):
         """Exactly what load_level's first pass produces, in its own order:
@@ -308,7 +322,8 @@ class Model:
                 k(i, "SEED", 0x3CA5),
                 k(i, "SHX", 0x8000), k(i, "SHY", 0x8000), k(i, "SHHD"),
                 rocks, foes,
-                k(i, "MISN"), k(i, "MPAR"), k(i, "GTX", 0xB000), k(i, "GTY", 0x5000)))
+                k(i, "MISN"), k(i, "MPAR"), k(i, "GTX", 0xB000), k(i, "GTY", 0x5000),
+                k(i, "BASE_ON", 0), k(i, "BASE_X", 0x8000), k(i, "BASE_Y", 0x5800)))
         return cls(levels)
 
 
@@ -353,6 +368,10 @@ def render_generated(model):
     out.append(";         are all gone (MPAR 0 = the 192s), 1 = every enemy is dead, 2 = open")
     out.append(";         from the start")
     out.append(";   GTX   where the gate stands, world 16-bit - fixed, it never moves")
+    out.append(";   BASE_ON  whether this sector has a human base (base.s): 0 = none, 1 =")
+    out.append(";         built")
+    out.append(";   BASE_X   where it stands, world 16-bit - fixed, it never moves; unread")
+    out.append(";         while BASE_ON is 0")
     out.append("; -----------------------------------------------------------------------------")
     for i, l in enumerate(lv):
         out.append(f'; level {i} - "{l.name}"')
@@ -368,6 +387,9 @@ def render_generated(model):
         out.append(const("MPAR", l.mpar))
         out.append(const("GTX", f"${l.gtx:04X}"))
         out.append(const("GTY", f"${l.gty:04X}"))
+        out.append(const("BASE_ON", l.base_on))
+        out.append(const("BASE_X", f"${l.base_x:04X}"))
+        out.append(const("BASE_Y", f"${l.base_y:04X}"))
         out.append("")
 
     out.append("; The hand-placed blocks, and the counts DERIVED from their own length - so a")
@@ -423,6 +445,12 @@ def render_generated(model):
     out.append(_row("LVL_GTXH", [f">L{i}_GTX" for i in range(n)]))
     out.append(_row("LVL_GTYL", [f"<L{i}_GTY" for i in range(n)]))
     out.append(_row("LVL_GTYH", [f">L{i}_GTY" for i in range(n)]))
+    out.append("")
+    out.append(_row("LVL_BASE_ON", [f"L{i}_BASE_ON" for i in range(n)]))
+    out.append(_row("LVL_BASE_XL", [f"<L{i}_BASE_X" for i in range(n)]))
+    out.append(_row("LVL_BASE_XH", [f">L{i}_BASE_X" for i in range(n)]))
+    out.append(_row("LVL_BASE_YL", [f"<L{i}_BASE_Y" for i in range(n)]))
+    out.append(_row("LVL_BASE_YH", [f">L{i}_BASE_Y" for i in range(n)]))
     out.append("")
     out.append(_row("LVL_ROCKN", [f"L{i}_ROCKN" for i in range(n)]))
     out.append(_row("LVL_ROCKLO", [f"<LVL{i}_ROCKS" for i in range(n)]))
@@ -532,6 +560,7 @@ class LevelEditor(tk.Tk):
         self._build_scatter_panel(side)
         self._build_ship_panel(side)
         self._build_gate_panel(side)
+        self._build_base_panel(side)
         self._build_place_panel(side)
         self._build_sel_panel(side)
 
@@ -654,6 +683,48 @@ class LevelEditor(tk.Tk):
 
     def _commit_misn(self):
         self._lvl().misn = MISSIONS.index(self.misn_var.get())
+        self._touch()
+        self._draw()
+
+    def _build_base_panel(self, side):
+        """The human base (src/base.s): optional, one per level - the checkbox
+        is BASE_ON, and the marker only appears (and can only be dragged or
+        selected) while it is ticked."""
+        f = self._section(side, "Human base")
+        self.base_on_var = tk.BooleanVar()
+        tk.Checkbutton(f, text="Present this sector", variable=self.base_on_var,
+                        bg=BG, fg=TEXT, selectcolor="#333", activebackground=BG,
+                        command=self._commit_base_on).grid(
+                            row=0, column=0, columnspan=2, sticky="w")
+        self.base_vars = {}
+        for i, (k, lab) in enumerate([("base_x", "World X"), ("base_y", "World Y")], 1):
+            tk.Label(f, text=lab, bg=BG, fg=TEXT, width=14,
+                      anchor="w").grid(row=i, column=0, sticky="w", pady=1)
+            v = tk.StringVar()
+            e = tk.Entry(f, textvariable=v, width=8)
+            e.grid(row=i, column=1, padx=4)
+            e.bind("<Return>", lambda ev, k=k: self._commit_base(k))
+            e.bind("<FocusOut>", lambda ev, k=k: self._commit_base(k))
+            self.base_vars[k] = v
+
+    def _commit_base_on(self):
+        lv = self._lvl()
+        lv.base_on = 1 if self.base_on_var.get() else 0
+        if not lv.base_on and self.sel == ("base", 0):
+            self.sel = None
+            self._refresh_sel()
+        self._touch()
+        self._draw()
+
+    def _commit_base(self, k):
+        lv = self._lvl()
+        try:
+            v = int(self.base_vars[k].get(), 0) & 0xFFFF
+        except ValueError:
+            self.base_vars[k].set(str(getattr(lv, k)))
+            return
+        setattr(lv, k, v)
+        self.base_vars[k].set(str(v))
         self._touch()
         self._draw()
 
@@ -782,6 +853,9 @@ class LevelEditor(tk.Tk):
         for k in ("gtx", "gty", "mpar"):
             self.gate_vars[k].set(str(getattr(lv, k)))
         self.misn_var.set(MISSIONS[min(lv.misn, len(MISSIONS) - 1)])
+        self.base_on_var.set(bool(lv.base_on))
+        for k in ("base_x", "base_y"):
+            self.base_vars[k].set(str(getattr(lv, k)))
         self._scatter_cache = None
         self._update_totals()
         self._refresh_sel()
@@ -862,6 +936,8 @@ class LevelEditor(tk.Tk):
 
         self._draw_ship(lv, SEL_COLOR if self.sel == ("ship", 0) else SHIP_COLOR)
         self._draw_gate(lv, SEL_COLOR if self.sel == ("gate", 0) else GATE_COLOR)
+        if lv.base_on:
+            self._draw_base(lv, SEL_COLOR if self.sel == ("base", 0) else BASE_COLOR)
         self._draw_frames()
 
     def _draw_frames(self):
@@ -976,6 +1052,20 @@ class LevelEditor(tk.Tk):
                               text=f"EXIT ({MISSIONS[min(lv.misn, 2)]})",
                               fill=color, anchor="w", font=("Consolas", 8))
 
+    def _draw_base(self, lv, color):
+        """A flat-topped hexagon at the base's true reach (at 1:1 zoom in the
+        game), never smaller than a marker you can grab."""
+        import math
+        x, y = self._to_canvas(lv.base_x, lv.base_y)
+        r = max(10, BASE_R_PX * UNITS_PER_PX * self.ppu)
+        pts = []
+        for k in range(6):
+            a = math.pi / 6 + k * math.pi / 3          # flat-topped: base.s's own
+            pts += [x + r * math.cos(a), y + r * math.sin(a)]
+        self.map.create_polygon(*pts, outline=color, fill="", width=2)
+        self.map.create_text(x, y - r - 9, text="BASE", fill=color,
+                              anchor="s", font=("Consolas", 8))
+
     # ---- picking ------------------------------------------------------------
     def _hit(self, cx, cy):
         """Placed items first, then the ship. The scatter is never hit-tested -
@@ -1001,6 +1091,10 @@ class LevelEditor(tk.Tk):
             x, y = self._to_canvas(lv.gtx, lv.gty)
             if (x - cx) ** 2 + (y - cy) ** 2 <= 18 ** 2:
                 best = ("gate", 0)
+        if best is None and lv.base_on:
+            x, y = self._to_canvas(lv.base_x, lv.base_y)
+            if (x - cx) ** 2 + (y - cy) ** 2 <= 18 ** 2:
+                best = ("base", 0)
         return best
 
     def _press(self, ev):
@@ -1023,6 +1117,10 @@ class LevelEditor(tk.Tk):
             lv.gtx, lv.gty = wx, wy
             self.gate_vars["gtx"].set(str(wx))
             self.gate_vars["gty"].set(str(wy))
+        elif kind == "base":
+            lv.base_x, lv.base_y = wx, wy
+            self.base_vars["base_x"].set(str(wx))
+            self.base_vars["base_y"].set(str(wy))
         else:
             item = lv.rocks[i] if kind == "rock" else lv.foes[i]
             item["x"], item["y"] = wx, wy
@@ -1051,7 +1149,7 @@ class LevelEditor(tk.Tk):
         self._draw()
 
     def _delete_selected(self, _ev=None):
-        if self.sel is None or self.sel[0] in ("ship", "gate"):
+        if self.sel is None or self.sel[0] in ("ship", "gate", "base"):
             return
         kind, i = self.sel
         lv = self._lvl()
@@ -1166,6 +1264,9 @@ class LevelEditor(tk.Tk):
         elif kind == "gate":
             self.sel_label.configure(text="Exit gate")
             x, y = lv.gtx, lv.gty
+        elif kind == "base":
+            self.sel_label.configure(text="Human base")
+            x, y = lv.base_x, lv.base_y
         elif kind == "rock":
             r = lv.rocks[i]
             self.sel_label.configure(
@@ -1200,6 +1301,10 @@ class LevelEditor(tk.Tk):
             lv.gtx, lv.gty = x, y
             self.gate_vars["gtx"].set(str(x))
             self.gate_vars["gty"].set(str(y))
+        elif kind == "base":
+            lv.base_x, lv.base_y = x, y
+            self.base_vars["base_x"].set(str(x))
+            self.base_vars["base_y"].set(str(y))
         else:
             item = lv.rocks[i] if kind == "rock" else lv.foes[i]
             item["x"], item["y"] = x, y

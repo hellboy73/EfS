@@ -122,9 +122,21 @@
 ; and is followed under the same rule.
 ; =============================================================================
 LVL_BANK    = 8                 ; cart.cfg: the LEVELS segment's bank
-LVSAVE      = $73B4             ; the bank byte lv_open borrowed the window from.
-                                ;   pickup.s's block ends at $73B3; window.s's
-                                ;   WINSAVE starts at $73C0
+LVSAVE      = $73B6             ; the bank byte lv_open borrowed the window from.
+                                ;   IT WAS $73B4, AND $73B4 IS EMPHAVE'S:
+                                ;   pickup.s's block grew by one byte when the
+                                ;   EMP pickup landed and this equate did not
+                                ;   follow, so every lv_open wrote a bank byte
+                                ;   over "the player has an EMP" and every
+                                ;   pickup wrote a flag over the bank the window
+                                ;   is owed. Hand-placed RAM does not collide
+                                ;   loudly (design_technical 11.22); the assert
+                                ;   below is what makes it loud from here on.
+                                ;   $73B5 is left free on purpose - it is the
+                                ;   next byte of pickup.s's block, should that
+                                ;   one grow again. window.s's WINSAVE starts at
+                                ;   $73C0.
+        .assert EMPHAVE < LVSAVE && LVSAVE < WINSAVE, error, "levels.s: LVSAVE has landed inside pickup.s's block or past WINSAVE"
 
         .pushseg
         .segment "CODE6"
@@ -180,6 +192,10 @@ NLEVELS     = 1
 ;         are all gone (MPAR 0 = the 192s), 1 = every enemy is dead, 2 = open
 ;         from the start
 ;   GTX   where the gate stands, world 16-bit - fixed, it never moves
+;   BASE_ON  whether this sector has a human base (base.s): 0 = none, 1 =
+;         built
+;   BASE_X   where it stands, world 16-bit - fixed, it never moves; unread
+;         while BASE_ON is 0
 ; -----------------------------------------------------------------------------
 ; level 0 - "MINING ZONE"
 L0_N192     = 15
@@ -195,6 +211,9 @@ L0_MISN     = 0
 L0_MPAR     = 0
 L0_GTX      = $B046
 L0_GTY      = $5130
+L0_BASE_ON  = 1
+L0_BASE_X   = $8000
+L0_BASE_Y   = $5800
 
 ; The hand-placed blocks, and the counts DERIVED from their own length - so a
 ; record added or deleted by hand needs nothing else changed.
@@ -215,11 +234,8 @@ LVL0_FOES:
         .byte   $F2, $1D, $DF, $C1, 1, 0, 0       ; SPIDER at 7666, 49631, holding its post
         .byte   $59, $6D, $FF, $4E, 2, 64, 40       ; PULSAR at 27993, 20223, course 64 at 40 px/s
         .byte   $75, $50, $6C, $2A, 2, 0, 0       ; PULSAR at 20597, 10860, holding its post
-        .byte   $00, $C0, $00, $C0, 3, 0, 0       ; EMP MINE at 49152, 49152, static -
-                                                  ;   outside EMPM_RP of the ship's
-                                                  ;   start (the user, 2026-09-22:
-                                                  ;   the first one fired instantly)
-        .byte   $00, $40, $00, $40, 3, 0, 0       ; EMP MINE at 16384, 16384, static
+        .byte   $00, $C0, $00, $C0, 3, 0, 0       ; EMP MINE at 49152, 49152, holding its post
+        .byte   $00, $40, $00, $40, 3, 0, 0       ; EMP MINE at 16384, 16384, holding its post
 LVL0_FOES_END:
 L0_ROCKN    = (LVL0_ROCKS_END - LVL0_ROCKS) / 6
 L0_FOEN     = (LVL0_FOES_END - LVL0_FOES) / 7
@@ -250,6 +266,12 @@ LVL_GTXL:   .byte   <L0_GTX
 LVL_GTXH:   .byte   >L0_GTX
 LVL_GTYL:   .byte   <L0_GTY
 LVL_GTYH:   .byte   >L0_GTY
+
+LVL_BASE_ON: .byte   L0_BASE_ON
+LVL_BASE_XL: .byte   <L0_BASE_X
+LVL_BASE_XH: .byte   >L0_BASE_X
+LVL_BASE_YL: .byte   <L0_BASE_Y
+LVL_BASE_YH: .byte   >L0_BASE_Y
 
 LVL_ROCKN:  .byte   L0_ROCKN
 LVL_ROCKLO: .byte   <LVL0_ROCKS

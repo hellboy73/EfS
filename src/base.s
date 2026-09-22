@@ -177,16 +177,16 @@ BASE_END    = BSB + 55
 ; -----------------------------------------------------------------------------
 base_load:
         ldx     CURLEV
-        jsr     lv_open                 ; BASE_* is in the level bank (below):
-        lda     BASE_ON,x               ;   read it here, and only write what is
-        sta     BSON                    ;   under the window
-        lda     BASE_XL,x
+        jsr     lv_open                 ; LVL_BASE_* is levels.s's, alongside
+        lda     LVL_BASE_ON,x           ;   GTX/GTY - read it here, and only
+        sta     BSON                    ;   write what is under the window
+        lda     LVL_BASE_XL,x
         sta     BSXL
-        lda     BASE_XH,x
+        lda     LVL_BASE_XH,x
         sta     BSXH
-        lda     BASE_YL,x
+        lda     LVL_BASE_YL,x
         sta     BSYL
-        lda     BASE_YH,x
+        lda     LVL_BASE_YH,x
         sta     BSYH
         jsr     lv_close
         lda     #(1 << BS_N) - 1        ; every segment standing
@@ -372,19 +372,6 @@ bs_disc:
 BR_DX:  .byte   <-1, <-1, 0, 0, 1, 1
 BR_DY:  .byte   0, <-1, 1, <-2, 0, <-1
 
-; Where each level's base stands (its anchor, world 16-bit), or 0 in BASE_ON for
-; none. It is here and not in levels.s because the level editor rewrites that
-; block whole; it moves there when the editor learns to place one. It is level
-; data all the same, so it is in the LEVELS bank with the rest (levels.s says how
-; that is read), and base_load is its only reader.
-; Level 0: 640 px dead ahead of where the ship starts.
-        .segment "LEVELS"
-BASE_ON:    .byte   1
-BASE_XL:    .byte   <$8000
-BASE_XH:    .byte   >$8000
-BASE_YL:    .byte   <$5800
-BASE_YH:    .byte   >$5800
-        .assert BASE_XL - BASE_ON = NLEVELS && * - BASE_YH = NLEVELS, error, "base.s: a row per level in BASE_*"
         .segment "CODE6"
         .assert BR_DY - BR_DX = BR_N && GTR_N >= BR_N, error, "base.s: the mark's dots go through gate.s's GTRB, which holds GTR_N"
 

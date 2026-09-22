@@ -41,7 +41,9 @@ PK_SLOW     = 1                 ; FRAME mask: it takes its step one frame in
                                 ;   mote's speed - see satn.s do_satn
 
 ; --- state: $73AF-$73B4, behind hud_game.s's MSGSAVE. Always mapped: laser.s
-;     reads LSRHAVE outside any bracket, and emp.s reads EMPHAVE the same way ---
+;     reads LSRHAVE outside any bracket, and emp.s reads EMPHAVE the same way.
+;     $73B5 is the next free byte; levels.s's LVSAVE follows at $73B6 and the
+;     assert below is what keeps this block from walking into it again ---
 LSRHAVE     = $73AF             ; nonzero once a laser has been TAKEN. A new
                                 ;   game (continue included) clears it; a lost
                                 ;   ship and a sector keep it
@@ -51,7 +53,7 @@ PKT         = $73B2             ; pk_spawn's tag
 PKAGE       = $73B3             ; ...and slot 0's age, to compare
 EMPHAVE     = $73B4             ; nonzero once the EMP has been TAKEN - the
                                 ;   same door LSRHAVE is for the laser
-        .assert MSGSAVE = LSRHAVE - 1 && EMPHAVE < WINSAVE, error, "pickup.s: the block no longer fits between MSGSAVE and WINSAVE"
+        .assert MSGSAVE = LSRHAVE - 1 && EMPHAVE < LVSAVE, error, "pickup.s: the block no longer fits between MSGSAVE and levels.s's LVSAVE"
         .assert SPT_LASER & $80 && SPT_SHIELD & $80 && SPT_EMP & $80 && (SPT_SATN & $80) = 0, error, "pickup.s: bit 7 of the tag is 'a pickup'"
 
         .pushseg
