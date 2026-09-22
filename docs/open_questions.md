@@ -293,6 +293,35 @@ not forgotten if a split cascade (E9) or a content-heavy level ever sustains
 real overload in play — at which point this needs an actual flying pass, the
 same way B1-B8 did, not just picked numbers.
 
+**E12. CPU1 overload from a split cascade — a mid-frame deadline signal
+(TBD, the user, 2026-09-22).** E10/cam_rockbrake (`cam.s`) now gives the GPU
+side a brake: ABUDGET nearly spent pulls ZCAP in, regardless of what the
+enemy servo wants. **That is a different failure than this one.** Sweeping
+the laser through a big rock or a cluster splits many rocks in a few frames
+— E9's cascade — and the cost lands on CPU1 (`do_objects`' precise pass,
+`do_collide`'s pair walk), not the GPU, so it is not something ZCAP or any
+zoom lever touches: pulling the camera in shrinks what the GPU draws, not
+how many rocks `do_collide` has to test.
+
+The idea on the table: a MAD-65 hardware register CPU1 could read mid-frame
+— how much of this frame's cycle budget is already spent — so code doing
+uncertain-cost work (a split cascade, future enemy behaviours) could check
+its OWN remaining room instead of a static per-call budget, and defer or
+skip past a threshold. That is a real deadline signal, not an estimate, but
+it is a MAD-65 change (hardware + firmware, the separate repo — rebuild and
+recopy the ROMs after) — a heavier lever than anything CPU1-only.
+
+Cheaper, and worth ruling out first: a work-counter in ABUDGET's own shape,
+spent by `do_collide`/`rock_split` instead of GPU vertices — no new
+hardware, but it is its own constant to price and calibrate (E9 has not
+measured what a cascade actually costs per split, only per frame overall).
+
+Not attempted, nothing measured: not the register's shape, not the
+counter's price per split, not even which of the two is worth building
+first. Filed here next to E9 and E10 so it is not lost — an actual flying
+pass (soak a laser through a packed field, dump it, see which CPU1 phase
+grows) is what should decide between them, not a guess now.
+
 **E4. Restitution, spin gain, split impulse, break-up threshold (TBM).** The whole
 tuning surface, and still largely open — the physics *runs* now, which means the
 iteration loop this question was waiting for can start.
