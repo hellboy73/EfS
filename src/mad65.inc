@@ -70,6 +70,16 @@ API_CART_BANK       = $FF03     ; A = CART_EN | bank -> select the $8000-$9FFF
                                 ;   OS call that borrows a bank and hands it
                                 ;   back (cart_load, gpu_load_cart,
                                 ;   rect_bg_cart, and the replay of the last).
+API_CART_LOAD       = $FF06     ; OS_ARG+0 = src bank, +1..2 = src (cart window)
+                                ;   addr, +3..4 = dst addr, +5..6 = len16 ->
+                                ;   copy len16 bytes bank:src to dst. Saves and
+                                ;   restores CART_BANK_MIR like every OS call
+                                ;   that borrows the window. bootstrap.s defines
+                                ;   its own copy of this (a separate assembly
+                                ;   unit, run before the cartridge exists in
+                                ;   RAM) for the boot copy; this entry is for
+                                ;   the cartridge's OWN runtime use - overlay.s,
+                                ;   swapping DEMO_RAM's FIELD/SCREEN tenants.
 API_GPU_VREG        = $FF3F     ; A = VIDEO_REG sub-op. Only two of the six are
                                 ;   used here: 3 = BG_REG on, 2 = BG_REG off -
                                 ;   the background pixel colour, black or dark

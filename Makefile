@@ -21,6 +21,7 @@ MODULES = src/math.s src/input.s src/camera.s src/ship.s src/thrust.s \
           src/hud_game.s src/gameover.s src/debris.s src/radar.s \
           src/shots.s src/foes.s src/laser.s src/sfx.s src/window.s \
           src/music.s src/satn.s src/cam.s src/hiscore.s src/screens.s \
+          src/overlay.s \
           src/pulsar.s src/emp.s src/shield.s src/trainer.s src/gate.s \
           src/pickup.s src/sprites.s src/base.s src/empmine.s src/speech.s
 DATA    = src/shapes.s src/enemies.s src/levels.s src/radar_bg.s \

@@ -24,11 +24,13 @@
 ; that band has landed in the second of the two background buffers - so a
 ; picture is only ever seen whole.
 ;
-; WHERE IT LIVES. The code is UICODE, copied by the bootstrap into DEMO_RAM
-; behind CODE5. Its state is in KEEP (hiscore.s), straight after the hiscore
-; table: always mapped, no bracket, and a pointer into it may be handed to the
-; OS. The state is set by scr_boot from cart_init, because KEEP holds the CPU
-; OS demo's bytes on entry.
+; WHERE IT LIVES. The code is UICODE, SCREENRAM - the overlay's SCREEN tenant
+; (overlay.s), cart_loaded over CODE5/CODE6's FIELDRAM whenever SCR_STATE is
+; not SC_PLAY (frame_body, main.s); the bootstrap does not copy it any more.
+; Its state is in KEEP (hiscore.s), straight after the hiscore table: always
+; mapped, no bracket, and a pointer into it may be handed to the OS. The state
+; is set by scr_boot from cart_init, because KEEP holds the CPU OS demo's
+; bytes on entry.
 ; =============================================================================
 
 SC_PLAY     = 0
@@ -307,12 +309,18 @@ title_frame:
                                         ;   chips that are already silent - it
                                         ;   is not tested, because music.s is
                                         ;   assembled after this file)
-        jsr     win_off                 ; a fresh game - game_start walks the
-        jsr     game_start              ;   object pool, which lives under the
-        jsr     win_on                  ;   window (window.s)
-        stz     BGDONE                  ; ...and the flight's first frame wipes
-        stz     SCR_STATE               ;   the picture and puts the radar's ring
-@ret:   rts                             ;   and the HUD back (cart_frame)
+        ldx     #FE_NEWGAME             ; NOT jsr game_start here: this frame is
+        jmp     set_state_field         ;   still UICODE, about to be overwritten
+                                        ;   by set_state_field's own cart_load -
+                                        ;   a jsr's return address would be
+                                        ;   inside that the instant it lands, so
+                                        ;   this is a tail JMP, never a jsr
+                                        ;   (overlay.s has the full account).
+                                        ;   set_state_field sets SCR_STATE,
+                                        ;   loads CODE5/CODE6, clears BGDONE and
+                                        ;   runs game_start, then rts's to
+                                        ;   cart_frame on our behalf
+@ret:   rts
 
 ; -----------------------------------------------------------------------------
 ; push_fire - after PF_DELAY frames of title, PUSH FIRE: PF_ON lit, PF_OFF dark.

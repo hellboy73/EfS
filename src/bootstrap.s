@@ -59,8 +59,8 @@
         .import __CODE3_LOAD__, __CODE3_RUN__, __CODE3_SIZE__
         .import __CODE4_LOAD__, __CODE4_RUN__, __CODE4_SIZE__
         .import __CODE5_LOAD__, __CODE5_RUN__, __CODE5_SIZE__
-        .import __UICODE_LOAD__, __UICODE_RUN__, __UICODE_SIZE__
         .import __CODE6_LOAD__, __CODE6_RUN__, __CODE6_SIZE__
+        .import __CODE8_LOAD__, __CODE8_RUN__, __CODE8_SIZE__
         .import __CODE7_LOAD__, __CODE7_RUN__, __CODE7_SIZE__
         .import __SHAPES_LOAD__, __SHAPES_RUN__, __SHAPES_SIZE__
         .import cart_init, cart_frame
@@ -84,13 +84,23 @@ CODE3_BANK    = 3               ; ...and CODE3 is the rest of that bank, which
                                  ;   runs in the $1000 area after CODE2
 CODE4_BANK    = 4               ; ...and CODE4 rides behind COLD in bank 4, and
                                  ;   runs after CODE3
-CODE5_BANK    = 4               ; ...and CODE5 behind BGDATA, running at $C000
-UICODE_BANK   = 6               ; ...and the screens' code behind the pictures
-                                 ;   in bank 6, running after CODE5
-CODE6_BANK    = 6               ; ...and the pulsar behind that, running after
-                                 ;   UICODE
+CODE5_BANK    = 4               ; ...and CODE5 behind BGDATA, running at $C000 -
+                                 ;   FIELDRAM, the overlay's flight-engine
+                                 ;   tenant (open_questions.md H1). UICODE (the
+                                 ;   screens' code, bank 6) is NOT copied here
+                                 ;   any more - it runs in SCREENRAM, the same
+                                 ;   physical range, and src/overlay.s cart_loads
+                                 ;   it at runtime instead, the first time
+                                 ;   frame_body finds SCR_STATE nonzero
+CODE6_BANK    = 6               ; ...and the pulsar (+ gate/emp/trainer/base)
+                                 ;   behind the screens' pictures in bank 6,
+                                 ;   packed into FIELDRAM after CODE5
 CODE7_BANK    = 7               ; ...and the base's code behind SPRART in bank 7,
                                  ;   running in upper RAM, after HIDATA
+CODE8_BANK    = 7               ; ...and behind CODE7, overlay.s - the FIELD/
+                                 ;   SCREEN swap dispatcher, run area, after
+                                 ;   CODE4 (it must never be what it swaps -
+                                 ;   see overlay.s's header)
 SHAPES_BANK   = 2               ; ...and the vertex tables behind RODATA in bank
                                  ;   2, running in the RAM under the window at
                                  ;   $9800 - a write there reaches the RAM whatever
@@ -145,14 +155,14 @@ boot_segs:
         .word   __CODE4_LOAD__, __CODE4_RUN__, __CODE4_SIZE__
         .byte   CODE5_BANK
         .word   __CODE5_LOAD__, __CODE5_RUN__, __CODE5_SIZE__
-        .byte   UICODE_BANK
-        .word   __UICODE_LOAD__, __UICODE_RUN__, __UICODE_SIZE__
         .byte   CODE6_BANK
         .word   __CODE6_LOAD__, __CODE6_RUN__, __CODE6_SIZE__
         .byte   SHAPES_BANK
         .word   __SHAPES_LOAD__, __SHAPES_RUN__, __SHAPES_SIZE__
         .byte   CODE7_BANK
         .word   __CODE7_LOAD__, __CODE7_RUN__, __CODE7_SIZE__
+        .byte   CODE8_BANK
+        .word   __CODE8_LOAD__, __CODE8_RUN__, __CODE8_SIZE__
 boot_segs_end:
 
 ; -----------------------------------------------------------------------------

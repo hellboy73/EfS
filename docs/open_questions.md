@@ -877,6 +877,96 @@ them once rather than the game-over one alone.
   and the resident code copied back before the next sector loads, and the
   object pool under the window is free scratch for it, since `level_begin`
   rebuilds the field afterwards anyway.
+* **RAM audit, 2026-09-22 (the user).** Measured (`map.txt`): every scarce area
+  is now nearly full at once — run area 289 B free, `UPPER` 16 B, `DEMO_RAM`
+  209 B (`CODE5` 3,281 B + `UICODE` 1,444 B + `CODE6` 3,002 B). But
+  `main.s frame_body` already proves `UICODE` and the flight engine never share
+  a frame: `SCR_STATE = 0` falls through to the field and never calls
+  `scr_frame`; any other value hands the WHOLE frame to `scr_frame` (`UICODE`)
+  and the field's per-frame code never runs. The one place that boundary
+  cracks today: `scr_frame` dispatches `SC_SECTOR` to `sector_frame`, which
+  lives in `gate.s` (`CODE6`, the field group) — so `UICODE` and `CODE6` are
+  both resident and cross-calling for as long as SECTOR COMPLETED is on
+  screen. Extending 11.45's flow, three groups are pairwise mutually exclusive
+  in time, always: **SCREEN** (`UICODE` — intro/title/attract/hiscore sign-up,
+  and the coming briefing/start-banner/endings, which are the SAME
+  bitmap+text machinery with different data, not a fourth tenant), **FIELD**
+  (`CODE5`+`CODE6`, and `CODE7`/base.s is a candidate to join it from `UPPER`),
+  **TUNNEL** (not built). **Proposed:** generalise CETAS's `states.s`
+  `load_hicode`/`load_uicode` (a two-way `$A000` overlay, `overlay_cur` +
+  one `cart_load` per swap) into an N-way overlay over `DEMO_RAM`, table-driven
+  (`OVL_id, LOAD, RUN, SIZE`) since this cartridge needs three tenants, not two.
+  Swap points ride the existing/planned state transitions: boot loads SCREEN
+  first (matches "intro/UI/hiscore/attract loaded first"); FIRE into a game
+  loads FIELD (before any field per-frame code can run, like CETAS's
+  `pr_update` -> `load_hicode` before `ST_BOSSLOAD`); the gate loads TUNNEL;
+  the tunnel's end loads SCREEN (before the next BRIEFING) or FIELD (when it
+  falls straight to START BANNER, which draws over the live field, so FIELD
+  must already be resident). The one prerequisite fix, independent of the rest:
+  move `sector_frame` out of `gate.s`/`CODE6` into the tunnel's own file when
+  it is built, so `SC_SECTOR` stops requiring `CODE6` resident under `UICODE`.
+  The dispatcher itself (`overlay_cur`, the swap table) must live OUTSIDE
+  `DEMO_RAM` — a handful of bytes in the run area or `UPPER`, never in one of
+  the segments it swaps, exactly as CETAS's `set_state`/`load_*` sit in the
+  ambient segment rather than `HICODE`/`UICODE`. **Payoff:** each active group
+  gets the full `DEMO_RAM` ceiling (~7,936 B) instead of permanently splitting
+  it three ways — FIELD's headroom goes from 209 B free today to roughly
+  1,650 B, TUNNEL starts at the same ceiling rather than scrounging leftovers,
+  and SCREEN has room for briefing/ending display without touching field code
+  at all. Not yet decided where `CODE7` ends up or whether cutscenes ever need
+  their own tenant — settle both when the tunnel and the briefing screens are
+  actually written.
+* **Built 2026-09-22: the FIELD/SCREEN overlay (`src/overlay.s`), the
+  `sector_frame` move, and the swap-point mechanism above** — `cart.cfg` now
+  has `FIELDRAM`/`SCREENRAM`, two MEMORY areas at the same physical range,
+  CETAS's `HIRAM`/`UIRAM` trick. Measured after: **FIELDRAM 1,824 B free,
+  SCREENRAM 6,333 B free** (was 209 B shared three ways). One thing the plan
+  above did not anticipate and had to be fixed by building it: content code
+  that triggers a FIELD entry (`title_frame`'s FIRE, `sector_frame`'s FIRE)
+  must **tail-`jmp`** into the resident swap routine, never `jsr` — a `jsr`'s
+  return address sits inside the memory about to be overwritten. The harder
+  lesson, found only by the user re-testing in real madsim twice: the
+  transition's one-time work (the `cart_load` + `game_start`/`level_begin` +
+  clearing `BGDONE`) has to happen **synchronously, on the same frame as the
+  trigger** — deferring it one frame via a flag (this was tried first) broke
+  the title screen's background clear on real hardware, even though
+  `tools/preview.py` kept passing throughout, because `preview.py` explicitly
+  does not model the double-buffered background / VSYNC replay timing (its
+  own header says so) and its `boot_cart()` bypasses the title/FIRE path
+  entirely (a direct `SCR_STATE` poke). See
+  `efs-field-screen-overlay` (memory) for the full account and the py65
+  debugging recipe that ruled out the CPU1-command-list level before the fix
+  was found. `frame_body` keeps a defensive fallback (load FIELD + clear
+  `BGDONE` unconditionally) for exactly that poke path.
+* **Checked against the attract DEMO (the user, 2026-09-22): the SCREEN/FIELD
+  split holds, no third case.** The worry was whether the attract DEMO panel
+  (recorded play, replayed — the bullet above) needs `UICODE` and the field
+  resident together, since the marquee scrolls under the rotating ATTRACT
+  panels. **Settled: no.** The demo panel is the full game with no HUD and a
+  scripted joystick, not a game-plus-chrome hybrid — it does not coexist with
+  the scroller or anything else `UICODE` draws, so it is a plain FIELD state
+  like PLAY, just fed canned input. The marquee stops for the duration of that
+  panel. So `SC_STATE`'s existing rule (SCREEN and FIELD never share a frame)
+  needs no exception for it — only one more swap point: entering/leaving the
+  demo panel loads/unloads FIELD exactly like a game start/end does.
+* **Scope, decided 2026-09-22 (the user): staged, not all at once.** The
+  question raised was why stop at `DEMO_RAM` (8 KB) rather than making most
+  of RAM swappable behind a small resident kernel + shared data — and that is
+  the right eventual shape: only the hot tables (`$0400-$0FFF`), `HIDATA`
+  (the IRQ reads it in any state), the object pool/foes-state/`SHAPES` scratch
+  (already shared, per the tunnel bullet above), and the dispatcher itself
+  are truly kernel; the run area (`CODE`-`CODE4`, 20 KB) is FIELD too, not
+  kernel — it is idle exactly when `DEMO_RAM`'s `CODE5`/`CODE6` are, and TUNNEL
+  could borrow it the same way. But extending the swap to the run area costs
+  more than a `cart.cfg`/`bootstrap.s` change: `main.s` today mixes the
+  per-frame dispatch trampoline (`frame_body`, the `FRAME` counter, `spr_pump`)
+  with the field engine in one file, and that has to be pulled apart into
+  kernel vs. FIELD before any of it can move, then reverified against
+  `preview.py`'s 220-frame trace. Decided: do `DEMO_RAM` first — its swap is
+  already free (every file already sits in its own segment, the frame
+  boundary is already proven) — and revisit the run area once the tunnel is
+  actually being built and its real code size is known, rather than
+  refactoring `main.s` on a guess.
 
 **H2. The wreck's numbers (TBM, and being flown).** `DEBRIS_FRAMES` 120,
 `DEBRIS_K` 11, `DEBRIS_JIT` 32, `DEBRIS_SPIN` 2 (`src/debris.s`). It has already

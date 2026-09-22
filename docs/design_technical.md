@@ -1041,6 +1041,18 @@ These are settled and should not be re-opened without a reason:
     (Measured 2026-09-18, after the three moves below. `DEMO_RAM` is where new
     code goes; `HIDATA` is for what the IRQ reads or runs once a level.)
 
+    **Measured 2026-09-22, the RAM audit:** every scarce area is nearly full
+    at once — run area 289 B free, `UPPER` 16 B, `DEMO_RAM` 209 B (`CODE5`
+    3,281 B + `UICODE` 1,444 B + `CODE6` 3,002 B). `DEMO_RAM`'s three
+    occupants are never live together — `main.s frame_body` already proves
+    `UICODE` (the screens) and the flight engine never share a frame — so the
+    fix is not smaller code, it is not holding all of it resident at once.
+    **Built the same day** — `src/overlay.s`, `cart.cfg`'s `FIELDRAM`/
+    `SCREENRAM`. `DEMO_RAM`'s two tenants now get the room each nominally
+    had to share: FIELD (`CODE5`+`CODE6`) 1,824 B free, SCREEN (`UICODE`)
+    6,333 B free. See `open_questions.md` H1 for the mechanism and the
+    synchronous-transition lesson it cost to get right.
+
     **Three things left CPU RAM's scarce areas on 2026-09-18**, none of them by
     shrinking anything:
 

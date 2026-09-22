@@ -43,10 +43,12 @@
 ; >= $3C00 units on one axis it is >= 480 px out at 2x, and no edge is that far
 ; from the ship. A near gate goes through the plain road a UFO takes.
 ;
-; WHERE IT LIVES. The code is CODE6 (DEMO_RAM). Its state is under the
-; window behind shield.s's, so everything here but sector_frame runs inside
-; cart_frame's win_off bracket - do_gate is called from it, gate_load from
-; level_begin, which runs inside it too.
+; WHERE IT LIVES. The code is CODE6 (FIELDRAM), except sector_frame - a
+; screen, not field simulation, so it moved to UICODE/SCREENRAM (overlay.s,
+; open_questions.md H1). Its state is under the window behind shield.s's, so
+; everything here but sector_frame runs inside cart_frame's win_off bracket -
+; do_gate is called from it, gate_load from level_begin, which runs inside it
+; too.
 ; =============================================================================
 
 MS_ROCKS    = 0                 ; LVL_MISN: every rock of classes 0..LVL_MPAR
@@ -592,7 +594,15 @@ GX_DY:  .byte   0, 1, 0, <-1, 2, 1, 0, <-1, <-2
         .segment "MSGDATA"          ; was CODE6 - see hud_game.s's
                                     ;   msg_open/msg_close
 IM_GATE_S:  .byte   "EXIT GATE OPEN", 0
-        .segment "CODE6"
+        .segment "UICODE"               ; SCREEN, not FIELD (overlay.s,
+                                        ;   open_questions.md H1): SC_SECTOR is
+                                        ;   a screen like the title, not field
+                                        ;   simulation, and scr_frame (also
+                                        ;   UICODE) dispatches to it directly -
+                                        ;   it used to be CODE6, which meant
+                                        ;   SCREEN and FIELD had to be resident
+                                        ;   together for as long as SECTOR
+                                        ;   COMPLETED was up
 
 ; -----------------------------------------------------------------------------
 ; sector_frame - the whole frame while SCR_STATE is SC_SECTOR (screens.s).
@@ -649,12 +659,16 @@ sector_frame:
         bcc     :+
         ldx     #$00
 :       stx     CURLEV
-        jsr     win_off                 ; level_begin walks the object pool
-        jsr     level_begin
-        jsr     win_on
-        stz     BGDONE                  ; ...and the flight's first frame puts
-        stz     SCR_STATE               ;   the radar's ring and the HUD back
-@ret:   rts                             ;   (cart_frame)
+        ldx     #FE_NEXTSECTOR          ; NOT jsr level_begin here: this frame
+        jmp     set_state_field         ;   is still UICODE, about to be
+                                        ;   overwritten by set_state_field's own
+                                        ;   cart_load - a tail JMP, never a jsr
+                                        ;   (overlay.s has the full account).
+                                        ;   It sets SCR_STATE, loads CODE5/
+                                        ;   CODE6, clears BGDONE and runs
+                                        ;   level_begin, then rts's to
+                                        ;   cart_frame on our behalf
+@ret:   rts
 
 @next:  inc     SCR_PH
         stz     SCR_T

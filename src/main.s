@@ -1148,8 +1148,6 @@ cart_init:
                                         ;   game_start, which is exactly what
                                         ;   lets it survive a new game
                                         ;   (hiscore.s)
-        jsr     scr_boot                ; ...and power-on is the intro, not the
-                                        ;   flight (screens.s)
 
         ; ...and everything a NEW GAME resets - the ship, the field, the HUD -
         ; is game_start (gameover.s), because FIRE on the game-over screen has
@@ -1157,10 +1155,18 @@ cart_init:
         ; drift from the first the day either changed. What stays above is only
         ; what a SESSION does once: the tables, the two backdrop layers, the
         ; seed, the settled flight-model dials.
-        jsr     game_start
+        jsr     game_start              ; CODE5 - still resident: bootstrap.s
+                                        ;   loads FIELD (CODE5/CODE6) at boot,
+                                        ;   before this routine even runs
         jsr     win_on                  ; ...and the window is a cartridge again
                                         ;   before init can return - the OS jumps
                                         ;   to boot_frame THROUGH it (window.s)
+        jsr     ovl_load_screen         ; FIELD was resident for hof_seed/
+                                        ;   game_start above; frame 1 is
+                                        ;   SC_INTRO and needs SCREEN instead
+                                        ;   (overlay.s)
+        jsr     scr_boot                ; ...and power-on is the intro, not the
+                                        ;   flight (screens.s, resident now)
         jsr     spr_arm                 ; ...and every sprite the game has goes
                                         ;   to the GPU in bulk, from the first
                                         ;   frames on (sprites.s)
@@ -1191,9 +1197,24 @@ frame_body:
         inc     FRAME
         bne     :+
         inc     FRAME+1
-:       lda     SCR_STATE               ; a screen - the intro or the title -
-        beq     :+                      ;   takes the whole frame (screens.s);
-        jmp     scr_frame               ;   SC_PLAY is 0 and falls through
+:       lda     SCR_STATE               ; SC_PLAY (0) needs FIELD resident;
+        beq     @field                  ;   anything else needs SCREEN - a
+        lda     overlay_cur             ;   screen (screens.s) takes the whole
+        cmp     #OVL_SCREEN             ;   frame either way, so the swap (if
+        beq     @go_scr                 ;   any) has to land before it does
+        jsr     ovl_load_screen         ;   (overlay.s)
+@go_scr:
+        jmp     scr_frame
+@field:
+        lda     overlay_cur
+        cmp     #OVL_FIELD
+        beq     :+
+        jsr     ovl_load_field          ; SAFETY NET ONLY: set_state_field
+        stz     BGDONE                  ;   (overlay.s) is the real entry point
+                                        ;   and has normally already done both
+                                        ;   of these on the SAME frame SCR_STATE
+                                        ;   went to 0 - this only fires if
+                                        ;   SCR_STATE reached 0 some OTHER way
 :
         lda     BGDONE                  ; one-shot: wipe the boot screen off the
         bne     :+                      ;   background. The OS replays background
@@ -1507,8 +1528,13 @@ frame_body:
                                         ; of DEMO_RAM a new game never
                                         ; resets. CODE5, after cam.s.
         .include "screens.s"            ; the intro, the title and the line into
-                                        ; the game. UICODE (bank 6), in
-                                        ; DEMO_RAM after CODE5.
+                                        ; the game. UICODE (bank 6), run in
+                                        ; SCREENRAM - overlay.s swaps it for
+                                        ; CODE5/CODE6's FIELDRAM.
+        .include "overlay.s"            ; the FIELD/SCREEN swap itself - CODE4,
+                                        ; the run area, on purpose: see its
+                                        ; header for why it cannot be one of
+                                        ; the segments it swaps.
         .include "gate.s"               ; the exit gate, the mission that opens
                                         ; it, and SECTOR COMPLETED. CODE6, after
                                         ; shield.s (its state follows that
