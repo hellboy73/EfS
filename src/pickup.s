@@ -143,6 +143,12 @@ pk_arrive:
 @shield:jmp     shield_on               ; tail: SHIELD ENABLED
 @emp:   lda     #$01
         sta     EMPHAVE
+        sta     EMPRDY                  ; ...and the hold's own line is SAID: this
+                                        ;   path fills the hold itself, one line
+                                        ;   below, so emp_ready (emp.s) would
+                                        ;   otherwise queue EMP AVAILABLE straight
+                                        ;   behind EMP ACQUIRED - the same fact,
+                                        ;   twice, two seconds apart
         lda     #SATN_FULL              ; charged and ready: the hold too
         sta     SATN
         lda     #IM_EMP_GOT

@@ -168,6 +168,15 @@ IM_SHIELD_OFF= 9                ; ...and has 4 s left
 IM_GATE      = 10               ; the mission is done (gate.s)
 IM_LASER_GOT = 11               ; a laser was picked up (pickup.s)
 IM_EMP_GOT   = 12               ; ...and so was an EMP (pickup.s)
+IM_EMP_RDY   = 13               ; the hold has filled back up and the EMP can be
+                                ;   fired again (emp.s emp_ready)
+IM_COUNT     = 14               ; ...and HOW MANY, which is ABI: THREE tables
+                                ;   are indexed by these ids - IND_LO/IND_HI
+                                ;   below and speech.s's SPK_LO/SPK_HI, which
+                                ;   is generated from its own list in
+                                ;   tools/mkspeech.py. All three assert against
+                                ;   this, so a new message is a build error
+                                ;   until every table has its row.
 
 ; -----------------------------------------------------------------------------
 ; msg_open / msg_close - borrow the window for MSGDATA, the HUD/indicator text.
@@ -182,8 +191,11 @@ IM_EMP_GOT   = 12               ; ...and so was an EMP (pickup.s)
 ; as window.s's win_off/win_on, so a borrow nests correctly with whatever else
 ; is holding the window.
 ; -----------------------------------------------------------------------------
-MSG_BANK    = 9                 ; cart.cfg: the MSGDATA segment, a bank to
-                                ;   ITSELF. IND_LO/IND_HI below are the halves
+MSG_BANK    = 9                 ; cart.cfg: MSGDATA and, since the voice landed,
+                                ;   speech.s's SPKDATA - the text of every
+                                ;   message and the phonemes for the ones that
+                                ;   are spoken, in ONE bank and nothing else in
+                                ;   it. IND_LO/IND_HI below are the halves
                                 ;   of a plain 16-bit pointer and this constant
                                 ;   is what makes that enough - the day the
                                 ;   messages need a second bank, every one of
@@ -838,11 +850,20 @@ ind_qdrop:
 ; Counts down to 1 and STOPS there: "expired, still on screen". The clearing emit
 ; is indicate_tick's job on its own phase, which is what keeps this file to one
 ; background command per phase however the timer happens to land.
+;
+; A SPOKEN LINE IS HELD UNTIL IT HAS BEEN READ OUT. The countdown stops dead
+; while SPK_BUSY is set (speech.s), so the hold is max(its ticks, the length of
+; the utterance) and text is never taken off the bar with the voice still saying
+; it - the words on screen are what makes three square waves intelligible, so
+; losing them halfway is losing the sentence. The voice is never cut instead:
+; spk_stop is not called anywhere.
 ; -----------------------------------------------------------------------------
 ind_timer_tick:
         lda     IND_TIMER
         cmp     #2
         bcc     @ret                    ; 0 = idle, 1 = expired and waiting
+        lda     SPK_BUSY                ; ...and it does not age AT ALL while the
+        bne     @ret                    ;   synthesiser is still reading it out
         dec     IND_TIMER
 @ret:   rts
 
@@ -898,6 +919,10 @@ ind_next:
         sta     HUD_PTR+1
         jsr     msg_open
         jsr     ind_build               ; centred into IND_BUF
+        jsr     spk_speak               ; ...and SAY it, in the same bracket: the
+                                        ;   phonemes are in the message bank too
+                                        ;   (speech.s), and a silent message is a
+                                        ;   $0000 in its table
         jsr     msg_close
         jmp     ind_emit                ; tail
 
@@ -1003,7 +1028,7 @@ STR_SCORE:  .byte   "SCORE: "
 STR_LIVES:  .byte   "SHIPS: "
 
 IM_HULL_S:  .byte   "HULL BREACH", 0
-IM_CRIT_S:  .byte   "HULL CRITICAL", 0
+IM_CRIT_S:  .byte   "WARNING! HULL CRITICAL", 0
 IM_LEVEL_S: .byte   "CLEAR THE SECTOR", 0
 IM_LIFE_S:  .byte   "SHIP LOST", 0
 IM_ENEMY_S: .byte   "ENEMY DETECTED", 0
@@ -1018,8 +1043,12 @@ IM_LASER_S: .byte   "LASER ARMED", 0
 IND_LO:     .byte   <IM_HULL_S, <IM_CRIT_S, <IM_LEVEL_S, <IM_LIFE_S, <IM_ENEMY_S
             .byte   <IM_GUN_S, <IM_LASER_S, <IM_EMP_NA_S, <IM_SHIELD_ON_S
             .byte   <IM_SHIELD_OFF_S, <IM_GATE_S, <IM_LASER_GOT_S, <IM_EMP_GOT_S
+            .byte   <IM_EMP_RDY_S
 IND_HI:     .byte   >IM_HULL_S, >IM_CRIT_S, >IM_LEVEL_S, >IM_LIFE_S, >IM_ENEMY_S
             .byte   >IM_GUN_S, >IM_LASER_S, >IM_EMP_NA_S, >IM_SHIELD_ON_S
             .byte   >IM_SHIELD_OFF_S, >IM_GATE_S, >IM_LASER_GOT_S, >IM_EMP_GOT_S
+            .byte   >IM_EMP_RDY_S
+        .assert (IND_HI - IND_LO) = IM_COUNT, error, "hud_game.s: IND_LO is not IM_COUNT bytes long"
+        .assert (* - IND_HI) = IM_COUNT, error, "hud_game.s: IND_HI is not IM_COUNT bytes long"
 
         .segment "CODE2"

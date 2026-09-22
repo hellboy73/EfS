@@ -154,6 +154,9 @@ do_shield:
                                     ;   tightest budget on two strings; see
                                     ;   hud_game.s's msg_open/msg_close
 IM_SHIELD_ON_S:  .byte  "SHIELD ENABLED", 0
-IM_SHIELD_OFF_S: .byte  "SHIELD WEARS OFF", 0
+IM_SHIELD_OFF_S: .byte  "SHIELD OFF", 0     ; was "SHIELD WEARS OFF": this line
+                                    ;   is SPOKEN now (speech.s) and the voice
+                                    ;   reads what is on the bar, so the bar
+                                    ;   says the shorter thing
 
         .popseg

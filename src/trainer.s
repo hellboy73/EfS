@@ -12,7 +12,9 @@
 ;   UP      the hold fills: SATN = SATN_MAX (satn.s) - held
 ;   DOWN    the shield goes up for its 30 s (shield.s shield_on) - on the press
 ;   RIGHT   the exit gate opens, mission or not (gate.s gate_open) - on the press
-;   LEFT    the laser is in hand, as if picked up (pickup.s LSRHAVE) - on the press
+;   LEFT    the laser arrives, exactly as a pickup would (pk_arrive) - on the press
+;   FIRE    the EMP arrives, exactly as a pickup would (pk_arrive) - on the press,
+;           so EMP ACQUIRED is spoken and the hold comes full with it
 ;
 ; Runs from cart_frame after do_input, inside the bracket: SATN lives under the
 ; window.
@@ -42,7 +44,17 @@ trainer_tick:
 :       lda     JOY1_PRESS,x
         and     #JOY_LEFT
         beq     :+
-        sta     LSRHAVE                 ; LEFT: the laser (any nonzero will do)
+        phx
+        lda     #SPT_LASER              ; LEFT: the laser, through the REAL arrival
+        jsr     pk_arrive               ;   too - so it is announced, and spoken,
+        plx                             ;   exactly as a picked-up one is
+:       lda     JOY1_PRESS,x
+        and     #JOY_FIRE
+        beq     :+
+        phx
+        lda     #SPT_EMP                ; FIRE: the EMP, through the REAL arrival -
+        jsr     pk_arrive               ;   the whoosh, the flag, the full hold and
+        plx                             ;   EMP ACQUIRED, none of it duplicated here
 :       lda     JOY1_PRESS,x
         and     #JOY_DOWN
         beq     @done

@@ -80,6 +80,21 @@ EMK         = SATP_END + 4      ; this frame's kill radius K, high bytes
 EMP_END     = SATP_END + 5
         .assert EMP_END <= SHAPES_AT, error, "emp.s: past the RAM under the window"
 
+; --- ...and one byte that is NOT under the window ------------------------------
+; EMPRDY is the "the player has been told" latch for IM_EMP_RDY. It sits in the
+; always-mapped block behind pickup.s's, at the byte levels.s's LVSAVE left free,
+; and NOT on the end of the EMP_END chain above - which is where the first,
+; reverted attempt at the spoken messages put it. That attempt shifted every
+; symbol behind it by one and broke flight in a way that was never explained;
+; hand-placed RAM here does not collide loudly (design_technical 11.22), so a new
+; byte goes where an assert can see it instead of into a chain that moves.
+;
+; It needs no reset of its own. game_start (gameover.s) zeroes SATN, so the first
+; do_emp of a new game takes the "below the price" path and clears this byte
+; before anything can read it.
+EMPRDY      = $73B5             ; nonzero once the full hold has been announced
+        .assert EMPRDY = EMPHAVE + 1 && EMPRDY < LVSAVE, error, "emp.s: EMPRDY is not the free byte between pickup.s's block and levels.s's LVSAVE"
+
         .pushseg
         .segment "CODE6"
 
@@ -118,7 +133,41 @@ emp_input:
 ; do_emp - once a frame, after do_satn (FLCX/FLCY are this frame's), inside the
 ; bracket: this frame's kills, then this frame's ring.
 ; -----------------------------------------------------------------------------
+; -----------------------------------------------------------------------------
+; emp_ready - "EMP AVAILABLE", once per refill of the hold.
+; -----------------------------------------------------------------------------
+; The ring of sparks already flashes at SATN_FULL and that IS the readout
+; (satn.s); this is the same fact in words, for the one moment it changes. Once
+; per crossing, latched by EMPRDY: a hold sitting full must not say it again
+; every frame, and one that is spent and refilled must say it again.
+;
+; IT IS SILENT UNTIL THE WEAPON IS IN HAND. A full hold with no EMP found is not
+; an announcement - the EMP does not exist for the player until pickup.s sets
+; EMPHAVE, and emp_input answers that case with EMP NOT AVAILABLE when they try.
+; The LATCH is still set on the crossing, though, whether or not anything was
+; said: that is what stops "EMP ACQUIRED" from being followed a frame later by
+; "EMP AVAILABLE" when the EMP is picked up with the hold already full.
+;
+; Inside the bracket (do_emp's own contract): SATN is RAM under the window.
+; -----------------------------------------------------------------------------
+emp_ready:
+        lda     SATN
+        cmp     #SATN_EMP_COST
+        bcc     @spent                  ; below the price: arm the next crossing
+        lda     EMPRDY
+        bne     @done                   ; this crossing is already told
+        inc     EMPRDY                  ; latch it whether or not it is announced
+        lda     EMPHAVE
+        beq     @done                   ; ...and there is nothing to announce
+        lda     #IM_EMP_RDY             ;   until the EMP has been found
+        jmp     indicate_msg            ; tail (clobbers A/X)
+@spent: stz     EMPRDY
+@done:  rts
+
 do_emp:
+        jsr     emp_ready               ; the hold's own line, ring or no ring -
+                                        ;   so it is checked every frame, not only
+                                        ;   while one is growing
         lda     EMPN
         bne     :+
         rts
@@ -248,5 +297,6 @@ se_emp:
         .segment "MSGDATA"          ; was CODE6 - see hud_game.s's
                                     ;   msg_open/msg_close
 IM_EMP_NA_S: .byte  "EMP NOT AVAILABLE", 0
+IM_EMP_RDY_S: .byte "EMP AVAILABLE", 0
 
         .popseg

@@ -1533,6 +1533,9 @@ frame_body:
                                         ; SFX engine reads the step programs
                                         ; from the frame IRQ, so they have to
                                         ; live in RAM that is always mapped.
+        .include "speech.s"             ; the VOICE: the phoneme strings for the
+                                        ;   messages that are spoken, in the
+                                        ;   message bank beside their text
         .include "music.s"              ; the song, and MUSIC_ON, which takes
                                         ; it and its four banks back out. A
                                         ; PLACEHOLDER - see that file for the
