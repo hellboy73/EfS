@@ -25,6 +25,12 @@
 ;   THEN POINT. Whenever this target is off the screen, cam_arrow blinks ONE
 ;   arrow on the edge where it is, lit first on the frame it was taken.
 ;
+; THE ROCK BUDGET OUTRANKS ALL OF THIS. cam_rockbrake walks ZCAP - "never
+; wider than" - up when ABUDGET (objects.s) is nearly spent, so an enemy
+; asking for a wider view than the rock field can afford loses the argument,
+; not the frame rate. Ordinary camera movement, not a scripted event - see
+; cam_rockbrake's own header.
+;
 ; The results are TARGETS: do_ship's eases, the zoom rung quantiser, the cull
 ; and the star sample point all run on them unchanged. Everything here reads
 ; FOEST, which lives under the window, and so runs inside cart_frame's bracket -
@@ -53,6 +59,17 @@ CAM_SSTEP   = 4                 ; px a frame the camera's slide may move
 CAM_XMAX    = 2*FBCX - 1        ; the last full-res row and column
 CAM_YMAX    = 299               ; ...and row: the screen's edge, not FBCY's
 
+RB_HI       = 4                 ; ABUDGET this low or lower: the rock budget is
+                                 ;   essentially spent - tighten ZCAP. Measured:
+                                 ;   dumps/00012470 (95.7% GPU, 13 rocks) left
+                                 ;   ABUDGET at 0 against AST_BUDGET=104 - this
+                                 ;   is meant to already trip there, a bit before
+                                 ;   the wall, and NOT trip on a lighter scene.
+                                 ;   TBM if AST_BUDGET's own constants move
+                                 ;   (HUD_ON, ROCK_FAMILY)
+RB_CAPMAX   = 16                ; never clamp tighter than half the 0..32
+                                 ;   ladder (ZQ_LADDER, main.s)
+
 ARW_SLOT0   = FLAME_SLOT0 + FLAME_N ; the four arrows, after the flames
 ARW_PAGE    = $12               ; GPU RAM page (flames $11) - see sprites.s
 ARW_RIGHT   = 0                 ; slot order, arrows.s's order
@@ -79,8 +96,8 @@ CAMLK       = $6FE5             ; lean bound: 0 none, 1 a floor, 2 a ceiling
 CAMLB       = $6FE6             ; ...at this many px, signed
 CAMK        = $6FE7             ; the servo's rung, ZQ_LADDER index: 0 = 2x out,
                                 ;   32 = 1:1. $FF = no target, start afresh
-ZCAP        = $6FE8             ; the widest RUNG allowed, 0 = 2x. The hook a
-                                ;   performance safety net will write
+ZCAP        = $6FE8             ; the widest RUNG allowed, 0 = 2x. Written by
+                                ;   cam_rockbrake, the performance safety net
 CAMVL       = $6FE9             ; the target in view coords, world units, by
 CAMVH       = $6FEB             ;   axis: +0 along (VY), +1 across (VX)
 CAMBL       = $6FED             ; scratch from here: the nearest distance...
@@ -115,11 +132,43 @@ CAMZLAG     = $73AD             ; the shift do_ship's zoom ease uses: ZOOM_LAG,
         .segment "CODE5"
 
 ; -----------------------------------------------------------------------------
+; cam_rockbrake - the rock budget outranks the enemy servo: while ABUDGET
+; (objects.s, last frame's leftover rock-outline budget) is nearly spent,
+; ZCAP is walked UP one rung a frame - fast, but one rung at a time, capped at
+; RB_CAPMAX so it never demands more than half the ladder. The moment ABUDGET
+; is not nearly spent any more, ZCAP is walked back down one rung a frame too
+; - the same unthrottled pace the servo itself already widens at (cf_have's
+; "OUT a rung a frame" below) - so this reads as ordinary camera movement, not
+; a special event. ZCAP then does the rest by itself: cf_have's own clamps
+; (never wider than ZCAP) and cz_in/cz_out (never step past it) already give
+; it the final word over wherever the enemy servo wants to sit.
+;
+; No new state: ZCAP was already here and unwritten (see its comment above).
+; Called first thing in cam_foe, so this frame's clamp sees this frame's cap.
+; -----------------------------------------------------------------------------
+cam_rockbrake:
+        lda     ABUDGET
+        cmp     #RB_HI+1
+        bcs     rb_relax                ; comfortably inside budget: release
+        lda     ZCAP
+        cmp     #RB_CAPMAX
+        bcs     rb_done
+        inc     ZCAP
+        bra     rb_done
+rb_relax:
+        lda     ZCAP
+        beq     rb_done
+        dec     ZCAP
+rb_done:
+        rts
+
+; -----------------------------------------------------------------------------
 ; cam_foe - this frame's camera targets: CAMSOF, CAMRZ, CAMLK/CAMLB.
 ; -----------------------------------------------------------------------------
 ; do_ship calls it before the along ease. Clobbers everything, T0/T1 included.
 ; -----------------------------------------------------------------------------
 cam_foe:
+        jsr     cam_rockbrake
         ldx     ETIER
         lda     ZOOM_RZ,x
         sta     CAMRT
