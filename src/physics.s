@@ -1528,6 +1528,31 @@ ship_hurt:
                                         ;   share of the cost first (satn.s)
         jsr     shield_armour           ; ...and the shield, if it is up, takes
                                         ;   three quarters of the rest (shield.s)
+        bra     ship_hurt_pay
+@free:  pla
+        rts
+
+; -----------------------------------------------------------------------------
+; ship_hurt_raw - A = the hit points this hit costs the ship, straight to the
+; hull: neither satn_armour nor shield_armour take a share first. The EMP
+; mine's blast is the one thing that bypasses both, on purpose (the user,
+; 2026-09-22, empmine.s empm_fire) - everything else here (the sounds, the
+; SHIPINV mercy, the message, the death) is ship_hurt's, unchanged. Preserves
+; X and Y.
+; -----------------------------------------------------------------------------
+ship_hurt_raw:
+        pha
+        lda     #SE_KLANG
+        jsr     sfx_fire
+        lda     #SE_KLANG_N
+        jsr     sfx_fire
+        lda     SHIPINV
+        beq     :+
+        pla
+        rts
+:       pla
+        ; fall through
+ship_hurt_pay:
         eor     #$FF                    ; SHIPHP - the cost, as SHIPHP + ~A + 1:
                                         ;   carry CLEAR is a borrow, a hit
         sec                             ;   bigger than what was left
@@ -1538,8 +1563,6 @@ ship_hurt:
         bra     @ok
 @dead:  stz     SHIPHP
         jmp     ship_die
-@free:  pla
-        rts
 @ok:
         ; ...and say so on the message bar. The bar de-duplicates against what is
         ; already showing, so a ship grinding along a rock for half a second gets

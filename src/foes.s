@@ -74,10 +74,11 @@
 FOE_REC     = 7                 ; bytes a level spends on one enemy (levels.s)
 FK_UFO      = 0                 ; KIND 0 is the UFO...
 FK_SPIDER   = 1                 ; ...KIND 1 the excavator...
-FK_PULSAR   = 2                 ; ...and KIND 2 the pulsar (pulsar.s). A kind
-                                ;   nothing knows how to fly is still skipped
-                                ;   by load_foes
-FK_N        = 3                 ; how many kinds have a behaviour
+FK_PULSAR   = 2                 ; ...KIND 2 the pulsar (pulsar.s)...
+FK_EMPMINE  = 3                 ; ...and KIND 3 the EMP mine (empmine.s). A
+                                ;   kind nothing knows how to fly is still
+                                ;   skipped by load_foes
+FK_N        = 4                 ; how many kinds have a behaviour
 FS_DEAD     = 0                 ; FOEST: an empty or destroyed slot
 FS_PATROL   = 1
 FS_PURSUE   = 2
@@ -544,6 +545,7 @@ foe_think_all:
 :       jsr     foe_think
         bra     @next
 @free:  jsr     pls_spin                ; a pulsar turns (pulsar.s), every frame
+        jsr     empm_spin               ; ...and so does a charging mine (empmine.s)
         jsr     foe_think
         ldx     FEI
         jsr     foe_integrate
@@ -600,6 +602,9 @@ foe_think:
         cmp     #FK_PULSAR              ; a pulsar patrols and never chases
         bne     :+
         jmp     pls_think
+:       cmp     #FK_EMPMINE             ; a mine never patrols either - it does
+        bne     :+                      ;   not even move (empmine.s)
+        jmp     empm_think
 :       jsr     foe_seek
         jsr     foe_steer
         jmp     foe_avoid
@@ -4060,8 +4065,8 @@ foe_spawn:
 ; FOEKIND. The appearance is only a STARTING one: the spider changes its own
 ; when it comes off its rock, which is the whole reason the shape lookup is by
 ; appearance and not by kind.
-FOE_KAPP:   .byte   EA_UFO, EA_SPIDER, EA_PULSAR
-FOE_KHP:    .byte   FOE_HP, SPD_HP, PLS_HP
+FOE_KAPP:   .byte   EA_UFO, EA_SPIDER, EA_PULSAR, EA_EMP_MINE
+FOE_KHP:    .byte   FOE_HP, SPD_HP, PLS_HP, EMPM_HP
 FOE_KDMG:   .byte   FSH_DMG, SPD_DMG, FSH_DMG   ; what its bullet takes off
 FOE_KSPDL:  .byte   <SHOT_SPD, <SPD_SPD, <SHOT_SPD ; ...and how fast the bullet
 FOE_KSPDH:  .byte   >SHOT_SPD, >SPD_SPD, >SHOT_SPD ;   flies (a pulsar has no gun)

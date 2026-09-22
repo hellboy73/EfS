@@ -1517,9 +1517,12 @@ frame_body:
                                         ; by a rule, their star-occlusion discs,
                                         ; and the field the ship cannot enter.
                                         ; CODE6, its state behind gate.s's
-        .include "pickup.s"             ; the laser and the shield, dropped by
-                                        ; a kill and homing like Saturnium.
-                                        ; CODE6, its art in SPRART
+        .include "empmine.s"            ; the EMP mine: a static trap that
+                                        ; spins up and discharges. CODE7 (UPPER),
+                                        ; its state behind base.s's
+        .include "pickup.s"             ; the laser, the shield and the EMP,
+                                        ; dropped by a kill and homing like
+                                        ; Saturnium. CODE6, its art in SPRART
         .include "sprites.s"            ; every sprite's memory map, the
                                         ; definition pages, and the bulk upload
                                         ; that puts them all on the GPU at

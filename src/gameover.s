@@ -254,6 +254,7 @@ game_start:
         stz     SATN                    ; ...and an empty hold: a NEW GAME's,
         stz     SATARM                  ;   where a sector keeps what it had
         stz     LSRHAVE                 ; ...and no laser, until one is found
+        stz     EMPHAVE                 ; ...nor an EMP, the same way
         ; fall through
 
 ; -----------------------------------------------------------------------------

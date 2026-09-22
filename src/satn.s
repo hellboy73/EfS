@@ -116,11 +116,19 @@ SATP_N      = 16                ; pool capacity: two class-4 kills' clouds in
                                 ;   loses is only feedback
 SATP_ARR    = 192               ; arrival box, world units a side-half: 12
                                 ;   full-res px at 1:1 - inside the hull
-SATP_AGE    = $3F               ; the age field of the slot byte
+SATP_AGE    = $1F               ; the age field of the slot byte - five bits;
+                                ;   SATP_SWIRL (12) fits it with room over, and
+                                ;   the saturating compares it feeds do not
+                                ;   care how high the ceiling is
 SPT_SATN    = $40               ; tags. Never $00: that is a free slot
 SPT_LASER   = $80               ;   ...and the pickups (pickup.s): bit 7 set,
-SPT_SHIELD  = $C0               ;   drawn as a sprite by pk_draw
-SPT_MASK    = $C0
+SPT_SHIELD  = $C0               ;   drawn as a sprite by pk_draw. Bit 6 told
+SPT_EMP     = $A0               ;   laser from shield with room to spare; the
+                                ;   EMP mine's pickup (empmine.s) needed a
+                                ;   third, so SPT_MASK below widened by one
+                                ;   bit - still clear of SATP_AGE, which
+                                ;   shrank the same day to make room
+SPT_MASK    = $E0
 SATP_ACC    = 7                 ; the pull is d >> this: 9 units/frame^2 from
                                 ;   80 px away, and it fades as the mote closes
 SATP_VMAX   = 63                ; the speed cap, world units a frame per axis -

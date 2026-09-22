@@ -71,13 +71,18 @@
 ; LVL_FOEN records of SEVEN bytes, read once by foes.s load_foes:
 ;
 ;   XL, XH, YL, YH   the world position, 16-bit per axis
-;   KIND             0 = the UFO, 1 = the spider, 2 = the pulsar. A kind
-;                    nothing knows how to fly is not loaded at all
+;   KIND             0 = the UFO, 1 = the spider, 2 = the pulsar, 3 = the EMP
+;                    mine (empmine.s). A kind nothing knows how to fly is not
+;                    loaded at all
 ;   HEADING          the patrol course, brad, the ship's own convention - 0 flies
-;                    toward -Y, "up" in the editor, and 64 toward +X
+;                    toward -Y, "up" in the editor, and 64 toward +X. Unread by
+;                    a mine, which never turns to a heading - HEADING and SPEED
+;                    are 0 in its records, as a UFO holding its post writes them
 ;   SPEED            the patrol speed, in PIXELS A SECOND at 1:1, 0..175; 0 is a
-;                    UFO that holds its post. load_foes turns it into 8.8 world
-;                    units a frame (x68, which is 16/60.317*256 to 0.2%)
+;                    UFO that holds its post - and the ONLY value a mine
+;                    understands, since it never patrols at all. load_foes turns
+;                    it into 8.8 world units a frame (x68, which is
+;                    16/60.317*256 to 0.2%)
 ;
 ; It was five bytes (position and kind) while nothing flew an enemy. The two
 ; new ones are what a patrol is: the UFO keeps this course and speed until it
@@ -210,6 +215,11 @@ LVL0_FOES:
         .byte   $F2, $1D, $DF, $C1, 1, 0, 0       ; SPIDER at 7666, 49631, holding its post
         .byte   $59, $6D, $FF, $4E, 2, 64, 40       ; PULSAR at 27993, 20223, course 64 at 40 px/s
         .byte   $75, $50, $6C, $2A, 2, 0, 0       ; PULSAR at 20597, 10860, holding its post
+        .byte   $00, $C0, $00, $C0, 3, 0, 0       ; EMP MINE at 49152, 49152, static -
+                                                  ;   outside EMPM_RP of the ship's
+                                                  ;   start (the user, 2026-09-22:
+                                                  ;   the first one fired instantly)
+        .byte   $00, $40, $00, $40, 3, 0, 0       ; EMP MINE at 16384, 16384, static
 LVL0_FOES_END:
 L0_ROCKN    = (LVL0_ROCKS_END - LVL0_ROCKS) / 6
 L0_FOEN     = (LVL0_FOES_END - LVL0_FOES) / 7

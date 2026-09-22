@@ -3,15 +3,20 @@
 ; =============================================================================
 ; design_technical.md 11.47. A killed PULSAR drops the laser while the player
 ; has not TAKEN one (LSRHAVE: a laser still in flight does not count, so two
-; pulsars killed by one EMP drop two); every killed SPIDER drops the shield.
+; pulsars killed by one EMP drop two); every killed SPIDER drops the shield;
+; every killed EMP MINE (empmine.s) drops the EMP itself, the same way and
+; gated the same way (EMPHAVE) - the weapon does not exist for the player
+; until one is found, exactly like the laser (emp.s emp_input checks it).
 ; A pulsar's beam killing one pays nobody (FOEKILL) and drops nothing either.
 ;
 ; A PICKUP IS A SATURNIUM MOTE WITH ANOTHER TAG. It lives in satn.s's pool, is
 ; steered by the same pull from the frame it drops, at any distance, and is
 ; taken on arrival - so nothing here moves anything. Only two things differ: it
 ; is drawn as a sprite and not a dot (pk_draw, from do_satn's walk), and its
-; arrival does something (pk_arrive, from satp_arrive). The tag's bits 7-6 are
-; SPT_LASER or SPT_SHIELD; bit 7 set is "a pickup", and bit 6 is the kind.
+; arrival does something (pk_arrive, from satp_arrive). The tag's top three
+; bits (SPT_MASK, satn.s) are SPT_LASER, SPT_SHIELD or SPT_EMP; bit 7 set is
+; "a pickup", bits 6-5 the kind - widened from one bit to two when the EMP
+; mine needed a third kind, at the cost of one bit of SATP_AGE (satn.s).
 ;
 ; TWO AT ONCE, in pool slots 0 and 1. satn_kill takes free slots from the top
 ; down, so these are the last a cloud of motes reaches; a pickup takes one that
@@ -35,8 +40,8 @@ PK_SLOW     = 1                 ; FRAME mask: it takes its step one frame in
                                 ;   others, so it closes at 1/(PK_SLOW+1) of a
                                 ;   mote's speed - see satn.s do_satn
 
-; --- state: $73AF-$73B3, behind hud_game.s's MSGSAVE. Always mapped: laser.s
-;     reads LSRHAVE outside any bracket ------------------------------------------
+; --- state: $73AF-$73B4, behind hud_game.s's MSGSAVE. Always mapped: laser.s
+;     reads LSRHAVE outside any bracket, and emp.s reads EMPHAVE the same way ---
 LSRHAVE     = $73AF             ; nonzero once a laser has been TAKEN. A new
                                 ;   game (continue included) clears it; a lost
                                 ;   ship and a sector keep it
@@ -44,8 +49,10 @@ PKANI       = $73B0             ; frames left on this animation frame
 PKPH        = $73B1             ; the animation's frame, 0 .. PK_FRAMES-1
 PKT         = $73B2             ; pk_spawn's tag
 PKAGE       = $73B3             ; ...and slot 0's age, to compare
-        .assert MSGSAVE = LSRHAVE - 1 && PKAGE < WINSAVE, error, "pickup.s: the block no longer fits between MSGSAVE and WINSAVE"
-        .assert SPT_LASER & $80 && SPT_SHIELD & $80 && (SPT_SATN & $80) = 0, error, "pickup.s: bit 7 of the tag is 'a pickup'"
+EMPHAVE     = $73B4             ; nonzero once the EMP has been TAKEN - the
+                                ;   same door LSRHAVE is for the laser
+        .assert MSGSAVE = LSRHAVE - 1 && EMPHAVE < WINSAVE, error, "pickup.s: the block no longer fits between MSGSAVE and WINSAVE"
+        .assert SPT_LASER & $80 && SPT_SHIELD & $80 && SPT_EMP & $80 && (SPT_SATN & $80) = 0, error, "pickup.s: bit 7 of the tag is 'a pickup'"
 
         .pushseg
         .segment "CODE4"                ; the run area, not DEMO_RAM: DEMO_RAM
@@ -65,8 +72,14 @@ pk_drop:
         cmp     #FK_SPIDER
         beq     @shield
         cmp     #FK_PULSAR
+        beq     @laser
+        cmp     #FK_EMPMINE
         bne     @no
-        lda     LSRHAVE                 ; the laser, while it is not in hand
+        lda     EMPHAVE                 ; the EMP, while it is not in hand
+        bne     @no
+        lda     #SPT_EMP
+        bra     pk_spawn
+@laser: lda     LSRHAVE                 ; the laser, while it is not in hand
         bne     @no
         lda     #SPT_LASER
         bra     pk_spawn
@@ -106,8 +119,9 @@ pk_spawn:
         rts
 
 ; -----------------------------------------------------------------------------
-; pk_arrive - satn.s satp_arrive: A = the tag, SPT_LASER or SPT_SHIELD. Heard
-; as a mote's landing, with the ring's breath, and then what it is.
+; pk_arrive - satn.s satp_arrive: A = the tag, SPT_LASER, SPT_SHIELD or
+; SPT_EMP. Heard as a mote's landing, with the ring's breath, and then what
+; it is.
 ; -----------------------------------------------------------------------------
 pk_arrive:
         pha
@@ -117,11 +131,19 @@ pk_arrive:
         jsr     sfx_fire
         pla
         cmp     #SPT_SHIELD
-        bne     :+
-        jmp     shield_on               ; tail: SHIELD ENABLED
-:       lda     #$01
+        beq     @shield
+        cmp     #SPT_EMP
+        beq     @emp
+        lda     #$01                    ; else: the laser
         sta     LSRHAVE
         lda     #IM_LASER_GOT
+        jmp     indicate_msg            ; tail
+@shield:jmp     shield_on               ; tail: SHIELD ENABLED
+@emp:   lda     #$01
+        sta     EMPHAVE
+        lda     #SATN_FULL              ; charged and ready: the hold too
+        sta     SATN
+        lda     #IM_EMP_GOT
         jmp     indicate_msg            ; tail
 
 ; -----------------------------------------------------------------------------
@@ -175,5 +197,6 @@ pk_tick:
 
         .segment "MSGDATA"
 IM_LASER_GOT_S: .byte "LASER ACQUIRED", 0
+IM_EMP_GOT_S:   .byte "EMP ACQUIRED", 0
 
         .popseg

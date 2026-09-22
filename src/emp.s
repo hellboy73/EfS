@@ -11,6 +11,11 @@
 ; Short of it the chord buys nothing, and says EMP NOT AVAILABLE on the message
 ; bar - nothing is taken off the hold.
 ;
+; IT DOES NOT EXIST until EMPHAVE (pickup.s) is set - a killed EMP mine
+; (empmine.s) drops it, the same door the laser is behind (LSRHAVE). Missing
+; it reads exactly like short of Saturnium: EMP NOT AVAILABLE, one message for
+; both, no new string.
+;
 ; The chord eats both edges it was made of. FIRE2's is the easy one: a single
 ; FIRE2 click is only a weapon change once TPCLICK_FRAMES have passed without a
 ; second (input.s do_fire2), so a pending click (TPWIN) is simply cancelled and
@@ -94,6 +99,8 @@ emp_input:
         stz     TPWIN                   ; a FIRE2 still waiting to be a weapon
         lda     #TPLOCK_FRAMES          ;   change is not one
         sta     TPLOCK
+        lda     EMPHAVE                 ; not found yet (pickup.s): same as
+        beq     @short                  ;   short of Saturnium, below
         lda     EMPN
         bne     @no                     ; a ring is still growing: one at a time
         lda     #SATN_EMP_COST

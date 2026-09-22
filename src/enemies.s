@@ -377,6 +377,22 @@ EN_BASE_S10:   .byte     3,   <-12,   <-21,   <-48,   <-41,   <-12,   <-62
 ; f5p5
 EN_BASE_S11:   .byte     3,    12,   <-21,    12,   <-62,    48,   <-41
 
+; ---- EMP_MINE ----
+EN_EMP_MINE_PN     = 3      ; parts, the same in every frame
+EN_EMP_MINE_PW     = 3      ; ...of which the LEADING ones become wreck pieces
+EN_EMP_MINE_FN     = 1      ; authored frames
+EN_EMP_MINE_AN     = 1      ; playlist steps - any number
+EN_EMP_MINE_AHOLD  = 8      ; game frames one step lasts
+EN_EMP_MINE_R      = 8      ; collision circle, collision units: radius 16 full-res px
+EN_EMP_MINE_RBASE  = 126      ; its first row in EN_PLO/EN_PHI...
+EN_EMP_MINE_ABASE  = 32      ; ...and its first step in EN_ANIM
+; f0p0
+EN_EMP_MINE_S0: .byte     3,   <-8,   <-14,     3,   <-5,   <-6,     0
+; f0p1
+EN_EMP_MINE_S1: .byte     3,   <-6,     0,     3,     5,   <-8,    14
+; f0p2
+EN_EMP_MINE_S2: .byte     3,     3,   <-5,    16,     0,     3,     5
+
 ; ---- the appearance table ----
 ; Which shape a foe wears is one byte, EA_*, and every table below is
 ; indexed by it. A behaviour KIND picks an appearance; two appearances
@@ -387,22 +403,30 @@ EA_SPIDER_FLOAT   = 2
 EA_PULSAR         = 3
 EA_GATE           = 4
 EA_BASE           = 5
-EN_APPN = 6      ; how many appearances there are
+EA_EMP_MINE       = 6
+EN_APPN = 7      ; how many appearances there are
 EN_PWMAX = 5      ; the most wreck pieces one appearance throws - foes.s asserts FW_N covers it
 ; parts per frame
 EN_PN:         .byte EN_UFO_PN, EN_SPIDER_PN, EN_SPIDER_FLOAT_PN, EN_PULSAR_PN, EN_GATE_PN, EN_BASE_PN
+               .byte EN_EMP_MINE_PN
 ; ...of which become wreck pieces
 EN_PW:         .byte EN_UFO_PW, EN_SPIDER_PW, EN_SPIDER_FLOAT_PW, EN_PULSAR_PW, EN_GATE_PW, EN_BASE_PW
+               .byte EN_EMP_MINE_PW
 ; playlist steps
 EN_AN:         .byte EN_UFO_AN, EN_SPIDER_AN, EN_SPIDER_FLOAT_AN, EN_PULSAR_AN, EN_GATE_AN, EN_BASE_AN
+               .byte EN_EMP_MINE_AN
 ; game frames a step lasts
 EN_AHOLD:      .byte EN_UFO_AHOLD, EN_SPIDER_AHOLD, EN_SPIDER_FLOAT_AHOLD, EN_PULSAR_AHOLD, EN_GATE_AHOLD, EN_BASE_AHOLD
+               .byte EN_EMP_MINE_AHOLD
 ; collision circle, collision units
 EN_R:          .byte EN_UFO_R, EN_SPIDER_R, EN_SPIDER_FLOAT_R, EN_PULSAR_R, EN_GATE_R, EN_BASE_R
+               .byte EN_EMP_MINE_R
 ; first row in EN_PLO/EN_PHI
 EN_RBASE:      .byte EN_UFO_RBASE, EN_SPIDER_RBASE, EN_SPIDER_FLOAT_RBASE, EN_PULSAR_RBASE, EN_GATE_RBASE, EN_BASE_RBASE
+               .byte EN_EMP_MINE_RBASE
 ; first step in EN_ANIM
 EN_ABASE:      .byte EN_UFO_ABASE, EN_SPIDER_ABASE, EN_SPIDER_FLOAT_ABASE, EN_PULSAR_ABASE, EN_GATE_ABASE, EN_BASE_ABASE
+               .byte EN_EMP_MINE_ABASE
 ; every playlist, end to end: step -> the frame's ROW within its own
 ;   appearance, already multiplied by the part count
 EN_ANIM:       .byte 0*EN_UFO_PN, 1*EN_UFO_PN, 2*EN_UFO_PN, 3*EN_UFO_PN, 0*EN_SPIDER_PN
@@ -411,7 +435,7 @@ EN_ANIM:       .byte 0*EN_UFO_PN, 1*EN_UFO_PN, 2*EN_UFO_PN, 3*EN_UFO_PN, 0*EN_SP
                .byte 2*EN_PULSAR_PN, 3*EN_PULSAR_PN, 4*EN_PULSAR_PN, 3*EN_PULSAR_PN, 2*EN_PULSAR_PN
                .byte 1*EN_PULSAR_PN, 0*EN_GATE_PN, 1*EN_GATE_PN, 2*EN_GATE_PN, 3*EN_GATE_PN
                .byte 4*EN_GATE_PN, 0*EN_BASE_PN, 1*EN_BASE_PN, 2*EN_BASE_PN, 3*EN_BASE_PN
-               .byte 4*EN_BASE_PN, 5*EN_BASE_PN
+               .byte 4*EN_BASE_PN, 5*EN_BASE_PN, 0*EN_EMP_MINE_PN
 ; every row, end to end, frame-major within each appearance
 EN_PLO:        .byte <EN_UFO_S0, <EN_UFO_S1, <EN_UFO_S2, <EN_UFO_S3, <EN_UFO_S4, <EN_UFO_S0
                .byte <EN_UFO_S1, <EN_UFO_S5, <EN_UFO_S6, <EN_UFO_S4, <EN_UFO_S0, <EN_UFO_S1
@@ -434,6 +458,7 @@ EN_PLO:        .byte <EN_UFO_S0, <EN_UFO_S1, <EN_UFO_S2, <EN_UFO_S3, <EN_UFO_S4,
                .byte <EN_BASE_S6, <EN_BASE_S1, <EN_BASE_S2, <EN_BASE_S9, <EN_BASE_S4, <EN_BASE_S5
                .byte <EN_BASE_S6, <EN_BASE_S1, <EN_BASE_S2, <EN_BASE_S3, <EN_BASE_S10, <EN_BASE_S5
                .byte <EN_BASE_S6, <EN_BASE_S1, <EN_BASE_S2, <EN_BASE_S3, <EN_BASE_S4, <EN_BASE_S11
+               .byte <EN_EMP_MINE_S0, <EN_EMP_MINE_S1, <EN_EMP_MINE_S2
 EN_PHI:        .byte >EN_UFO_S0, >EN_UFO_S1, >EN_UFO_S2, >EN_UFO_S3, >EN_UFO_S4, >EN_UFO_S0
                .byte >EN_UFO_S1, >EN_UFO_S5, >EN_UFO_S6, >EN_UFO_S4, >EN_UFO_S0, >EN_UFO_S1
                .byte >EN_UFO_S7, >EN_UFO_S8, >EN_UFO_S4, >EN_UFO_S0, >EN_UFO_S1, >EN_UFO_S9
@@ -455,6 +480,7 @@ EN_PHI:        .byte >EN_UFO_S0, >EN_UFO_S1, >EN_UFO_S2, >EN_UFO_S3, >EN_UFO_S4,
                .byte >EN_BASE_S6, >EN_BASE_S1, >EN_BASE_S2, >EN_BASE_S9, >EN_BASE_S4, >EN_BASE_S5
                .byte >EN_BASE_S6, >EN_BASE_S1, >EN_BASE_S2, >EN_BASE_S3, >EN_BASE_S10, >EN_BASE_S5
                .byte >EN_BASE_S6, >EN_BASE_S1, >EN_BASE_S2, >EN_BASE_S3, >EN_BASE_S4, >EN_BASE_S11
+               .byte >EN_EMP_MINE_S0, >EN_EMP_MINE_S1, >EN_EMP_MINE_S2
 ; === END GENERATED ===
 
         .popseg

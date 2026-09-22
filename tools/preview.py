@@ -4772,11 +4772,31 @@ def emp_bench():
         return [pl for op, pl in decode(st) if op == 0x48]
 
     CHORD = JOY_FIRE | JOY_FIRE2
+    EMPHAVE_A = int(re.search(r"^EMPHAVE\s*=\s*[$]([0-9A-Fa-f]{4})",
+                              (SRC / "pickup.s").read_text(), re.M).group(1), 16)
     boot_cart()
     for k in range(cpu_mem[0x6E1C]):
         cpu_mem[FOEST_A + k] = 0
     for _ in range(3):
         frame()
+
+    # --- not found yet: refused the same way, before it is picked up -----------
+    cpu_mem[SATN_A] = 255
+    w0 = cpu_mem[WEAPON_A]
+    frame(CHORD, CHORD)
+    qd = ram(IND_QD_A)
+    for _ in range(25):                                 # past TPCLICK_FRAMES
+        frame()
+    shots = sum(cpu_mem[SHTLIVE + i] for i in range(SHOT_N))
+    print(f"        chord before EMPHAVE, 255 Saturnium: SATN -> {ram(SATN_A)}, "
+          f"EMPN {ram(EMPN_A)}, bar queue head {qd}, bullets {shots}")
+    check("EMP: the chord with full Saturnium but EMPHAVE clear is refused the same way",
+          ram(SATN_A) == 255 and ram(EMPN_A) == 0 and qd == IM_EMP_NA,
+          f"SATN {ram(SATN_A)}, EMPN {ram(EMPN_A)}, bar head {qd}")
+    check("...and it is still neither a bullet nor a weapon change",
+          shots == 0 and cpu_mem[WEAPON_A] == w0)
+    cpu_mem[EMPHAVE_A] = 1                          # found, as if a killed mine had
+                                                    #   dropped it (pickup.s)
 
     # --- short of it: refused, and said -----------------------------------------
     cpu_mem[SATN_A] = COST - 1

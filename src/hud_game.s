@@ -167,6 +167,7 @@ IM_SHIELD_ON = 8                ; the shield went up (shield.s)...
 IM_SHIELD_OFF= 9                ; ...and has 4 s left
 IM_GATE      = 10               ; the mission is done (gate.s)
 IM_LASER_GOT = 11               ; a laser was picked up (pickup.s)
+IM_EMP_GOT   = 12               ; ...and so was an EMP (pickup.s)
 
 ; -----------------------------------------------------------------------------
 ; msg_open / msg_close - borrow the window for MSGDATA, the HUD/indicator text.
@@ -1012,12 +1013,13 @@ IM_LASER_S: .byte   "LASER ARMED", 0
         .segment "RODATA"
 
 ; IM_EMP_NA_S is in emp.s, the shield's two in shield.s, IM_GATE_S in gate.s
-; and IM_LASER_GOT_S in pickup.s - all MSGDATA now, same as the ones above
+; and IM_LASER_GOT_S/IM_EMP_GOT_S in pickup.s - all MSGDATA now, same as the
+; ones above
 IND_LO:     .byte   <IM_HULL_S, <IM_CRIT_S, <IM_LEVEL_S, <IM_LIFE_S, <IM_ENEMY_S
             .byte   <IM_GUN_S, <IM_LASER_S, <IM_EMP_NA_S, <IM_SHIELD_ON_S
-            .byte   <IM_SHIELD_OFF_S, <IM_GATE_S, <IM_LASER_GOT_S
+            .byte   <IM_SHIELD_OFF_S, <IM_GATE_S, <IM_LASER_GOT_S, <IM_EMP_GOT_S
 IND_HI:     .byte   >IM_HULL_S, >IM_CRIT_S, >IM_LEVEL_S, >IM_LIFE_S, >IM_ENEMY_S
             .byte   >IM_GUN_S, >IM_LASER_S, >IM_EMP_NA_S, >IM_SHIELD_ON_S
-            .byte   >IM_SHIELD_OFF_S, >IM_GATE_S, >IM_LASER_GOT_S
+            .byte   >IM_SHIELD_OFF_S, >IM_GATE_S, >IM_LASER_GOT_S, >IM_EMP_GOT_S
 
         .segment "CODE2"
