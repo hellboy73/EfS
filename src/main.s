@@ -183,7 +183,7 @@ DBG_CLASSES = 0
 ; TEMPORARY, likewise: the ship's Saturnium (satn.s SATN) as two hex digits on
 ; the IMAGE text layer, so charge and spend can be watched while flying. 0
 ; takes every byte of it out.
-DBG_SATN      = 1
+DBG_SATN      = 0
 DBG_SATN_ROW  = 3               ; below the message bar (IND_ROW)
 DBG_SATN_CELL = 0
 
