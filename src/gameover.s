@@ -87,6 +87,10 @@ OVSUB       = $6FC1             ; frames left before the two words trade places
 ; walks the object pool, which lives under the cartridge window (window.s).
 ; -----------------------------------------------------------------------------
 state_tick:
+        jsr     capsule_tick            ; PROTOTYPE: the ejected capsule
+                                        ;   (capsule.s) - self-gated on CAPN,
+                                        ;   independent of the wreck below
+
         lda     SHIPINV                 ; the respawn blink ages on every frame,
         beq     @nodeb                  ;   whatever else is happening
         dec     SHIPINV

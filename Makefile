@@ -23,10 +23,11 @@ MODULES = src/math.s src/input.s src/camera.s src/ship.s src/thrust.s \
           src/music.s src/satn.s src/cam.s src/hiscore.s src/screens.s \
           src/overlay.s \
           src/pulsar.s src/emp.s src/shield.s src/trainer.s src/gate.s \
-          src/pickup.s src/sprites.s src/base.s src/empmine.s src/speech.s
+          src/pickup.s src/capsule.s src/sprites.s src/base.s src/empmine.s \
+          src/speech.s
 DATA    = src/shapes.s src/enemies.s src/levels.s src/radar_bg.s \
           src/flames.s src/arrows.s src/screens_art.s src/scroller_text.s \
-          src/pickups_art.s
+          src/pickups_art.s src/capsule_art.s
 
 # The song. vgmstrip.py removes the VGM header and the GD3 tag - vgm_play does
 # no header parsing, it executes commands from the address it is given - and
@@ -82,6 +83,12 @@ PICKUP_SET = bonusbox
 PICKUP_PNG = $(wildcard assets/png/$(PICKUP_SET)[0-9].png)
 src/pickups_art.s: $(PICKUP_PNG) tools/pickupgen.py tools/sprgen.py Makefile
 	python tools/pickupgen.py $(PICKUP_SET)
+
+# The ejected capsule's sprite (capsule.s, PROTOTYPE). Tracked, like pickups_art.s.
+CAPSULE_SET = capsule
+CAPSULE_PNG = $(wildcard assets/png/$(CAPSULE_SET)[0-9].png)
+src/capsule_art.s: $(CAPSULE_PNG) tools/capsulegen.py tools/sprgen.py Makefile
+	python tools/capsulegen.py $(CAPSULE_SET)
 
 # ...and the .inc is a CO-PRODUCT of that same run, not a second one.
 assets/vgm/%_stream.inc: assets/vgm/%_stream.bin ;

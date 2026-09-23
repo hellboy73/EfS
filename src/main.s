@@ -1365,6 +1365,10 @@ frame_body:
                                         ;   it goes on computing them after the
                                         ;   ship stops being drawn precisely so
                                         ;   this can read them
+        jsr     capsule_draw            ; PROTOTYPE: the ejected capsule
+                                        ;   (capsule.s), for the same reason -
+                                        ;   it is screen-anchored on FLCX/FLCY
+                                        ;   too
         jsr     do_satn                 ; Saturnium: the homing motes and the
                                         ;   hull sparks, one DOT_PIXELS. AFTER
                                         ;   do_flames for FLCX/FLCY too
@@ -1549,10 +1553,15 @@ frame_body:
         .include "pickup.s"             ; the laser, the shield and the EMP,
                                         ; dropped by a kill and homing like
                                         ; Saturnium. CODE6, its art in SPRART
+        .include "capsule.s"            ; PROTOTYPE: the ejected capsule -
+                                        ; cosmetic only, an anti-pickup that
+                                        ; drifts off screen and vanishes.
+                                        ; CODE6, its art in SPRART, after
+                                        ; pickup.s so the art lands behind it
         .include "sprites.s"            ; every sprite's memory map, the
                                         ; definition pages, and the bulk upload
                                         ; that puts them all on the GPU at
-                                        ; power-on. AFTER the three files whose
+                                        ; power-on. AFTER the four files whose
                                         ; art it lays out
         .include "sfx.s"                ; the sound effects and the explosion
                                         ; flash. A HIDATA file end to end - the

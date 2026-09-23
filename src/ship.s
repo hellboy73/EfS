@@ -866,6 +866,11 @@ ship_die:
         stz     KNBYL
         stz     KNBYH
 
+        jsr     capsule_spawn           ; PROTOTYPE: the ejected capsule
+                                        ;   (capsule.s), cosmetic only - EVERY
+                                        ;   ship lost, not only the last one,
+                                        ;   unlike the wreck below
+
         dec     LIVES
         beq     @last
         lda     #HP_MAX                 ; a ship in hand: back on its feet where
@@ -878,7 +883,7 @@ ship_die:
         stz     SHIPHP
         lda     #1
         sta     SHIPGONE
-        jmp     debris_spawn            ; tail - the wreck, and gameover.s takes
-                                        ;   it from there
+        jmp     debris_spawn            ; tail - the wreck, and gameover.s
+                                        ;   takes it from there
 
         .segment "CODE"                 ; back to bank 0 for the rest of this file
