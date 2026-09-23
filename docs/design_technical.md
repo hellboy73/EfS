@@ -1882,6 +1882,37 @@ These are settled and should not be re-opened without a reason:
     never the ship and never a pod. This is the first setting, to be re-tuned
     once it is flown. What is left open is `open_questions.md` H6.
 
+    **The window splits three bands top to bottom, 50/300/50 px: a stats
+    bar, the cockpit, a radio bar.** Decided 2026-09-23 (the user). The top
+    bar carries the instruments already described above (Saturnium, ships,
+    the sector's score/time/kills); the bottom bar is where the debrief/brief
+    text lands, and it **types itself out like a telegraph** rather than
+    appearing whole — settling that part of `open_questions.md` H5's open
+    bullet (line duration and how many lines the minute holds stay open
+    there). Both bars sit on the background layer, same as the cockpit art
+    itself, which is drawn in front of the 3D flight and covers whatever is
+    behind it; an object flying into a bar's strip is simply cut there — it
+    is past the cockpit window, and nothing about it has to matter to the
+    flight logic anymore. `assets/png/tunnel_hud.png` is the user's own
+    reference art for the 300 x 300 cockpit view, drawn outside the tools
+    and still being iterated; not wired into the build.
+
+    **Rocks stay the field's flat, scaled shapes** — the same generator and
+    outlines as in flight (`SHAPES`, 11.19), not new art. How far they can
+    scale credibly from near the vanishing point down to nearly nothing, up
+    to full-screen at the closest pass, is open (`open_questions.md` H6).
+    **Lifepods get their own pseudo-3D art**, and are not the in-flight
+    capsule decoy (`src/capsule_art.s`, 48/`ship_die`): that sprite is flat,
+    four frames, drawn for the field's 2D view and stays there — the
+    tunnel's pod is a different, not-yet-drawn asset with its own depth cue.
+
+    **The tunnel's last stretch visibly speeds up once its obstacles run
+    out**: the streaming stars stretch into short radial lines, longer the
+    further from centre, signalling the debrief is about to start — unlike
+    the field's star layer, which stays single-pixel and deliberately does
+    not streak (37, closed there for the field, not for here). Not built;
+    costed alongside the rest of H6.
+
     **No codes, and every game starts at 1-1.** The MAD-65 has no keyboard,
     so a code could not be entered. What replaces it is CETAS's continue
     (`CETAS/src/gameover.s`): when the fifth ship is lost, a CONTINUE screen

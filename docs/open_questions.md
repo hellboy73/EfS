@@ -1024,7 +1024,8 @@ debrief of the sector just flown and the brief for the next, in the text area
 under the tunnel's window, strings in the HUD-message bank. In flight the
 message bar keeps what it has. Open:
 
-* How the text shows in the tunnel: whether it types itself out, how long a
+* **How the text shows in the tunnel.** Settled 2026-09-23: it types itself
+  out like a telegraph (`design_technical.md` 11.45). Still open: how long a
   line stays, whether the minute holds two or three lines, and whether the
   radio's text is fixed per sector or assembled from what happened in it.
 * **The triggers, now a record and not an event.** A debrief has to know what
@@ -1042,7 +1043,8 @@ message bar keeps what it has. Open:
 **H6. The tunnel — what it is is settled (`design_technical.md` 11.45), its
 numbers are not (TBD/TBM).** After every sector (after x-3, before the level
 briefing): about a minute, no death, a 300 x 300 pseudo-3D window with the
-instruments and the radio's debrief/brief under it. The joystick leans the ship
+instruments and the radio's debrief/brief under it, stacked 50/300/50 px top
+to bottom, the radio typed out like a telegraph. The joystick leans the ship
 in eight directions inside an invisible tube, and no button does anything.
 There is one lifepod for each ship lost in this sector. A rock hit costs all
 the Saturnium collected in this passage, never a pod. Open:
@@ -1056,6 +1058,26 @@ the Saturnium collected in this passage, never a pod. Open:
   silhouette that flickers and is gone, L3 wrecks of SRVs, L4 shadows pacing
   the ship, L5 the tunnel folding back on itself.
 * Its music.
+* **Rock outline scaling (11.45).** The field's rock shapes are reused, but
+  the tunnel needs them credible across nearly the whole zoom range, from
+  just short of a point near the vanishing point to full-screen at the
+  closest pass — untested, and the failure mode (an outline that reads as
+  wrong well before it fills the screen) is only visible once flown.
+* **The lifepod's pseudo-3D look is undrawn (11.45).** It is its own asset,
+  not the in-flight capsule decoy (`src/capsule_art.s`), and has no frames
+  yet.
+* **Saturnium's look in the tunnel is undecided (the user, 2026-09-23).** A
+  candidate is a dense, growing cloud of pixels as it nears the camera, but
+  that risks the per-pixel GPU cost already measured tight elsewhere (`DOT_PIXELS`,
+  38) and the enemy-density budget's lesson that GPU cycles are the tight
+  side (11.49) — a cheaper stand-in shape (a solid or a small dot cluster
+  capped well below "dense cloud") may be needed instead, and cost should be
+  measured before the look is committed to.
+* **The end-of-run speed-up (11.45):** stars stretching into radial streaks
+  once obstacles run out, longer with distance from centre — how far out
+  they start, how long the stretch lasts, and its cost against the
+  steady-state star field (which itself stays single-pixel and non-streaking
+  in flight, 37 — a different budget here).
 * **Cost (TBM):** perspective is a 1/z table, rocks are the GPU's scaled
   shapes, the stars `DOT_PIXELS`; the code is a SWAP overlay (H1). A 300 x 300
   window also means only part of the screen is redrawn, so the clear or the
