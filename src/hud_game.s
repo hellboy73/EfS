@@ -170,7 +170,9 @@ IM_LASER_GOT = 11               ; a laser was picked up (pickup.s)
 IM_EMP_GOT   = 12               ; ...and so was an EMP (pickup.s)
 IM_EMP_RDY   = 13               ; the hold has filled back up and the EMP can be
                                 ;   fired again (emp.s emp_ready)
-IM_COUNT     = 14               ; ...and HOW MANY, which is ABI: THREE tables
+IM_GOAL1     = 14               ; the demo sector's two goals, queued after IM_LEVEL
+IM_GOAL2     = 15               ;   by level_begin (gameover.s)
+IM_COUNT     = 16               ; ...and HOW MANY, which is ABI: THREE tables
                                 ;   are indexed by these ids - IND_LO/IND_HI
                                 ;   below and speech.s's SPK_LO/SPK_HI, which
                                 ;   is generated from its own list in
@@ -1034,6 +1036,8 @@ IM_LIFE_S:  .byte   "SHIP LOST", 0
 IM_ENEMY_S: .byte   "ENEMY DETECTED", 0
 IM_GUN_S:   .byte   "BLASTER ARMED", 0
 IM_LASER_S: .byte   "LASER ARMED", 0
+IM_GOAL1_S: .byte   "BREAK BIGGEST ROCKS", 0
+IM_GOAL2_S: .byte   "DEFEAT ALL ENEMIES", 0
 
         .segment "RODATA"
 
@@ -1043,11 +1047,11 @@ IM_LASER_S: .byte   "LASER ARMED", 0
 IND_LO:     .byte   <IM_HULL_S, <IM_CRIT_S, <IM_LEVEL_S, <IM_LIFE_S, <IM_ENEMY_S
             .byte   <IM_GUN_S, <IM_LASER_S, <IM_EMP_NA_S, <IM_SHIELD_ON_S
             .byte   <IM_SHIELD_OFF_S, <IM_GATE_S, <IM_LASER_GOT_S, <IM_EMP_GOT_S
-            .byte   <IM_EMP_RDY_S
+            .byte   <IM_EMP_RDY_S, <IM_GOAL1_S, <IM_GOAL2_S
 IND_HI:     .byte   >IM_HULL_S, >IM_CRIT_S, >IM_LEVEL_S, >IM_LIFE_S, >IM_ENEMY_S
             .byte   >IM_GUN_S, >IM_LASER_S, >IM_EMP_NA_S, >IM_SHIELD_ON_S
             .byte   >IM_SHIELD_OFF_S, >IM_GATE_S, >IM_LASER_GOT_S, >IM_EMP_GOT_S
-            .byte   >IM_EMP_RDY_S
+            .byte   >IM_EMP_RDY_S, >IM_GOAL1_S, >IM_GOAL2_S
         .assert (IND_HI - IND_LO) = IM_COUNT, error, "hud_game.s: IND_LO is not IM_COUNT bytes long"
         .assert (* - IND_HI) = IM_COUNT, error, "hud_game.s: IND_HI is not IM_COUNT bytes long"
 

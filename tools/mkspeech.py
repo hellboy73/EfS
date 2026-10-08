@@ -218,6 +218,8 @@ MESSAGES = [
         ("AX",  X, ""),
         ("L",   L, ""),
     ]),
+    ("IM_GOAL1",      "BREAK BIGGEST ROCKS", None),
+    ("IM_GOAL2",      "DEFEAT ALL ENEMIES",  None),
 ]
 
 

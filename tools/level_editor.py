@@ -125,7 +125,7 @@ GATE_R_PX = 123                         # the gate's reach from its centre, full
 BASE_COLOR = "#ffd25a"
 BASE_R_PX = 154                         # the hexagon's own reach, full-res px -
                                         #   base.s's header note
-MISSIONS = ["0 clear rocks", "1 kill enemies", "2 open"]   # gate.s MS_*
+MISSIONS = ["0 clear rocks", "1 kill enemies", "2 open", "3 rocks and enemies"]   # gate.s MS_*
 SEL_COLOR = "#ff5566"
 VIEW_COLOR = "#2c3a46"                  # the ship's rotation-sweep circles
 FRAME_COLOR = "#5c7f6b"                 # ...and the screen frames under the mouse

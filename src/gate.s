@@ -54,6 +54,7 @@
 MS_ROCKS    = 0                 ; LVL_MISN: every rock of classes 0..LVL_MPAR
                                 ;   gone (0 = the 192s) - rocks_left's RKLIVE
 MS_FOES     = 1                 ; ...every enemy the level placed is dead
+MS_BOTH     = 3                 ; ...the rocks AND the enemies: both goals
 MS_OPEN     = 2                 ; ...nothing: the gate stands open from the start
 
 GATE_DOT    = 1                 ; 1 = DOT_POLYGON, 0 = POLYGON16 - see the header
@@ -169,6 +170,8 @@ gate_check:
         beq     @rocks                  ; MS_ROCKS
         cmp     #MS_FOES
         beq     @foes
+        cmp     #MS_BOTH
+        beq     @both
         sec                             ; MS_OPEN, or a type nothing knows:
         rts                             ;   open rather than a sector with no exit
 @rocks: ldy     GTMPR                   ; classes MPAR down to 0, all empty
@@ -177,6 +180,9 @@ gate_check:
         dey
         bpl     :-
         sec
+        rts
+@both:  jsr     @rocks                  ; the rocks first; C clear = not yet, and
+        bcs     @foes                   ;   that C comes straight back out
         rts
 @foes:  ldx     NFOE                    ; FOEST 0 is dead or never filled
         beq     @yes

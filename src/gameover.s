@@ -399,7 +399,11 @@ level_begin:
                                         ;   tenth of a second, and visible. The
                                         ;   two readouts it delays instead are
                                         ;   not urgent on the frame a game starts
-        lda     #IM_LEVEL               ; ...and the bar opens with a word
+        lda     #IM_LEVEL               ; ...and the bar opens with a word,
+        jsr     indicate_msg            ;   then the sector's two goals
+        lda     #IM_GOAL1
+        jsr     indicate_msg
+        lda     #IM_GOAL2
         jmp     indicate_msg            ; tail
 
         .segment "CODE2"                ; back to the segment main.s included

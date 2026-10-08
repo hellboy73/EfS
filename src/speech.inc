@@ -187,6 +187,8 @@ SPK_LO:
         .byte   <IM_LASER_GOT_PH; 11 LASER ACQUIRED
         .byte   <IM_EMP_GOT_PH  ; 12 EMP ACQUIRED
         .byte   <IM_EMP_RDY_PH  ; 13 EMP AVAILABLE
+        .byte   $00             ; 14 BREAK BIGGEST ROCKS
+        .byte   $00             ; 15 DEFEAT ALL ENEMIES
 SPK_HI:
         .byte   $00             ;  0 HULL BREACH
         .byte   >IM_CRITICAL_PH ;  1 WARNING! HULL CRITICAL
@@ -202,8 +204,10 @@ SPK_HI:
         .byte   >IM_LASER_GOT_PH; 11 LASER ACQUIRED
         .byte   >IM_EMP_GOT_PH  ; 12 EMP ACQUIRED
         .byte   >IM_EMP_RDY_PH  ; 13 EMP AVAILABLE
+        .byte   $00             ; 14 BREAK BIGGEST ROCKS
+        .byte   $00             ; 15 DEFEAT ALL ENEMIES
 
-SPK_IDS     = 14                 ; ...and how many, for speech.s's assert
+SPK_IDS     = 16                 ; ...and how many, for speech.s's assert
 
 ; The ending's lines (ENDING in mkspeech.py), spoken by gate.s sector_frame.
 ; "SECTOR CLEARED": 15 phonemes

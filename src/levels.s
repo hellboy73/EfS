@@ -207,7 +207,7 @@ L0_SEED     = $3CA5
 L0_SHX      = $8000
 L0_SHY      = $8000
 L0_SHHD     = 0
-L0_MISN     = 0
+L0_MISN     = 3
 L0_MPAR     = 0
 L0_GTX      = $B046
 L0_GTY      = $5130
@@ -224,10 +224,10 @@ LVL0_ROCKS_END:
 ; enemies: XL, XH, YL, YH, kind, heading, speed - 7 bytes each
 LVL0_FOES:
         .byte   $00, $30, $00, $60, 0, 0, 0       ; UFO at 12288, 24576, holding its post
-        .byte   $00, $C0, $00, $A0, 0, 64, 60       ; UFO at 49152, 40960, course 64 at 60 px/s
+        .byte   $0C, $88, $D4, $21, 0, 64, 60       ; UFO at 34828, 8660, course 64 at 60 px/s
         .byte   $00, $20, $00, $B0, 1, 0, 0       ; SPIDER at 8192, 45056, holding its post
-        .byte   $00, $A0, $00, $20, 2, 192, 40       ; PULSAR at 40960, 8192, course 192 at 40 px/s
-        .byte   $00, $50, $00, $30, 3, 0, 0       ; EMP MINE at 20480, 12288, holding its post
+        .byte   $A7, $D2, $4C, $D4, 2, 192, 40       ; PULSAR at 53927, 54348, course 192 at 40 px/s
+        .byte   $2F, $20, $71, $1D, 3, 0, 0       ; EMP MINE at 8239, 7537, holding its post
 LVL0_FOES_END:
 L0_ROCKN    = (LVL0_ROCKS_END - LVL0_ROCKS) / 6
 L0_FOEN     = (LVL0_FOES_END - LVL0_FOES) / 7
