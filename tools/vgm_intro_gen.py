@@ -117,6 +117,19 @@ def opll_note_off(ch, freq):
     return opll_write(0x20 + ch, (block << 1) | ((fnum >> 8) & 1))
 
 
+def opll_retrigger(ch, freq):
+    # 2026-09-28 fix, found via tools/vgm_local_player.py: rewriting $10-$28
+    # while key-on is already 1 is not guaranteed to restart the envelope on
+    # real OPLL -- a genuine 0->1 EDGE is needed. Without it, a decaying
+    # (non-sustaining) ROM patch like Harpsichord plucks once on its first
+    # note and then sits essentially silent, just silently re-pitching
+    # underneath -- the exact bug found and fixed in the title-theme-sketch
+    # rearrangement's arpeggio, except it was ALSO here the whole time: the
+    # ostinato was one held note from beat 1 onward with 89 pitch points and
+    # a single attack, and the bass pedal never re-attacked across all 108s.
+    return opll_note_off(ch, freq) + opll_note_on(ch, freq)
+
+
 events = []
 
 
@@ -165,7 +178,7 @@ def ostinato_section(ch, pattern, start_rel, end_rel, step, instrument, volume):
     add(la(start_rel), opll_instrument(ch, instrument, volume))
     beat, i = start_rel, 0
     while beat < end_rel:
-        add(la(beat), opll_note_on(ch, note_hz(pattern[i % len(pattern)])))
+        add(la(beat), opll_retrigger(ch, note_hz(pattern[i % len(pattern)])))
         i += 1
         beat += step
 
@@ -215,11 +228,16 @@ LOOP_ANCHOR_TIME = la(0)
 # --- Intro: gong + bass pedal, one-shot, before the loop anchor ---
 add(t(0), opll_write(0x0E, 0x00))  # rhythm mode off
 add(t(0), opll_instrument(1, INS_ACOUSTIC_BASS, 5))
-add(t(0), opll_note_on(1, note_hz('D2')))  # held forever, no keyoff
+add(t(0), opll_note_on(1, note_hz('D2')))
 add(t(0), sn_noise_control(fb=0, shift_rate=1))  # periodic, not white -- a soft
                                                   # tonal "tock" instead of a hiss
 add(t(0), sn_atten_write(1, 15))  # beep channel: silent until the first fill
 gong_hit(t(0), volume=4)
+
+# bass pedal: re-attacked every 8 beats through the whole loop body so the
+# same decaying-envelope problem doesn't silence it after its first pluck
+for beat in range(8, LOOP_END_BEAT, 8):
+    add(la(beat), opll_retrigger(1, note_hz('D2')))
 
 # --- The clock: a soft noise-channel tick, once a beat, whole piece ---
 for beat in range(0, LOOP_END_BEAT + 1):
