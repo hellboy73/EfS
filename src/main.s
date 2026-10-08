@@ -190,7 +190,7 @@ DBG_SATN_CELL = 0
 ; TEMPORARY - THE TRAINER: test cheats on the SECOND pad (trainer.s says which
 ; is which, and what each control does). 1 while the game is being tuned; 0
 ; takes every byte of it out of the image, and it ships at 0.
-TRAINER       = 1
+TRAINER       = 0
 
 ; Which opcode draws a rock. All three are the SAME command - one closed figure
 ; per outline, with the centre, the angle, the scale and the RAW shape sent as

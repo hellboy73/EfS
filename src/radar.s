@@ -185,6 +185,13 @@ RAD_ERR_Y1  = 42                ; "RADAR"
 RAD_ERR_Y2  = 44                ; ...one blank line, then "ERROR"
 RAD_ERR_N   = 6                 ; the longest word plus its trailing space
 
+; WHICH ROCKS THE RADAR SHOWS. Only the first RAD_ROCKCL size classes: the demo
+; sector's radar is the mission's - the biggest rocks (class 0, the 192s, which
+; the exit gate waits on), the enemies, and the gate - and not the field's
+; debris. 5 puts back every class (radar_alloc then spends its 48 slots biggest
+; first, as it always did).
+RAD_ROCKCL  = 1
+
 RAD_BLINK_N = 20                ; the enemy blink: a 20-frame cycle at 60.317 Hz
 RAD_BLINK_ON = 10               ; ...lit for the first half of it, ~3 Hz. The
                                 ;   dark phase is skipped at LIST-BUILD time, so
@@ -459,6 +466,8 @@ radar_alloc:
         ldx     #$00
         ldy     #$FF                    ; the last class given anything, or none
 @lp:    stz     RADWANT,x
+        cpx     #RAD_ROCKCL
+        bcs     @next                   ; not a class the radar shows at all
         lda     RADLEFT
         beq     @next                   ; the budget is spent - everything from
         cmp     RKLIVE,x                ;   here down gets nothing
