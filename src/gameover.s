@@ -66,6 +66,11 @@ GO_COL      = 14                ; ...and centred on it: (37 - 9) / 2
 GO_SWAP     = 64                ; frames each word holds, ~1.06 s at 60.317 Hz
         .assert (GO_SWAP / HUD_PERIOD) * HUD_PERIOD = GO_SWAP, error, "gameover.s: GO_SWAP is not a whole number of paint periods, so the swap would land at a different offset every time and the cadence would limp"
 
+IDLE_FRAMES = 603               ; 10 s at 60.317 Hz: how long GAME OVER and the
+                                ;   ending wait for FIRE before the demo goes
+                                ;   back to the intro. The clock is PF_WAITL/H
+                                ;   (screens.s), which nothing uses in flight
+
 GO_BLANK    = 0                 ; what OVWANT and OVC can be
 GO_OVER     = 1
 GO_FIRE     = 2
@@ -117,6 +122,7 @@ state_tick:
         sta     OVWANT                  ;   happened, not the one that asks for
         lda     #GO_SWAP                ;   something back
         sta     OVSUB
+        jsr     over_arm                ; ...and the demo's idle clock starts
         lda     #HUD_PH_OVER - 1        ; ...and the paint schedule is wound so
         sta     HUD_PHASE               ;   the word lands on the NEXT frame
                                         ;   rather than up to a whole period
@@ -140,12 +146,13 @@ state_tick:
         ldx     JOYPORT                 ; the port that has been playing
         lda     JOY1_PRESS,x
         and     #JOY_FIRE
-        beq     @done
+        beq     @idle
         lda     JOY1_PRESS,x            ; consume the edge, so the press that
         and     #<~JOY_FIRE             ;   restarts does not ALSO come out of
         sta     JOY1_PRESS,x            ;   the new game's first gun frame
         jsr     game_start
 @done:  rts
+@idle:  jmp     over_idle               ; tail
 
 ; -----------------------------------------------------------------------------
 ; ship_hidden - C SET = the ship is not drawn this frame.
@@ -251,6 +258,32 @@ GO_END:
                                         ;   game, never from the IRQ, and bank 3
                                         ;   (HIDATA + CODE3) ran out of room when
                                         ;   the sticks started reading JOYPORT
+; over_idle - GS_OVER without a FIRE: count the 10 s down, and when they are
+; gone hand the machine back to the intro (the demo loops). Setting SCR_STATE is
+; all FIELD -> SCREEN takes: frame_body loads the SCREEN overlay on the next frame
+; and intro_frame runs from its step 0 (overlay.s).
+over_arm:
+        lda     #<IDLE_FRAMES
+        sta     PF_WAITL
+        lda     #>IDLE_FRAMES
+        sta     PF_WAITH
+        rts
+
+over_idle:
+        lda     PF_WAITL
+        bne     :+
+        dec     PF_WAITH
+:       dec     PF_WAITL
+        lda     PF_WAITL
+        ora     PF_WAITH
+        bne     @ret
+        lda     #SC_INTRO
+        sta     SCR_STATE
+        stz     SCR_PH
+        stz     SCR_T
+        stz     SCR_SKIP
+@ret:   rts
+
 game_start:
         jsr     hud_init                ; the score, the lives, level 1 on the
         lda     #START_LEVEL            ;   board, the message bar - none of it

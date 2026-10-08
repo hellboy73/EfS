@@ -155,6 +155,10 @@ intro_frame:
         lda     #VR_BLIND_ON            ; step 0: hide the OS's boot screen and
         jsr     API_GPU_VREG            ;   clear it off the background
         jsr     API_GPU_CLEARBG
+        stz     FRAME                   ; the cues below count from here, and so
+        stz     FRAME+1                 ;   does the song: on the way back from a
+        jsr     API_VGM_STOP            ;   demo loop (game over, the ending) it
+        jsr     music_start             ;   has to begin again with them
         bra     @next
 
 @p1:    cmp     #1                      ; step 1: the clear's replay lands, then

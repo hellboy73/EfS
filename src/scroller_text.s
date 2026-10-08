@@ -23,5 +23,5 @@ SC_MSG:
         .byte   "YOUR ORDERS: CLEAR THE RINGS, SECTOR BY SECTOR.   "
         .byte   "BUT SOMETHING OUT THERE IS NOT WHAT IT SEEMS...   "
         .byte   "GOOD LUCK, PILOT. YOU'LL NEED IT TO ESCAPE FROM SATURN.                      "
-        .byte   "A MAD-65 ARCADE GAME BY MATEUSZ MATYSIAK V0.6                                                     "
+        .byte   "A MAD-65 ARCADE GAME BY MATEUSZ MATYSIAK V0.6 ALFA 2026.10.08                                                     "
         .byte   $FF                                         ; end of the loop

@@ -176,7 +176,7 @@ NLEVELS     = 1
 ; Level names. A comment, not a table - no level has anything to print them
 ; on yet, and a string per level is ROM with nothing to spend it on. The editor
 ; reads and rewrites these lines, so keep the format.
-;   NAME 0 "MINING ZONE"
+;   NAME 0 "SECTOR ZERO"
 
 ; -----------------------------------------------------------------------------
 ; What each level asks for. THIS is the source: the tables further down are
@@ -197,12 +197,12 @@ NLEVELS     = 1
 ;   BASE_X   where it stands, world 16-bit - fixed, it never moves; unread
 ;         while BASE_ON is 0
 ; -----------------------------------------------------------------------------
-; level 0 - "MINING ZONE"
-L0_N192     = 15
-L0_N128     = 15
-L0_N64      = 30
-L0_N32      = 30
-L0_N16      = 30
+; level 0 - "SECTOR ZERO"
+L0_N192     = 8
+L0_N128     = 8
+L0_N64      = 15
+L0_N32      = 15
+L0_N16      = 15
 L0_SEED     = $3CA5
 L0_SHX      = $8000
 L0_SHY      = $8000
@@ -211,31 +211,23 @@ L0_MISN     = 0
 L0_MPAR     = 0
 L0_GTX      = $B046
 L0_GTY      = $5130
-L0_BASE_ON  = 1
+L0_BASE_ON  = 0
 L0_BASE_X   = $8000
 L0_BASE_Y   = $5800
 
 ; The hand-placed blocks, and the counts DERIVED from their own length - so a
 ; record added or deleted by hand needs nothing else changed.
-; level 0 - "MINING ZONE"
+; level 0 - "SECTOR ZERO"
 ; rocks: XL, XH, YL, YH, class, type - 6 bytes each, class 0..4 = 192..16
 LVL0_ROCKS:
 LVL0_ROCKS_END:
 ; enemies: XL, XH, YL, YH, kind, heading, speed - 7 bytes each
 LVL0_FOES:
-        .byte   $B8, $8B, $D0, $87, 0, 0, 0       ; UFO at 35768, 34768, holding its post
-        .byte   $C0, $60, $A0, $8F, 0, 64, 80       ; UFO at 24768, 36768, course 64 at 80 px/s
-        .byte   $F8, $AA, $90, $68, 0, 192, 120       ; UFO at 43768, 26768, course 192 at 120 px/s
-        .byte   $3C, $76, $D8, $5C, 0, 0, 0       ; UFO at 30268, 23768, holding its post
-        .byte   $50, $C6, $00, $80, 0, 128, 175       ; UFO at 50768, 32768, course 128 at 175 px/s
-        .byte   $00, $80, $E0, $31, 0, 96, 60       ; UFO at 32768, 12768, course 96 at 60 px/s
-        .byte   $0E, $0B, $F4, $28, 1, 0, 0       ; SPIDER at 2830, 10484, holding its post
-        .byte   $E7, $B5, $8D, $03, 1, 0, 0       ; SPIDER at 46567, 909, holding its post
-        .byte   $F2, $1D, $DF, $C1, 1, 0, 0       ; SPIDER at 7666, 49631, holding its post
-        .byte   $59, $6D, $FF, $4E, 2, 64, 40       ; PULSAR at 27993, 20223, course 64 at 40 px/s
-        .byte   $75, $50, $6C, $2A, 2, 0, 0       ; PULSAR at 20597, 10860, holding its post
-        .byte   $00, $C0, $00, $C0, 3, 0, 0       ; EMP MINE at 49152, 49152, holding its post
-        .byte   $00, $40, $00, $40, 3, 0, 0       ; EMP MINE at 16384, 16384, holding its post
+        .byte   $00, $30, $00, $60, 0, 0, 0       ; UFO at 12288, 24576, holding its post
+        .byte   $00, $C0, $00, $A0, 0, 64, 60       ; UFO at 49152, 40960, course 64 at 60 px/s
+        .byte   $00, $20, $00, $B0, 1, 0, 0       ; SPIDER at 8192, 45056, holding its post
+        .byte   $00, $A0, $00, $20, 2, 192, 40       ; PULSAR at 40960, 8192, course 192 at 40 px/s
+        .byte   $00, $50, $00, $30, 3, 0, 0       ; EMP MINE at 20480, 12288, holding its post
 LVL0_FOES_END:
 L0_ROCKN    = (LVL0_ROCKS_END - LVL0_ROCKS) / 6
 L0_FOEN     = (LVL0_FOES_END - LVL0_FOES) / 7
@@ -283,5 +275,5 @@ LVL_FOEHI:  .byte   >LVL0_FOES
 
 ; The one thing a level cannot be allowed to get wrong, checked by the
 ; assembler rather than discovered in the simulator.
-        .assert L0_TOTAL <= NOBJ, error, "level 0 (MINING ZONE) asks for more rocks than NOBJ slots"
+        .assert L0_TOTAL <= NOBJ, error, "level 0 (SECTOR ZERO) asks for more rocks than NOBJ slots"
 ; === END GENERATED ===

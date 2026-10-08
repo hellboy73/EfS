@@ -75,13 +75,12 @@ GTR_N       = 9                 ; dots in the radar's triangle
         .assert 2 * GATE_RX <= 254, error, "gate.s: d*d = f(2d) needs 2d to index QS"
 
 ; --- SECTOR COMPLETED, the placeholder ------------------------------------------
-SEC_LINE    = 24                ; the screen's middle text row
-SEC_COL     = (37 - (sec_s1_end - sec_s1 - 1)) / 2
-SEC_PFLINE  = 27                ; PUSH FIRE, a blank row below it
+SEC_LINE    = 20                ; the first of the ending's lines, rows 20/22/24/26
+SEC_LINES   = 4                 ; ...there are four, and PUSH FIRE is the fifth
+SEC_PFLINE  = 31                ; PUSH FIRE, a blank row below the last
 SEC_PFCOL   = (37 - (sec_s2_end - sec_s2 - 1)) / 2
-SEC_ARM     = 90                ; frames before FIRE counts, ~1.5 s: the shot a
-                                ;   player was firing as they flew in cannot
-                                ;   skip the screen
+SEC_MINSAY  = 12                ; frames before SPK_BUSY is believed
+SEC_GAP     = 30                ; the breath between two lines, 0.5 s
 
 ; --- state: under the window, behind shield.s ----------------------------------
 GTON        = SHLD_END + 1      ; 0 closed, 1 open
@@ -619,7 +618,7 @@ sector_frame:
         lda     #VR_BLIND_ON            ; step 0: dark, and the field, the radar
         jsr     API_GPU_VREG            ;   ring and the HUD off the background
         jsr     API_GPU_CLEARBG
-        bra     @next
+        jmp     @next
 @p1:    cmp     #1                      ; step 1: the clear's replay lands
         bne     @p2
         inc     SCR_T
@@ -628,68 +627,159 @@ sector_frame:
         bcc     @ret
         lda     #VR_BLIND_OFF
         jsr     API_GPU_VREG
-        bra     @next
+        stz     SC_PTRL                 ; no line shown yet...
+        stz     SC_PTRH                 ; ...and no frames counted
+        jmp     @next
 
-@p2:    lda     #SEC_COL                ; step 2: the words, every frame
-        ldx     #SEC_LINE
-        ldy     #$00
-        jsr     @text
+; Step 2, the ending of the demo. SC_PTRL = the lines now on the screen, SC_PTRH
+; = frames counted in the current phase, SCR_T = the phase:
+;   0 start the next line's voice and count it as shown   (n < SEC_LINES)
+;   1 that line is being spoken: wait for SPK_BUSY to clear
+;   2 a short breath before the next line
+;   3 all of it has been said: PUSH FIRE, the idle clock, and FIRE listens
+@p2:    jsr     @lines                  ; the lines up so far, every frame
         lda     SCR_T
-        cmp     #SEC_ARM
-        bcs     @armed
-        inc     SCR_T
+        beq     @start
+        cmp     #1
+        beq     @speak
+        cmp     #2
+        beq     @breath
+        jmp     @armed
+
+@start: jsr     end_say                 ; the voice and the words start together
+        inc     SC_PTRL
+        stz     SC_PTRH
+        lda     #1
+        sta     SCR_T
         rts
+
+@speak: lda     SC_PTRH                 ; SPK_BUSY is not trusted until the voice
+        cmp     #SEC_MINSAY             ;   has had a few frames to start
+        bcs     :+
+        inc     SC_PTRH
+        rts
+:       lda     SPK_BUSY
+        bne     @ret
+        stz     SC_PTRH
+        lda     #2
+        sta     SCR_T
+@ret:   rts
+
+@breath: inc    SC_PTRH
+        lda     SC_PTRH
+        cmp     #SEC_GAP
+        bcc     @ret
+        stz     SC_PTRH
+        lda     SC_PTRL
+        cmp     #SEC_LINES
+        bcs     @done
+        stz     SCR_T                   ; the next line
+        rts
+@done:  lda     #3                      ; all said: the idle clock starts
+        sta     SCR_T
+        lda     #<IDLE_FRAMES
+        sta     PF_WAITL
+        lda     #>IDLE_FRAMES
+        sta     PF_WAITH
+        rts
+
 @armed: lda     FRAME                   ; PUSH FIRE, 32 frames lit, 32 dark
         and     #$20
         bne     @fire
         lda     #SEC_PFCOL
         ldx     #SEC_PFLINE
-        ldy     #$01
+        ldy     #SEC_LINES
         jsr     @text
 @fire:  ldx     JOYPORT
         lda     JOY1_PRESS,x
         and     #JOY_FIRE
-        beq     @ret
+        beq     @idle
         lda     JOY1_PRESS,x            ; consume the edge, or the press that
         and     #<~JOY_FIRE             ;   ends the screen also fires the gun
-        sta     JOY1_PRESS,x            ;   on the next sector's first frame
-        ldx     CURLEV                  ; the next sector - round to the first
-        inx                             ;   after the last, while there is only
-        cpx     #NLEVELS                ;   one
-        bcc     :+
-        ldx     #$00
-:       stx     CURLEV
-        ldx     #FE_NEXTSECTOR          ; NOT jsr level_begin here: this frame
-        jmp     set_state_field         ;   is still UICODE, about to be
-                                        ;   overwritten by set_state_field's own
-                                        ;   cart_load - a tail JMP, never a jsr
-                                        ;   (overlay.s has the full account).
-                                        ;   It sets SCR_STATE, loads CODE5/
-                                        ;   CODE6, clears BGDONE and runs
-                                        ;   level_begin, then rts's to
-                                        ;   cart_frame on our behalf
-@ret:   rts
+        sta     JOY1_PRESS,x
+        bra     @intro
+@idle:  lda     PF_WAITL                ; no FIRE: 10 s, then the intro anyway
+        bne     :+
+        dec     PF_WAITH
+:       dec     PF_WAITL
+        lda     PF_WAITL
+        ora     PF_WAITH
+        bne     @ret
+@intro: lda     #SC_INTRO               ; the demo loops: intro_frame runs from
+        sta     SCR_STATE               ;   its first step (screens.s), and
+        stz     SCR_PH                  ;   restarts the song and FRAME there
+        stz     SCR_T
+        stz     SCR_SKIP
+        rts
 
 @next:  inc     SCR_PH
         stz     SCR_T
         rts
 
+; The lines shown so far, SC_PTRL of them, rows SEC_LINE + 2 * i.
+@lines: ldy     #0
+:       cpy     SC_PTRL
+        bcs     @lr
+        phy
+        lda     end_col,y
+        pha
+        tya
+        asl     a
+        clc
+        adc     #SEC_LINE
+        tax
+        pla
+        jsr     @text                   ; (Y = which string, as it is)
+        ply
+        iny
+        bra     :-
+@lr:    rts
+
 ; A = cell, X = line, Y = which string.
 @text:  sta     OS_ARG+0
         stx     OS_ARG+1
         stz     OS_ARG+2
-        lda     sec_lo,y
+        lda     end_lo,y
         sta     OS_ARG+3
-        lda     sec_hi,y
+        lda     end_hi,y
         sta     OS_ARG+4
         jmp     API_GPU_VTEXT
 
-sec_lo:     .byte   <sec_s1, <sec_s2
-sec_hi:     .byte   >sec_s1, >sec_s2
+; end_say - the voice for line SC_PTRL, out of the message bank (speech.s).
+end_say:
+        jsr     msg_open
+        ldx     SC_PTRL
+        lda     SPK_END_LO,x            ; read INSIDE the bracket, as spk_speak does
+        sta     OS_ARG+4
+        lda     SPK_END_HI,x
+        sta     OS_ARG+5
+        lda     #VOICE_CHIP
+        sta     OS_ARG+0
+        lda     #VOICE_TEMPO
+        sta     OS_ARG+1
+        lda     #VOICE_VOL
+        sta     OS_ARG+2
+        lda     #VOICE_SCALE
+        sta     OS_ARG+3
+        jsr     API_SPK_SAY             ; it copies the string out of the window
+        jmp     msg_close
 
-sec_s1:     .byte   "SECTOR COMPLETED", 0
-sec_s1_end:
+; The text MUST be what tools/mkspeech.py ENDING says. Four lines, centred; the
+; pointer tables are indexed by line, and the push-fire string is the fifth.
+end_lo:     .byte   <end_s0, <end_s1, <end_s2, <end_s3, <sec_s2
+end_hi:     .byte   >end_s0, >end_s1, >end_s2, >end_s3, >sec_s2
+end_col:    .byte   (37 - (end_s1 - end_s0 - 1)) / 2
+            .byte   (37 - (end_s2 - end_s1 - 1)) / 2
+            .byte   (37 - (end_s3 - end_s2 - 1)) / 2
+            .byte   (37 - (end_s3_end - end_s3 - 1)) / 2
+
+end_s0:     .byte   "SECTOR CLEARED", 0
+end_s1:     .byte   "WELL DONE PILOT", 0
+end_s2:     .byte   "ALPHA VERSION", 0
+end_s3:     .byte   "THANK YOU FOR PLAYING", 0
+end_s3_end:
 sec_s2:     .byte   "PUSH FIRE", 0
 sec_s2_end:
+        .assert SEC_LINES = 4 && SPK_END_N = SEC_LINES, error, "gate.s: the ending's text and tools/mkspeech.py's ENDING disagree on the number of lines"
 
         .popseg
