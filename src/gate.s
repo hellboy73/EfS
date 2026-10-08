@@ -75,9 +75,9 @@ GTR_N       = 9                 ; dots in the radar's triangle
         .assert 2 * GATE_RX <= 254, error, "gate.s: d*d = f(2d) needs 2d to index QS"
 
 ; --- SECTOR COMPLETED, the placeholder ------------------------------------------
-SEC_LINE    = 20                ; the first of the ending's lines, rows 20/22/24/26
-SEC_LINES   = 4                 ; ...there are four, and PUSH FIRE is the fifth
-SEC_PFLINE  = 31                ; PUSH FIRE, a blank row below the last
+SEC_LINE    = 22                ; the first of the ending's lines, rows 22/24/26
+SEC_LINES   = 3                 ; ...there are three, and PUSH FIRE is the fourth
+SEC_PFLINE  = 30                ; PUSH FIRE, a blank row below the last
 SEC_PFCOL   = (37 - (sec_s2_end - sec_s2 - 1)) / 2
 SEC_MINSAY  = 12                ; frames before SPK_BUSY is believed
 SEC_GAP     = 30                ; the breath between two lines, 0.5 s
@@ -764,22 +764,20 @@ end_say:
         jsr     API_SPK_SAY             ; it copies the string out of the window
         jmp     msg_close
 
-; The text MUST be what tools/mkspeech.py ENDING says. Four lines, centred; the
-; pointer tables are indexed by line, and the push-fire string is the fifth.
-end_lo:     .byte   <end_s0, <end_s1, <end_s2, <end_s3, <sec_s2
-end_hi:     .byte   >end_s0, >end_s1, >end_s2, >end_s3, >sec_s2
+; The text MUST be what tools/mkspeech.py ENDING says. Three lines, centred; the
+; pointer tables are indexed by line, and the push-fire string is the fourth.
+end_lo:     .byte   <end_s0, <end_s1, <end_s2, <sec_s2
+end_hi:     .byte   >end_s0, >end_s1, >end_s2, >sec_s2
 end_col:    .byte   (37 - (end_s1 - end_s0 - 1)) / 2
             .byte   (37 - (end_s2 - end_s1 - 1)) / 2
-            .byte   (37 - (end_s3 - end_s2 - 1)) / 2
-            .byte   (37 - (end_s3_end - end_s3 - 1)) / 2
+            .byte   (37 - (end_s2_end - end_s2 - 1)) / 2
 
 end_s0:     .byte   "SECTOR CLEARED", 0
-end_s1:     .byte   "WELL DONE PILOT", 0
-end_s2:     .byte   "ALPHA VERSION", 0
-end_s3:     .byte   "THANK YOU FOR PLAYING", 0
-end_s3_end:
+end_s1:     .byte   "THANK YOU FOR PLAYING", 0
+end_s2:     .byte   "ESCAPE FROM SATURN ALPHA", 0
+end_s2_end:
 sec_s2:     .byte   "PUSH FIRE", 0
 sec_s2_end:
-        .assert SEC_LINES = 4 && SPK_END_N = SEC_LINES, error, "gate.s: the ending's text and tools/mkspeech.py's ENDING disagree on the number of lines"
+        .assert SEC_LINES = 3 && SPK_END_N = SEC_LINES, error, "gate.s: the ending's text and tools/mkspeech.py's ENDING disagree on the number of lines"
 
         .popseg

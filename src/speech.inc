@@ -224,41 +224,8 @@ SPK_END0_PH:
         .byte   SPK_NORM   | SPK_PH_CLZ
         .byte   SPK_NORM   | SPK_PH_D
         .byte   $00
-; "WELL DONE PILOT": 17 phonemes
-SPK_END1_PH:
-        .byte   SPK_NORM   | SPK_PH_W   ; WELL
-        .byte   SPK_STRESS | SPK_PH_EH
-        .byte   SPK_LONG   | SPK_PH_L
-        .byte   SPK_NORM   | SPK_PH_PAU
-        .byte   SPK_NORM   | SPK_PH_CLZ   ; DONE
-        .byte   SPK_NORM   | SPK_PH_D
-        .byte   SPK_STRESS | SPK_PH_AH
-        .byte   SPK_LONG   | SPK_PH_N
-        .byte   SPK_NORM   | SPK_PH_PAU
-        .byte   SPK_NORM   | SPK_PH_CLS   ; PILOT   /paI-l@t/
-        .byte   SPK_NORM   | SPK_PH_P
-        .byte   SPK_STRESS | SPK_PH_AA
-        .byte   SPK_NORM   | SPK_PH_I
-        .byte   SPK_NORM   | SPK_PH_L
-        .byte   SPK_SHORT  | SPK_PH_AX
-        .byte   SPK_NORM   | SPK_PH_CLS
-        .byte   SPK_LONG   | SPK_PH_T
-        .byte   $00
-; "ALPHA VERSION": 10 phonemes
-SPK_END2_PH:
-        .byte   SPK_STRESS | SPK_PH_AE   ; ALPHA
-        .byte   SPK_NORM   | SPK_PH_L
-        .byte   SPK_NORM   | SPK_PH_F
-        .byte   SPK_SHORT  | SPK_PH_AX
-        .byte   SPK_NORM   | SPK_PH_PAU
-        .byte   SPK_NORM   | SPK_PH_V   ; VERSION
-        .byte   SPK_STRESS | SPK_PH_ER
-        .byte   SPK_NORM   | SPK_PH_SH
-        .byte   SPK_SHORT  | SPK_PH_AX
-        .byte   SPK_LONG   | SPK_PH_N
-        .byte   $00
 ; "THANK YOU FOR PLAYING": 21 phonemes
-SPK_END3_PH:
+SPK_END1_PH:
         .byte   SPK_NORM   | SPK_PH_TH   ; THANK
         .byte   SPK_STRESS | SPK_PH_AE
         .byte   SPK_NORM   | SPK_PH_NG
@@ -281,14 +248,40 @@ SPK_END3_PH:
         .byte   SPK_SHORT  | SPK_PH_IH
         .byte   SPK_LONG   | SPK_PH_NG
         .byte   $00
+; "ESCAPE FROM SATURN ALPHA": 25 phonemes
+SPK_END2_PH:
+        .byte   SPK_SHORT  | SPK_PH_IH   ; ESCAPE   /Is-keIp/
+        .byte   SPK_NORM   | SPK_PH_S
+        .byte   SPK_NORM   | SPK_PH_CLS
+        .byte   SPK_NORM   | SPK_PH_K
+        .byte   SPK_STRESS | SPK_PH_EH   ;   /eI/
+        .byte   SPK_NORM   | SPK_PH_I
+        .byte   SPK_NORM   | SPK_PH_CLS
+        .byte   SPK_NORM   | SPK_PH_P
+        .byte   SPK_NORM   | SPK_PH_PAU
+        .byte   SPK_NORM   | SPK_PH_F   ; FROM
+        .byte   SPK_NORM   | SPK_PH_R
+        .byte   SPK_STRESS | SPK_PH_AH
+        .byte   SPK_NORM   | SPK_PH_M
+        .byte   SPK_NORM   | SPK_PH_PAU
+        .byte   SPK_NORM   | SPK_PH_S   ; SATURN
+        .byte   SPK_STRESS | SPK_PH_AE
+        .byte   SPK_NORM   | SPK_PH_CLS
+        .byte   SPK_NORM   | SPK_PH_T
+        .byte   SPK_NORM   | SPK_PH_ER
+        .byte   SPK_NORM   | SPK_PH_N
+        .byte   SPK_NORM   | SPK_PH_PAU
+        .byte   SPK_STRESS | SPK_PH_AE   ; ALPHA
+        .byte   SPK_NORM   | SPK_PH_L
+        .byte   SPK_NORM   | SPK_PH_F
+        .byte   SPK_LONG   | SPK_PH_AX
+        .byte   $00
 SPK_END_LO:
         .byte   <SPK_END0_PH
         .byte   <SPK_END1_PH
         .byte   <SPK_END2_PH
-        .byte   <SPK_END3_PH
 SPK_END_HI:
         .byte   >SPK_END0_PH
         .byte   >SPK_END1_PH
         .byte   >SPK_END2_PH
-        .byte   >SPK_END3_PH
-SPK_END_N   = 4
+SPK_END_N   = 3
