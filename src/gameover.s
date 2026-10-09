@@ -122,7 +122,6 @@ state_tick:
         sta     OVWANT                  ;   happened, not the one that asks for
         lda     #GO_SWAP                ;   something back
         sta     OVSUB
-        jsr     over_arm                ; ...and the demo's idle clock starts
         lda     #HUD_PH_OVER - 1        ; ...and the paint schedule is wound so
         sta     HUD_PHASE               ;   the word lands on the NEXT frame
                                         ;   rather than up to a whole period
@@ -142,17 +141,9 @@ state_tick:
         lda     OVWANT                  ;   GO_SWAP is a whole number of periods
         eor     #(GO_OVER ^ GO_FIRE)    ;   - the flip then always lands the same
         sta     OVWANT                  ;   distance before the row's own phase
-@fire:
-        ldx     JOYPORT                 ; the port that has been playing
-        lda     JOY1_PRESS,x
-        and     #JOY_FIRE
-        beq     @idle
-        lda     JOY1_PRESS,x            ; consume the edge, so the press that
-        and     #<~JOY_FIRE             ;   restarts does not ALSO come out of
-        sta     JOY1_PRESS,x            ;   the new game's first gun frame
-        jsr     game_start
+@fire:  jmp     over_wait               ; tail: FIRE, or the idle clock (CODE5 -
+                                        ;   upper RAM has no bytes to spare)
 @done:  rts
-@idle:  jmp     over_idle               ; tail
 
 ; -----------------------------------------------------------------------------
 ; ship_hidden - C SET = the ship is not drawn this frame.
@@ -262,12 +253,15 @@ GO_END:
 ; gone hand the machine back to the intro (the demo loops). Setting SCR_STATE is
 ; all FIELD -> SCREEN takes: frame_body loads the SCREEN overlay on the next frame
 ; and intro_frame runs from its step 0 (overlay.s).
-over_arm:
-        lda     #<IDLE_FRAMES
-        sta     PF_WAITL
-        lda     #>IDLE_FRAMES
-        sta     PF_WAITH
-        rts
+over_wait:
+        ldx     JOYPORT                 ; the port that has been playing
+        lda     JOY1_PRESS,x
+        and     #JOY_FIRE
+        beq     over_idle
+        lda     JOY1_PRESS,x            ; consume the edge, so the press that
+        and     #<~JOY_FIRE             ;   restarts does not ALSO come out of
+        sta     JOY1_PRESS,x            ;   the new game's first gun frame
+        jmp     game_start              ; tail
 
 over_idle:
         lda     PF_WAITL
@@ -302,6 +296,10 @@ game_start:
 ; sector_frame calls this) and starting over.
 ; -----------------------------------------------------------------------------
 level_begin:
+        lda     #<IDLE_FRAMES           ; the demo's idle clock (over_idle) starts
+        sta     PF_WAITL                ;   full: nothing counts it down until
+        lda     #>IDLE_FRAMES           ;   GAME OVER is up
+        sta     PF_WAITH
         stz     GSTATE                  ; ...the game is a game again
         stz     SHIPGONE
         stz     SHIPINV

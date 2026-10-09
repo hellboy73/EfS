@@ -155,6 +155,8 @@ empm_spin:
         lda     FOEKIND,x
         cmp     #FK_EMPMINE
         bne     @no
+        lda     SHIPGONE                ; no ship, no mine: it stops where it is
+        bne     @no
         lda     FOEST,x
         cmp     #FS_PURSUE
         beq     @charge
