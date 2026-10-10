@@ -1255,6 +1255,8 @@ frame_body:
         stz     OVERRUN_FLAG
         inc     OVRCNT
 :
+        jsr     rumble_tick             ; the pad (rumble.s) - on every frame, the
+                                        ;   screens' included
         jsr     sfx_tick                ; the sound layer's own frame: age the
                                         ;   noise voice's claim, then the
                                         ;   explosion flash - one VIDEO_REG
@@ -1485,6 +1487,7 @@ frame_body:
         .include "radar.s"              ; the HUD radar: a second, wider walk of
                                         ; the same sector grid, on high bytes
                                         ; only. See that file's header.
+        .include "rumble.s"             ; the pad shakes when the ship is hurt
         .include "gameover.s"           ; the two game states, the banner across
                                         ; the middle of the screen and the
                                         ; new-game entry point cart_init also

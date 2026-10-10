@@ -279,6 +279,7 @@ over_idle:
 @ret:   rts
 
 game_start:
+        jsr     rumble_reset            ; no pulse carries over into a new game
         jsr     hud_init                ; the score, the lives, level 1 on the
         lda     #START_LEVEL            ;   board, the message bar - none of it
         sta     CURLEV                  ;   is zeroed for us
