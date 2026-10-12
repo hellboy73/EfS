@@ -44,3 +44,6 @@ dumps/
 # with everything in it. Nothing in the build reads them.
 old/
 tmp/
+
+# Local backups of whole builds (v0.6 alpha etc.) - kept on disk, never tracked.
+bkp/
