@@ -190,7 +190,7 @@ RAD_ERR_N   = 6                 ; the longest word plus its trailing space
 ; the exit gate waits on), the enemies, and the gate - and not the field's
 ; debris. 5 puts back every class (radar_alloc then spends its 48 slots biggest
 ; first, as it always did).
-RAD_ROCKCL  = 1
+RAD_ROCKCL  = 5 - 4 * DEMO      ; the demo shows the 192s only
 
 RAD_BLINK_N = 20                ; the enemy blink: a 20-frame cycle at 60.317 Hz
 RAD_BLINK_ON = 10               ; ...lit for the first half of it, ~3 Hz. The

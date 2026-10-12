@@ -44,6 +44,11 @@ RUMSH       = $73C4             ; ...and SHK_TIMER
 
         .segment "CODE8"
 
+; frame_services - frame_body's one call (main.s): the pad, then the sound layer.
+frame_services:
+        jsr     rumble_tick
+        jmp     sfx_tick                ; tail
+
 ; rumble_reset - a new game starts from rest. From game_start (gameover.s), which
 ; cart_init also calls, so nothing here is ever read before it has been written.
 rumble_reset:

@@ -133,7 +133,8 @@ NOBJ        = 255               ; asteroid SLOTS. How many rocks a level puts
                                 ;   whole pages. Going past it means widening
                                 ;   every index in do_objects, physics.s and the
                                 ;   grid to 16 bits.
-START_LEVEL = 0                 ; which of levels.s's levels cart_init loads.
+START_LEVEL = DEMO              ; (0 = MINING ZONE, 1 = SECTOR ZERO - the demo's)
+                                ; was 0                 ; which of levels.s's levels cart_init loads.
                                 ;   One level exists; the campaign is five
                                 ;   (design_technical 9), and picking between
                                 ;   them is the menu's job, not a constant's.
@@ -190,7 +191,16 @@ DBG_SATN_CELL = 0
 ; TEMPORARY - THE TRAINER: test cheats on the SECOND pad (trainer.s says which
 ; is which, and what each control does). 1 while the game is being tuned; 0
 ; takes every byte of it out of the image, and it ships at 0.
-TRAINER       = 0
+; DEMO = 1 builds the expo demo (alpha v0.6): the trainer out, three ships, the
+; radar showing only the mission's rocks, the idle loop back to the intro, the
+; spoken ending, and sector zero (level 1) as the only sector. 0 is the game as
+; it is developed: trainer on, five ships, the full radar, MINING ZONE, and
+; SECTOR COMPLETED leading to the next sector. Build the demo with:
+;     make DEMO=1 -B        (and the game again with plain  make -B)
+.ifndef DEMO
+DEMO          = 0
+.endif
+TRAINER       = 1 - DEMO
 
 ; Which opcode draws a rock. All three are the SAME command - one closed figure
 ; per outline, with the centre, the angle, the scale and the RAW shape sent as
@@ -1255,9 +1265,12 @@ frame_body:
         stz     OVERRUN_FLAG
         inc     OVRCNT
 :
-        jsr     rumble_tick             ; the pad (rumble.s) - on every frame, the
-                                        ;   screens' included
-        jsr     sfx_tick                ; the sound layer's own frame: age the
+        jsr     frame_services          ; rumble_tick (the pad, rumble.s - every
+                                        ;   frame, the screens' included) and then
+                                        ;   sfx_tick: ONE call so CODE gains no
+                                        ;   bytes - it is full to the byte
+                                        ;   with the trainer in.
+                                        ;   sfx_tick is the sound layer's own frame: age the
                                         ;   noise voice's claim, then the
                                         ;   explosion flash - one VIDEO_REG
                                         ;   byte, FIRST in the frame so it lands

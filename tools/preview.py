@@ -1332,7 +1332,7 @@ def hud_const(name):
     written in terms of - so the layout lives in ONE place and this bench cannot
     disagree with the cartridge about where a row is."""
     src = (SRC / "hud_game.s").read_text()
-    env = {}
+    env = {"DEMO": 0}    # main.s's switch: the bench is the DEVELOPMENT build
     for m in re.finditer("^([A-Z_][A-Z0-9_]*)" + chr(92) + "s*=" + chr(92) + "s*([^;" + chr(92) + "n]+)", src, re.M):
         try:
             env[m.group(1)] = int(eval(m.group(2).strip(), {}, dict(env)))

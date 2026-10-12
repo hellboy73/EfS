@@ -76,12 +76,22 @@ GTR_N       = 9                 ; dots in the radar's triangle
         .assert 2 * GATE_RX <= 254, error, "gate.s: d*d = f(2d) needs 2d to index QS"
 
 ; --- SECTOR COMPLETED, the placeholder ------------------------------------------
+.if DEMO
 SEC_LINE    = 22                ; the first of the ending's lines, rows 22/24/26
 SEC_LINES   = 3                 ; ...there are three, and PUSH FIRE is the fourth
 SEC_PFLINE  = 30                ; PUSH FIRE, a blank row below the last
 SEC_PFCOL   = (37 - (sec_s2_end - sec_s2 - 1)) / 2
 SEC_MINSAY  = 12                ; frames before SPK_BUSY is believed
 SEC_GAP     = 30                ; the breath between two lines, 0.5 s
+.else
+SEC_LINE    = 24                ; the screen's middle text row
+SEC_COL     = (37 - (sec_s1_end - sec_s1 - 1)) / 2
+SEC_PFLINE  = 27                ; PUSH FIRE, a blank row below it
+SEC_PFCOL   = (37 - (sec_s2_end - sec_s2 - 1)) / 2
+SEC_ARM     = 90                ; frames before FIRE counts, ~1.5 s: the shot a
+                                ;   player was firing as they flew in cannot
+                                ;   skip the screen
+.endif
 
 ; --- state: under the window, behind shield.s ----------------------------------
 GTON        = SHLD_END + 1      ; 0 closed, 1 open
@@ -618,6 +628,7 @@ IM_GATE_S:  .byte   "EXIT GATE OPEN", 0
 ; flight between sectors exists, it is this state's frame, and FIRE here
 ; becomes the tunnel's end.
 ; -----------------------------------------------------------------------------
+.if DEMO
 sector_frame:
         lda     SCR_PH
         bne     @p1
@@ -785,5 +796,85 @@ end_s2_end:
 sec_s2:     .byte   "PUSH FIRE", 0
 sec_s2_end:
         .assert SEC_LINES = 3 && SPK_END_N = SEC_LINES, error, "gate.s: the ending's text and tools/mkspeech.py's ENDING disagree on the number of lines"
+.else
+sector_frame:
+        lda     SCR_PH
+        bne     @p1
+        lda     #VR_BLIND_ON            ; step 0: dark, and the field, the radar
+        jsr     API_GPU_VREG            ;   ring and the HUD off the background
+        jsr     API_GPU_CLEARBG
+        bra     @next
+@p1:    cmp     #1                      ; step 1: the clear's replay lands
+        bne     @p2
+        inc     SCR_T
+        lda     SCR_T
+        cmp     #SETTLE
+        bcc     @ret
+        lda     #VR_BLIND_OFF
+        jsr     API_GPU_VREG
+        bra     @next
+
+@p2:    lda     #SEC_COL                ; step 2: the words, every frame
+        ldx     #SEC_LINE
+        ldy     #$00
+        jsr     @text
+        lda     SCR_T
+        cmp     #SEC_ARM
+        bcs     @armed
+        inc     SCR_T
+        rts
+@armed: lda     FRAME                   ; PUSH FIRE, 32 frames lit, 32 dark
+        and     #$20
+        bne     @fire
+        lda     #SEC_PFCOL
+        ldx     #SEC_PFLINE
+        ldy     #$01
+        jsr     @text
+@fire:  ldx     JOYPORT
+        lda     JOY1_PRESS,x
+        and     #JOY_FIRE
+        beq     @ret
+        lda     JOY1_PRESS,x            ; consume the edge, or the press that
+        and     #<~JOY_FIRE             ;   ends the screen also fires the gun
+        sta     JOY1_PRESS,x            ;   on the next sector's first frame
+        ldx     CURLEV                  ; the next sector - round to the first
+        inx                             ;   after the last, while there is only
+        cpx     #NLEVELS                ;   one
+        bcc     :+
+        ldx     #$00
+:       stx     CURLEV
+        ldx     #FE_NEXTSECTOR          ; NOT jsr level_begin here: this frame
+        jmp     set_state_field         ;   is still UICODE, about to be
+                                        ;   overwritten by set_state_field's own
+                                        ;   cart_load - a tail JMP, never a jsr
+                                        ;   (overlay.s has the full account).
+                                        ;   It sets SCR_STATE, loads CODE5/
+                                        ;   CODE6, clears BGDONE and runs
+                                        ;   level_begin, then rts's to
+                                        ;   cart_frame on our behalf
+@ret:   rts
+
+@next:  inc     SCR_PH
+        stz     SCR_T
+        rts
+
+; A = cell, X = line, Y = which string.
+@text:  sta     OS_ARG+0
+        stx     OS_ARG+1
+        stz     OS_ARG+2
+        lda     sec_lo,y
+        sta     OS_ARG+3
+        lda     sec_hi,y
+        sta     OS_ARG+4
+        jmp     API_GPU_VTEXT
+
+sec_lo:     .byte   <sec_s1, <sec_s2
+sec_hi:     .byte   >sec_s1, >sec_s2
+
+sec_s1:     .byte   "SECTOR COMPLETED", 0
+sec_s1_end:
+sec_s2:     .byte   "PUSH FIRE", 0
+sec_s2_end:
+.endif
 
         .popseg

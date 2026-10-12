@@ -9,6 +9,7 @@
 # cartridge is one image and the paths it needs — roms/, assets/ — hang off the
 # root too. proto/ is frozen; nothing in this build reads from it.
 
+DEMO ?= 0
 CART  = cart.bin
 
 # What cl65 is HANDED. main.s pulls every module in with .include, so only
@@ -47,7 +48,7 @@ all: $(CART)
 # (rock_destroy, foe_kill) instead of poking the state those routines would
 # have left behind - which is how a bench ends up agreeing with itself.
 $(CART): $(DEPS)
-	cl65 -g -t none -C cart.cfg -o $@ -Ln cart.lbl $(UNITS)
+	cl65 -g -t none -C cart.cfg -o $@ -Ln cart.lbl --asm-define DEMO=$(DEMO) $(UNITS)
 
 run: $(CART)
 	./madsim.exe --tate --gpu roms/gpu_os.bin --cpu1 roms/cpu_os.bin --cart $(CART)

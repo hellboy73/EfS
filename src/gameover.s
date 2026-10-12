@@ -264,6 +264,7 @@ over_wait:
         jmp     game_start              ; tail
 
 over_idle:
+.if DEMO
         lda     PF_WAITL
         bne     :+
         dec     PF_WAITH
@@ -276,7 +277,9 @@ over_idle:
         stz     SCR_PH
         stz     SCR_T
         stz     SCR_SKIP
-@ret:   rts
+@ret:
+.endif
+        rts
 
 game_start:
         jsr     rumble_reset            ; no pulse carries over into a new game
@@ -297,10 +300,12 @@ game_start:
 ; sector_frame calls this) and starting over.
 ; -----------------------------------------------------------------------------
 level_begin:
+.if DEMO
         lda     #<IDLE_FRAMES           ; the demo's idle clock (over_idle) starts
         sta     PF_WAITL                ;   full: nothing counts it down until
         lda     #>IDLE_FRAMES           ;   GAME OVER is up
         sta     PF_WAITH
+.endif
         stz     GSTATE                  ; ...the game is a game again
         stz     SHIPGONE
         stz     SHIPINV
@@ -398,11 +403,13 @@ level_begin:
                                         ;   tenth of a second, and visible. The
                                         ;   two readouts it delays instead are
                                         ;   not urgent on the frame a game starts
-        lda     #IM_LEVEL               ; ...and the bar opens with a word,
+        lda     #IM_LEVEL               ; ...and the bar opens with a word
+.if DEMO
         jsr     indicate_msg            ;   then the sector's two goals
         lda     #IM_GOAL1
         jsr     indicate_msg
         lda     #IM_GOAL2
+.endif
         jmp     indicate_msg            ; tail
 
         .segment "CODE2"                ; back to the segment main.s included
