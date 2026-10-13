@@ -978,6 +978,7 @@ tun_shr:
 ; -----------------------------------------------------------------------------
 tun_rocks_frame:
         jsr     tun_pod_sched           ; the lifepods' times, and their ghost discs cleared
+        jsr     tun_deco                ; now and then a rock outside the tube (tunnel_pod.s)
         dec     SPT
         bne     @loop0
         lda     SC_PTRL                 ; no new rock in the last TUN_RUSHF + TUN_CLEAR frames:

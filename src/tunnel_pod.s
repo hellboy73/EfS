@@ -64,11 +64,22 @@ TUN_PODAG   = 6                 ; their tips this far outside the lid's radius, 
 TUN_PODAP   = 14                ; the blink: on for 8 frames of every 14 - SE_ALARM's own
 TUN_PODAON  = 8                 ;   beep and gap, so firing it every 3 x 14 frames (it is
                                 ;   three beeps) keeps the beeps on the arrows
+TUN_DECO    = 0                 ; OUTSIDE THE TUBE (the user, 2026-10-13): rocks that fly past
+                                ;   out of reach, for the look - one every this many frames, plus
+                                ;   0..31. 0 = none: tried and switched OFF (the user). 40 was ~3
+                                ;   more rocks at once and a worst frame of 96% CPU; 80 with the
+                                ;   budget below was 80% (174 k = 73% without them)...
+TUN_DECOM   = 6                 ; ...and only while fewer than this many rocks fly and no pod
+                                ;   does: a budget, so the worst frame stays the tube's own
+TUN_DECOX   = 112               ; ...at least this far off the axis on one side (to 127): the lean
+                                ;   is 81 and a lane's rock +-16, so none can be reached
 TUN_PODQ    = 40                ; the point list's size
 
         .assert TUN_PODQ >= 24 + 1, error, "tunnel_pod.s: the front lid's 24 points must fit the list"
 
         .segment "TUNBSS"
+DSPT:   .res    1                       ; frames to the next rock outside the tube
+DTMP:   .res    1
 PODI:   .res    1                       ; the next pod (0..TUN_PODS: all flown)
 PODLX:  .res    1                       ; ...and its lane, 0..2 per axis
 PODLY:  .res    1
@@ -234,6 +245,8 @@ PODTH:  .byte   >900, >1800, >2700
 ; discs hide nothing.
 ; -----------------------------------------------------------------------------
 tun_pod_init:
+        lda     #20                     ; the first rock outside the tube a third of a second in
+        sta     DSPT
         stz     PODI
         stz     TPOD
         stz     TPLOST
@@ -259,6 +272,104 @@ tun_pod_lane:
         cmp     #3
         beq     @y
         sta     PODLY
+        rts
+
+; -----------------------------------------------------------------------------
+; tun_deco - a rock OUTSIDE THE TUBE now and then (TUN_DECO): born far like the others, on
+; a place at least TUN_DECOX off the axis on one side (x or y, either sign) and anywhere
+; on the other, never tested against the ship (RHI = 1). Pods and Saturnium stay in the
+; tube. It lives here, not beside tun_spawn, because bank 10 is full.
+; -----------------------------------------------------------------------------
+tun_deco:
+.if TUN_DECO
+        dec     DSPT
+        bne     @r
+        jsr     prng
+        and     #31
+        clc
+        adc     #TUN_DECO
+        sta     DSPT
+        lda     SC_PTRL                 ; none in the run's end either
+        cmp     #<(TUN_FRAMES - TUN_RUSHF - TUN_CLEAR)
+        lda     SC_PTRH
+        sbc     #>(TUN_FRAMES - TUN_RUSHF - TUN_CLEAR)
+        bcs     @r
+        stz     PT1                     ; the budget: how many fly, and is one a pod?
+        ldx     #TUN_ROCKS - 1
+:       lda     RZL,x
+        ora     RZH,x
+        beq     :+
+        inc     PT1
+        lda     RKIND,x
+        cmp     #2
+        beq     @r                      ; a pod in flight: it has the frame
+:       dex
+        bpl     :--
+        lda     PT1
+        cmp     #TUN_DECOM
+        bcs     @r
+        ldx     #TUN_ROCKS - 1
+:       lda     RZL,x
+        ora     RZH,x
+        beq     @free
+        dex
+        bpl     :-
+@r:     rts
+@free:  stx     TRK
+        lda     #<TUN_RZMAX
+        sta     RZL,x
+        lda     #>TUN_RZMAX
+        sta     RZH,x
+        lda     #1
+        sta     RHI,x                   ; (out of reach: never tested)
+        stz     RDF,x
+        stz     ROC,x
+        stz     RKIND,x
+        jsr     prng
+        and     #3
+        ldx     TRK
+        sta     RTY,x
+        jsr     prng
+        ldx     TRK
+        sta     RAN,x
+        jsr     prng
+        and     #TUN_RSPIN
+        sec
+        sbc     #4
+        ldx     TRK
+        sta     RSP,x
+        jsr     prng                    ; bit 0: which axis is off; bit 1: which side
+        sta     DTMP
+        .assert (127 - TUN_DECOX) & (128 - TUN_DECOX) = 0, error, "tunnel_pod.s: 127 - TUN_DECOX must be a mask (2^n - 1)"
+        jsr     prng
+        and     #127 - TUN_DECOX
+        clc
+        adc     #TUN_DECOX              ; TUN_DECOX..127...
+        sta     PT1                     ; the off coordinate...
+        lda     DTMP
+        and     #2
+        beq     :+
+        lda     #0                      ; ...or its negative
+        sec
+        sbc     PT1
+        sta     PT1
+:
+        jsr     prng
+        sta     PT2                     ; ...and the other, anywhere
+        ldx     TRK
+        lda     DTMP
+        lsr     a
+        bcc     @ony
+        lda     PT1
+        sta     RXW,x
+        lda     PT2
+        sta     RYW,x
+        rts
+@ony:   lda     PT1
+        sta     RYW,x
+        lda     PT2
+        sta     RXW,x
+.endif
         rts
 
 ; -----------------------------------------------------------------------------

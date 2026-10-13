@@ -462,8 +462,8 @@ check("...and GROW smoothly: the mean tail fraction never jumps (<= 0.02 a frame
 check("...longer the farther from the centre (the tail is the head less a fraction, 0.1..0.55 at the end)",
       ratios and 0.1 <= min(ratios) and max(ratios) <= 0.55, f"fractions {min(ratios or [0]):.2f}..{max(ratios or [0]):.2f}")
 avg = [sum(extra[i:i + 32]) / 32 for i in range(len(extra) - 32)]
-check("...and the ship accelerates SMOOTHLY: the extra speed (32-frame mean) does not fall (dither aside) and never jumps (<= 0.1 a frame), to 6 or more",
-      all(-0.04 <= b - a <= 0.1 for a, b in zip(avg, avg[1:])) and avg[-1] >= 6 and max(abs(b - a) for a, b in zip(extra, extra[1:])) <= 1,
+check("...and the ship accelerates SMOOTHLY: the extra speed (32-frame mean) does not fall (dither aside) and never jumps (<= 0.2 a frame: the speed-up was doubled), to 12 or more",
+      all(-0.08 <= b - a <= 0.2 for a, b in zip(avg, avg[1:])) and avg[-1] >= 12 and max(abs(b - a) for a, b in zip(extra, extra[1:])) <= 1,
       f"mean {avg[0]:.2f} .. {avg[-1]:.2f}, biggest step {max(b - a for a, b in zip(avg, avg[1:])):.3f}")
 raw, cyc = raw_frame()
 g0 = gpu.processorCycles
