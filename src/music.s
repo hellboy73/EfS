@@ -38,7 +38,7 @@
 ; =============================================================================
 
 MUSIC_ON    = 1                 ; 0 = no song, no banks, no player calls
-MUSIC_BANK  = 11                ; the stream's first bank. Banks 0-6 are the
+MUSIC_BANK  = 12                ; the stream's first bank. Banks 0-6 are the
                                 ;   code, the tables, COLD and the screens'
                                 ;   pictures, bank 7 the sprite art, bank 8 the
                                 ;   levels and bank 9 the messages - see

@@ -250,7 +250,7 @@ r = lean_run(JOY_DOWN | JOY_RIGHT, 160)
 check("and the opposite diagonal (DOWN+RIGHT) to +AMP on both", r[-1] == (AMP, AMP), f"{r[-1]}")
 quad = [0, 0, 0, 0]
 for _ in range(40):
-    for x, y in (dots(flying_frame(joy=JOY_DOWN | JOY_RIGHT)) or [[]])[0]:
+    for x, y in (dots(flying_frame(joy=JOY_DOWN | JOY_RIGHT)) or [[]])[-1]:            # (the last DOT_PIXELS: a cloud may come first)
         quad[(x >= 100) * 2 + (y >= 75)] += 1
 check("at full lean the stars still fill all four quarters of the window",
       min(quad) >= 0.08 * sum(quad), f"quarters {quad}")
@@ -404,7 +404,7 @@ for _ in range(TK["TUN_RUSHF"] + 20):
         prev = both
 modes, vols, wn, wv = modes[:-2], vols[:-2], wn[:-2], wv[:-2]   # (the last ones are the scene's end: the hum is cut and restarted)
 live = [(n, v) for n, v in zip(wn, wv) if v > 0]
-check("...and from the middle of the rush a WHINE joins it on tone voice 0: it fades in and climbs to the top of the note table",
+check("...and from the start of the rush a WHINE joins it on tone voice 0: it fades in and climbs to the top of the note table",
       live and live[0][0] >= 60 and live[-1][0] >= 100 and live[-1][0] <= 108 and live[-1][1] >= 4
       and all(b[0] >= a[0] for a, b in zip(live, live[1:])) and wv[0] == 0,
       f"{len(live)} notes {live[0] if live else None}..{live[-1] if live else None}")

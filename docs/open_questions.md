@@ -1138,9 +1138,11 @@ the Saturnium collected in this passage, never a pod. Open:
   end-of-run whine with vibrato and tremolo, and the engine volume (3, swelling to 5). Parameters:
   `physics.md` 12.
 * **THE TUNNEL: what is still to do (2026-10-13, from 11.45, H6 and the user's plans).**
-  1. **Lifepods**: one per ship lost in THIS sector (needs a per-sector count of ships lost, which the field
-     does not keep), pseudo-3D art (undrawn), a catch returns a ship (LIVES). The generator must always make
-     a pod reachable.
+  1. **Lifepods**: the barrel is BUILT (2026-10-13, `tunnel_pod.s`, design_technical 11.45); three fly at
+     fixed times in the test tunnel and a catch is only counted (TPOD, TPLOST). Still to do: one per ship lost
+     in THIS sector (needs a per-sector count the field does not keep), a catch returns a ship (LIVES), the
+     speech PILOT RESCUED / PILOT LOST IN SPACE, and the cost (~73 k CPU near: the facing test and the point
+     list could be cheaper).
   2. **The stat bar (top 50 px) and the radio bar (bottom 50 px)**: Saturnium, ships, the sector's score /
      time / kills (the field would have to count time and kills), and the debrief / brief text typed out like
      a telegraph (H5). Also the window may move to the top later (the user): the HUD art and the 150 x 150
@@ -1177,9 +1179,8 @@ the Saturnium collected in this passage, never a pod. Open:
   just short of a point near the vanishing point to full-screen at the
   closest pass — untested, and the failure mode (an outline that reads as
   wrong well before it fills the screen) is only visible once flown.
-* **The lifepod's pseudo-3D look is undrawn (11.45).** It is its own asset,
-  not the in-flight capsule decoy (`src/capsule_art.s`), and has no frames
-  yet.
+* **The lifepod's pseudo-3D look** is built (2026-10-13, `tunnel_pod.s`): a
+  barrel drawn from its geometry, not frames; to be judged once flown.
 * **Saturnium's look in the tunnel is undecided (the user, 2026-09-23).** A
   candidate is a dense, growing cloud of pixels as it nears the camera, but
   that risks the per-pixel GPU cost already measured tight elsewhere (`DOT_PIXELS`,

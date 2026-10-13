@@ -80,7 +80,9 @@ TUN_RUMBLE  = 20                ; frames of pad rumble
 ; window) when the scene ends. One spawn in TUN_CLOUDP is a cloud.
 TUN_CLOUDMIN = 8                ; pixels at the farthest
 TUN_CLOUDMAX = 32               ; ...and at the camera (scale 128: the formula is 8 + 3/16 s)
-TUN_CATCHR  = 22                ; a catch: |rel x| and |rel y| both under this (a rock's is 15)
+TUN_CATCHR  = 36                ; a catch: |rel x| and |rel y| both under this (a rock's is 15;
+                                ;   it was 22, made easier - the user, 2026-10-13: a pod's is 36
+                                ;   too, and more would reach a cloud from the next lane, 81 off)
 TUN_SATPAY  = 16                ; Saturnium a cloud pays (a kill in the sector pays 8)
 TUN_CLOUDP  = 7                 ; a spawn is a cloud when (random AND this) = 0: 1 in 8
 
@@ -99,19 +101,21 @@ TUN_HUMM    = 6                 ; the noise mode: white, slowest (4 = fastest wh
 TUN_HUMV    = 3                 ; volume 0-15 (15 = loudest); 5 was too loud (the user, 2026-10-13)
 TUN_HUMP    = 8                 ; frames between re-fires (the program lasts 16)
 ; The noise tops out at its fastest rate (mode 4), and the user wanted the end of the rush
-; to climb far higher - an escape into hyperspace. So from RUSHR = TUN_WHINES a WHINE joins
+; to climb far higher - an escape into hyperspace. So from RUSHR = TUN_WHINES (the start) a WHINE joins
 ; it: a tone on the chip's voice 0 (the gun's, which nothing fires here) that fades in and
 ; climbs from TUN_WHINEN to the top of the note table (MIDI 108, 4 kHz) by the last frame,
 ; r * 68 / 256 semitones, a note per ~7 frames, re-fired with the noise, with a VIBRATO of
 ; its own (7.5 Hz, +-1 to 3 semitones) and a tremolo, so that it does not sound a plain
 ; sine sliding up.
-TUN_WHINES  = 80                ; the rush clock (units of 2 frames) at which it begins
+TUN_WHINES  = 1                 ; the rush clock (units of 2 frames) at which it begins: at
+                                ;   once, quiet and low, rising with the speed (it was 80,
+                                ;   half way, and came in too late - the user, 2026-10-13)
 TUN_WHINEN  = 60                ; its first note (MIDI 60 = middle C)
 
 ; --- THE END OF THE RUN (design_technical 11.45; the user, 2026-10-13) ---------------
 ; The scene ends in a RUSH: no more rocks (the last is born TUN_CLEAR frames before
 ; it, enough for the farthest to pass), then for TUN_RUSHF frames the ship accelerates -
-; the speed grows (up to 8 more z a frame, easing in) - and the dust stretches, from single
+; the speed grows (up to 16 more z a frame, easing in) - and the dust stretches, from single
 ; pixels, into short lines pointing at the centre, longer the farther out, while the
 ; engine rises. Then the scene ends.
 ; RUSHR is the rush's own clock in units of 2 frames, 0 before it and 1..TUN_RUSH in it.
@@ -143,6 +147,8 @@ TUN_FSH     = 3                 ; they move CAM >> 3: at full lean (81) 10 px of
 TUN_ROCKS   = 16                ; at once (4 at first, doubled twice to test, 2026-10-13: the
                                 ;   difficulty is meant to be in dodging them, and they are rare) TBM: a solid polygon is ~1.2k GPU cycles
                                 ;   a SEGMENT, 13 of them a rock (11.49)
+TUN_NDISC   = TUN_ROCKS + 2     ; the occlusion discs: the rocks', and a lifepod's middle
+                                ;   and back lid (tunnel_pod.s), in the two slots after them
 TUN_RZMAX   = 1020              ; a rock is born this far: four times a star's ZMAX (the
                                 ;   user, 2026-10-13: they came in too late and too big),
                                 ;   so its depth is 16 bit, indexed by z >> RTIER (below)
@@ -197,7 +203,7 @@ HUMP:   .res    14                      ; the noise program: type, 4 x (frames, 
 HUMQ:   .res    14                      ; the whine: a tone program on voice 0, the same shape
 RUSHR:  .res    1                       ; the rush's clock (units of 2 frames): 0 = not yet, else 1..TUN_RUSH
 SHV:    .res    1                       ; a streak's length fraction (FRAC), 0..127
-ACCF:   .res    1                       ; the rush's speed-up, the fraction not yet added (1/32)
+ACCF:   .res    1                       ; the rush's speed-up, the fraction not yet added (1/16)
 TMV:    .res    1
 KSX:    .res    1                       ; the side the knock is from, per axis ($80 = left/above)
 KSY:    .res    1
@@ -280,8 +286,8 @@ DEN:    .res    1
 QUO:    .res    1
 TMPV:   .res    1
 EI:     .res    1
-RZL:    .res    TUN_ROCKS               ; depth (16 bit, true z up to TUN_RZMAX), 0 = no rock
-RZH:    .res    TUN_ROCKS
+RZL:    .res    TUN_NDISC               ; depth (16 bit, true z up to TUN_RZMAX), 0 = no rock
+RZH:    .res    TUN_NDISC
 RVIS:   .res    TUN_ROCKS               ; 1 = in the window this frame, to be drawn
 RCXL:   .res    TUN_ROCKS               ; its centre, full-res fb, signed 16
 RCXH:   .res    TUN_ROCKS
@@ -289,10 +295,10 @@ RCYL:   .res    TUN_ROCKS
 RCYH:   .res    TUN_ROCKS
 RSCA:   .res    TUN_ROCKS               ; its SCALE (Q0.7) and its radius on the window,
 RSCR:   .res    TUN_ROCKS               ;   half-res px, this frame
-NBX:    .res    TUN_ROCKS               ; for a rock being drawn: where a NEARER rock's
-NBY:    .res    TUN_ROCKS               ;   disc is relative to it, fb half-res, biased 128
+NBX:    .res    TUN_NDISC               ; for a rock being drawn: where a NEARER rock's
+NBY:    .res    TUN_NDISC               ;   disc is relative to it, fb half-res, biased 128
 NCNT:   .res    1                       ; ...and how many there are...
-NLIST:  .res    TUN_ROCKS               ; ...and which (rock indices)
+NLIST:  .res    TUN_NDISC               ; ...and which (rock indices)
 HV:     .res    13                      ; per vertex of the rock being drawn: hidden?
 HM:     .res    13                      ; ...per edge: its midpoint hidden?
 EV:     .res    13                      ; ...per edge: visible (nothing hides it)?
@@ -319,13 +325,13 @@ RXW:    .res    TUN_ROCKS               ; world x and y, signed (the lean is +-A
 RYW:    .res    TUN_ROCKS
 RAN:    .res    TUN_ROCKS               ; its angle, brad
 RSP:    .res    TUN_ROCKS               ; ...and its spin, signed brad a frame
-RKIND:  .res    TUN_ROCKS               ; 0 = a rock, 1 = a Saturnium cloud
+RKIND:  .res    TUN_ROCKS               ; 0 = a rock, 1 = a Saturnium cloud, 2 = a lifepod
 RTY:    .res    TUN_ROCKS               ; which of the four outlines
 RHI:    .res    TUN_ROCKS               ; 1 once it has been tested against the ship
-ROC:    .res    TUN_ROCKS               ; its occlusion radius on the window this frame,
+ROC:    .res    TUN_NDISC               ; its occlusion radius on the window this frame,
                                         ;   half-res px, 0 = it hides nothing
-RBX:    .res    TUN_ROCKS               ; ...and where, as an offset from the window's
-RBY:    .res    TUN_ROCKS               ;   centre BIASED by 128 (unsigned)
+RBX:    .res    TUN_NDISC               ; ...and where, as an offset from the window's
+RBY:    .res    TUN_NDISC               ;   centre BIASED by 128 (unsigned)
 TSHP:   .res    4 * 26 + 4 * 16         ; the outlines, copied out of SHAPES and
 TSHN:   .res    8                       ;   doubled to full-res; their vertex counts
 RBUF:   .res    7 + 26                  ; the POLYGON16 argument block
@@ -397,8 +403,9 @@ RST2:   .repeat 128, J
 TSHO:   .byte   0, 26, 52, 78, 104, 120, 136, 152   ; each outline's offset in TSHP
 LANE:   .byte   <(-TUN_AMP), 0, TUN_AMP, 0
         .segment "TUNCODE"
-; The rush's two ease-ins, by RUSHR (0..TUN_RUSH): the extra speed in 1/32 of a z unit a
-; frame (quadratic, 0 to 255 = 8 units) and a streak's length as a fraction of its head's
+; The rush's two ease-ins, by RUSHR (0..TUN_RUSH): the extra speed in 1/16 of a z unit a
+; frame (quadratic, 0 to 255 = 16 units: it was 1/32 and 8, and the streaks looked too slow
+; for their length - the user, 2026-10-13) and a streak's length as a fraction of its head's
 ; offset, in 1/256 (quadratic, 0 to 127 = a half): both start at ZERO and grow smoothly.
 RSPT:   .repeat TUN_RUSH + 1, I
         .byte   .min(255, (255 * I * I) / (TUN_RUSH * TUN_RUSH))
@@ -741,7 +748,7 @@ tun_occ0:                               ; (a far star enters here with T3 = infi
         lda     OYS
         eor     #$80
         sta     SYB
-        ldx     #TUN_ROCKS - 1
+        ldx     #TUN_NDISC - 1
 @k:     lda     ROC,x
         beq     @nx
         lda     RZL,x                   ; a rock hides only what is farther than it: its
@@ -869,6 +876,7 @@ tun_rocks_init:
         dex
         bpl     :-
         stz     HITS
+        jsr     tun_pod_init
         lda     #30                     ; the first rock after half a second
         sta     SPT
         rts
@@ -897,6 +905,7 @@ tun_spawn:
         jsr     prng
         and     #3
         tay
+        sty     LIX
         lda     LANE,y
         sta     TMP
         jsr     prng
@@ -910,6 +919,7 @@ tun_spawn:
         jsr     prng
         and     #3
         tay
+        sty     LIY
         lda     LANE,y
         sta     TMP
         jsr     prng
@@ -920,6 +930,7 @@ tun_spawn:
         adc     TMP
         ldx     TRK
         sta     RYW,x
+        jsr     tun_pod_guard           ; not in the lane of a pod about to come
         jsr     prng
         ldx     TRK
         sta     RAN,x
@@ -966,6 +977,7 @@ tun_shr:
 ; a resolution that gets coarser as the rock gets small.
 ; -----------------------------------------------------------------------------
 tun_rocks_frame:
+        jsr     tun_pod_sched           ; the lifepods' times, and their ghost discs cleared
         dec     SPT
         bne     @loop0
         lda     SC_PTRL                 ; no new rock in the last TUN_RUSHF + TUN_CLEAR frames:
@@ -1011,7 +1023,11 @@ tun_rocks_frame:
         bcs     @alive
         stz     RZL,x                   ; gone past
         stz     RZH,x
-        jmp     @next
+        lda     RKIND,x
+        cmp     #2
+        bne     :+
+        inc     TPLOST                  ; a lifepod not caught (the speech comes later)
+:       jmp     @next
 @alive: ldx     TRK
         lda     RZH,x                   ; TIER, and TZ = z >> TIER
         bne     @t1
@@ -1086,10 +1102,13 @@ tun_rocks_frame:
         bne     @nohit
         lda     #1
         sta     RHI,x
-        lda     #TUN_HITR               ; how near is a hit (a rock) or a catch (a cloud)
+        lda     #TUN_HITR               ; how near is a hit (a rock) or a catch (a cloud, a pod)
         ldy     RKIND,x
         beq     :+
         lda     #TUN_CATCHR
+        cpy     #2
+        bne     :+
+        lda     #TUN_PODR
 :       sta     TMV
         lda     HXM
         cmp     TMV
@@ -1102,7 +1121,11 @@ tun_rocks_frame:
         jsr     tun_hit                 ; the knock, the shake, the sound; the rock is thrown
         ldx     TRK
         bra     @nohit
-@catch: jsr     tun_catch               ; the Saturnium: a sound and a tally; the cloud is gone
+@catch: cpy     #2
+        beq     :+
+        jsr     tun_catch               ; the Saturnium: a sound and a tally; the cloud is gone
+        jmp     @next
+:       jsr     tun_pod_catch           ; a pilot: the pod is gone
         jmp     @next
 @nohit: ldy     TZ                      ; its SCALE by depth (Q0.7, 128 = 1:1)
         lda     RTIER
@@ -1115,6 +1138,12 @@ tun_rocks_frame:
         bra     @sd
 @s0:    lda     RST0,y
 @sd:    sta     SCL
+        lda     RKIND,x                 ; a lifepod: its own projection (tunnel_pod.s)
+        cmp     #2
+        bne     :+
+        jsr     tun_pod_p1
+        jmp     @next
+:       lda     SCL
         lsr     a                       ; its radius on the window, half-res px:
         lsr     a                       ;   3/8 of the scale (48 of 128)
         sta     RSC
@@ -1886,10 +1915,13 @@ tun_verts:
 tun_draw_rock:
         ldx     TRK
         lda     RKIND,x
-        beq     :+
-        jmp     tun_draw_cloud          ; a Saturnium cloud: pixels
+        beq     :++
+        cmp     #2
+        bne     :+
+        jmp     tun_draw_pod            ; a lifepod (tunnel_pod.s)
+:       jmp     tun_draw_cloud          ; a Saturnium cloud: pixels
 :       stz     NCNT
-        ldy     #TUN_ROCKS - 1
+        ldy     #TUN_NDISC - 1
 @n:     cpy     TRK
         bne     :+
         jmp     @nn
@@ -2113,6 +2145,8 @@ tun_run:
 :       dec     VCNT
         bne     @c
         jmp     tun_go
+
+        .include "tunnel_pod.s"         ; the lifepods: TUNCODE3 (bank 11, run behind the rocks) and TUNBSS
 
         .segment "TUNCODE"
 ; -----------------------------------------------------------------------------
@@ -2793,6 +2827,7 @@ tun_stars_frame:
         sec
         sbc     SPD
         sta     SZ,x
+        bcc     @dead                   ; (past the camera: the rush's speed outruns ZMIN)
         cmp     #TUN_ZMIN
         bcc     @dead
         sta     TZ
@@ -2917,15 +2952,14 @@ tunnel_frame:
         adc     #TUN_SPEED
         sta     SPD
         ldx     RUSHR
-        lda     RSPT,x                  ; extra speed in 1/32: the fraction is carried
+        lda     RSPT,x                  ; extra speed in 1/16: the fraction is carried
         clc
         adc     ACCF
         pha
-        and     #31
+        and     #15
         sta     ACCF
         pla
-        lsr     a
-        lsr     a
+        ror     a                       ; (the sum's ninth bit in: 255 + 15 overflows)
         lsr     a
         lsr     a
         lsr     a                       ; ...and the whole units added
@@ -2937,6 +2971,7 @@ tunnel_frame:
         jsr     tun_lean_frame          ;   the lean, the rocks, then the stars
         jsr     tun_rocks_frame         ;   (the rocks first: their discs hide stars)
         jsr     tun_stars_frame         ;   it moves...
+        jsr     tun_pod_arrows          ;   (a lifepod's arrows: last, over everything)
         ldx     JOYPORT                 ; ...and FIRE ends it at once (testing)
         lda     JOY1_PRESS,x
         and     #JOY_FIRE

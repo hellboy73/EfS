@@ -625,10 +625,17 @@ the window 150 x 150 of them (300 x 300 full-res).
 | rocks | `TUN_ROCKS`, `TUN_SPAWN`, `TUN_RZMAX`, `TUN_ZFULL`, `TUN_ZHIT`, `TUN_RZMIN` | 16, 25 + 0..15, 1020, 40, 36, 14 | the sector's 192 outlines; a rock is drawn 1:1 at z 40 and no bigger; tested against the ship once, at z 36 |
 | rock detail | `TUN_ZLOD`, `TUN_ZDOT` | 220, 500 | beyond 220 the reduced outline; beyond 500 also dotted (`DOTPOLYGON`) |
 | the hit | `TUN_HITR`, `TUN_KICK`, `TUN_DEFL`, `TUN_SHAKE`, `TUN_RUMBLE` | 15, 3, 3, 24, 20 | the camera is kicked away (units a frame, then the spring), the rock thrown aside at its depth, the view shaken, the pad rumbles, SE_KLANG + SE_KLANG_N |
-| Saturnium | `TUN_CLOUDMIN/MAX`, `TUN_CATCHR`, `TUN_SATPAY`, `TUN_CLOUDP` | 8, 32, 22, 16, 1 in 8 | DOT_PIXELS the size of a rock, 8 + 3/16 of the scale pixels; caught = SE_SATN, paid into SATN when the scene ends |
+| Saturnium | `TUN_CLOUDMIN/MAX`, `TUN_CATCHR`, `TUN_SATPAY`, `TUN_CLOUDP` | 8, 32, 36 (was 22), 16, 1 in 8 | DOT_PIXELS the size of a rock, 8 + 3/16 of the scale pixels; caught = SE_SATN, paid into SATN when the scene ends |
+| lifepods (`tunnel_pod.s`) | `TUN_PODS`, `PODTL/PODTH`, `TUN_PODR`, `TUN_PODSP`, `TUN_PODG` | 3, frames 900 / 1800 / 2700, 36, 2, 90 | the test tunnel's pods, born on a lane give or take 8; a catch is \|rel\| < 36 at TUN_ZHIT (18 doubled, to make it easy); the roll in brad a frame; no rock is born in a pod's lane in the 90 frames before it |
+| the pod's shape | `TUN_PODL`, `TUN_PODWA/WB/WH`, `TUN_PODHD` | 68, 31 / 37 / 16, 80 | radius = the 128 rock's (64 full-res at 1:1), length 4 x the diameter; the window 6.7 z long and 2 x 16 brad wide at the middle; the hatch's half-diagonal 80/128 of the radius; a 24-gon (12 beyond TUN_ZLOD, dotted beyond TUN_ZDOT) |
+| the pod's arrows | `TUN_PODAZ`, `TUN_PODAG`, `TUN_PODAP`, `TUN_PODAON` | 140, 6, 14, 8 | the exit's pointer sprites either side of a pod, from its birth until z 140, tips 6 px outside its silhouette; on 8 frames of every 14, with SE_ALARM fired every 42 so its beeps fall on them |
 | the run | `TUN_FRAMES`, `TUN_RUSHF`, `TUN_CLEAR` | 3600, 360, 200 | a minute; the last 6 s are the rush; no rock is born in the 200 + 360 before the end |
-| the rush | `RSPT`, `FRAC` | 0 to 8 units, 0 to 1/2 | eased (quadratic) from zero: the speed-up is added with a fraction, the streaks grow from a pixel |
-| the engine | `TUN_HUMM/V/P`, `TUN_WHINES/N` | mode 6, 3, 8; 80, 60 | noise rumble (3, swelling to 5); from the middle of the rush a whine (tone, voice 0) climbs to MIDI ~107 with a 7.5 Hz vibrato and a tremolo |
+| the rush | `RSPT`, `FRAC` | 0 to 16 units (was 8), 0 to 1/2 | eased (quadratic) from zero: the speed-up is added with a fraction, the streaks grow from a pixel |
+| the engine | `TUN_HUMM/V/P`, `TUN_WHINES/N` | mode 6, 3, 8; 1, 60 | noise rumble (3, swelling to 5); from the start of the rush a whine (tone, voice 0) climbs to MIDI ~107 with a 7.5 Hz vibrato and a tremolo |
 
 Costs measured with `tools/tunnel_bench.py` (py65, no wait states): a flying frame ~50 k CPU
 cycles (21%), the rush 69 k CPU and 67 k GPU (28%), the reload on the way out 1.43 M cycles.
+A near lifepod (z 150, off the axis, hatch and window) adds ~73 k CPU and ~65 k GPU: a frame of
+~133 k CPU (56%) and ~76 k GPU (32%) with nothing else near (py65, `tunnel_pod.s`, 2026-10-13).
+The worst frame seen in a natural run, a pod and seven rocks, is ~194 k CPU (82%); seven rocks
+alone ~136 k. Most of the difference is the stars' occlusion test (three more, larger discs).

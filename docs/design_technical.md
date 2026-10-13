@@ -1945,6 +1945,25 @@ These are settled and should not be re-opened without a reason:
     (`CODE8`) and every carried variable stay. `make run-tunnel` boots into it,
     `make tunnel-test` is its own bench.
 
+    **The lifepod, built 2026-10-13 (`src/tunnel_pod.s`, ROM bank 11 -> the run area behind
+    the rocks; the music moved to bank 12).** A barrel flown lid-first at the camera: the
+    128 rock's radius, four diameters long, spinning on its axis, a square hatch on the lid
+    and a square window on the wall whose two edges round the barrel are arcs. Every point
+    of it is a point of the front lid's 24-gon scaled about the window's centre by z1 / z,
+    so the back lid is the same polygon shrunk towards the vanishing point and each side
+    line joins vertex i of the one to vertex i of the other: it leads to the centre and
+    meets both polygons exactly, by construction. The lid's edges that face the centre
+    (n . d + r cos(pi/24) < 0) say which back vertices show and where the side lines are,
+    and also which part of the wall faces the camera - the window is cut there. Occlusion
+    is three discs (the front lid, the middle, the back lid; the last two in two slots after
+    the rocks). From its birth until it is near (z 140) two of the exit's pointer arrows
+    blink either side of it, over everything, with the UFO alarm's beep in step: the player
+    is to know at once that it matters. A catch (|rel| < 36 at TUN_ZHIT - twice a rock's
+    reach, to make it easy) is counted (`TPOD`, a stand-in sound); the
+    ship, the speech PILOT RESCUED / PILOT LOST IN SPACE and the count from the sector are
+    not built. Three pods fly at fixed times in the test tunnel; no rock is born in a pod's
+    lane in the 90 frames before it.
+
 46. **Mining stations: one fixed, indestructible landmark in some sectors.**
     Decided 2026-09-18 (the user); **the figure and its wall are built as the
     human base, 48**; the rest is not, and the open parts are

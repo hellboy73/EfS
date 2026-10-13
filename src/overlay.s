@@ -36,6 +36,7 @@
         .import __UICODE_LOAD__, __UICODE_RUN__, __UICODE_SIZE__
         .import __TUNCODE_LOAD__, __TUNCODE_RUN__, __TUNCODE_SIZE__
         .import __TUNCODE2_LOAD__, __TUNCODE2_RUN__, __TUNCODE2_SIZE__
+        .import __TUNCODE3_LOAD__, __TUNCODE3_RUN__, __TUNCODE3_SIZE__
         .import __CODE_LOAD__, __CODE_RUN__, __CODE_SIZE__
         .import __CODE2_LOAD__, __CODE2_RUN__, __CODE2_SIZE__
         .import __CODE3_LOAD__, __CODE3_RUN__, __CODE3_SIZE__
@@ -48,6 +49,7 @@
 CODE5_BANK  = 4                 ; must match cart.cfg's MEMORY order and
 CODE6_BANK  = 6                 ;   bootstrap.s's own copies of these - nothing
 TUNCODE_BANK = 10
+TUNCODE3_BANK = 11              ; the lifepods (tunnel_pod.s)
 ENG0_BANK   = 0                 ; the flight engine's four banks - bootstrap.s's CODE_BANK ..
 ENG1_BANK   = 1                 ;   CODE4_BANK, which nothing links to this file but a number
 ENG3_BANK   = 3
@@ -85,6 +87,8 @@ ovl_tunnel_segs:
         .word   __TUNCODE_LOAD__, __TUNCODE_RUN__, __TUNCODE_SIZE__
         .byte   TUNCODE_BANK            ; ...and the rocks, over the run area
         .word   __TUNCODE2_LOAD__, __TUNCODE2_RUN__, __TUNCODE2_SIZE__
+        .byte   TUNCODE3_BANK           ; ...and the lifepods, behind them
+        .word   __TUNCODE3_LOAD__, __TUNCODE3_RUN__, __TUNCODE3_SIZE__
         .byte   $FF
 ; THE FLIGHT ENGINE, which the tunnel's second row overwrites: reloaded (before FIELD's own
 ; rows) by ovl_load_field when the tenant it replaces is the tunnel. The same four rows as
