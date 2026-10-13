@@ -820,6 +820,9 @@ SCR = asm_consts("hud_game.s", "hiscore.s", "screens.s")
 # copies what it finds there into GTMIS / GTMPR as it would any level. The same
 # lookup checks that the bank the source names is the bank the linker filled.
 _LVL = asm_consts("levels.s")
+# --quick: only the benches a tunnel change needs (the gate and the tunnel), not the
+# satn, pulsar, EMP, shield and base ones - minutes instead of eleven.
+QUICK = "--quick" in sys.argv
 _LBL = {m.group(2): int(m.group(1), 16) for m in
         re.finditer(r"^al ([0-9A-Fa-f]+) \.(\w+)\s*$",
                     (ROOT / "cart.lbl").read_text(), re.M)}
@@ -4514,7 +4517,8 @@ def satn_bench():
                   191: (7, 7), 192: (6, 6), 254: (6, 6), 255: (5, 5)}, str(arm))
     cpu_mem[SHIPINV_A], cpu_mem[SATARM_A] = 0, 0
 
-satn_bench()
+if not QUICK:
+    satn_bench()
 
 
 # =============================================================================
@@ -4715,7 +4719,8 @@ def pulsar_bench():
           == [PLS_HP - LSR_DMG * (k + 1) for k in range(12)], str(burned))
 
 
-pulsar_bench()
+if not QUICK:
+    pulsar_bench()
 
 
 # =============================================================================
@@ -4938,7 +4943,8 @@ def emp_bench():
         cpu_mem[FOEST_A + k] = 0
 
 
-emp_bench()
+if not QUICK:
+    emp_bench()
 
 
 # =============================================================================
@@ -5054,7 +5060,8 @@ def shield_bench():
     cpu_mem[SHIPINV_A] = 0
 
 
-shield_bench()
+if not QUICK:
+    shield_bench()
 
 
 # =============================================================================
@@ -5071,7 +5078,7 @@ def gate_bench():
     G = asm_consts("satn.s", "emp.s", "shield.s", "gate.s", "cam.s", "radar.s")
     GTON_A, GTXL_A = G["GTON"], G["GTXL"]
     SATN_A = G["SATN"]
-    SCR_STATE_A, SC_SECTOR, JOYPORT_A = SCR["SCR_STATE"], SCR["SC_SECTOR"], SCR["JOYPORT"]
+    SCR_STATE_A, SC_SECTOR, SC_TUNNEL, JOYPORT_A = SCR["SCR_STATE"], SCR["SC_SECTOR"], SCR["SC_TUNNEL"], SCR["JOYPORT"]
     IM_GATE = SCR["IM_GATE"]
     IND_QD_A, IND_QN_A = SCR["IND_QD"], SCR["IND_QN"]
     RKLIVE_A = G["RKLIVE"]
@@ -5081,12 +5088,13 @@ def gate_bench():
     CURLEV_A, SCORE_A, LIVES_A = SCR["CURLEV"], SCR["SCORE"], SCR["LIVES"]
     GX, GY = G["GTR_N"], None
 
-    def frame(fire=False):
+    def frame(fire=False, joy=0):
         port = cpu_mem[JOYPORT_A]
         cpu_mem[JOY1_PREV] = cpu_mem[JOY1] = cpu_mem[JOY1_PRESS] = 0
         cpu_mem[JOY1_PREV + 3] = cpu_mem[JOY1 + 3] = cpu_mem[JOY1_PRESS + 3] = 0
         if fire:
             cpu_mem[JOY1 + port] = cpu_mem[JOY1_PRESS + port] = JOY_FIRE
+        cpu_mem[JOY1 + port] |= joy
         call(cpu, API_GPU_BEGIN)
         call(cpu, CART_FRAME)
         call(cpu, API_GPU_END)
@@ -5227,25 +5235,26 @@ def gate_bench():
     cpu_mem[SATN_A] = 123
     put_ship(gx, (gy + 10 * 16) & 0xFFFF)               # into its middle
     frame()
-    check("...the ship's centre in its middle is SECTOR COMPLETED from the next frame",
-          cpu_mem[SCR_STATE_A] == SC_SECTOR, f"SCR_STATE {cpu_mem[SCR_STATE_A]}")
+    check("...the ship's centre in its middle is the TUNNEL from the next frame",
+          cpu_mem[SCR_STATE_A] == SC_TUNNEL, f"SCR_STATE {cpu_mem[SCR_STATE_A]}")
     seen = []
-    for f in range(SEC_ARM + 72):                      # ...past a whole 64-frame blink
-        cmds = frame(fire=(f == 20))
-        seen.append(cmds)
-    texts = [bytes(pl[3:-1]).decode() for c in seen for op, pl in c if op == 0x62]
+    for f in range(40):                                # dark, settle, the cockpit's bands, flying
+        seen.append(frame())
     cleared = any(op == 0x20 for op, _ in seen[0])
+    rects = sum(1 for c in seen for op, _ in c if op == 0x32)
     game = any(op in (0x4C, 0x4E) for c in seen for op, _ in c)
-    check("...a CLEAR_BG, then SECTOR COMPLETED on the image, and nothing of the field",
-          cleared and "SECTOR COMPLETED" in texts and not game)
-    check(f"...a FIRE before SEC_ARM ({SEC_ARM}) frames does not end it, and PUSH FIRE comes up",
-          cpu_mem[SCR_STATE_A] == SC_SECTOR and "PUSH FIRE" in texts)
+    check("...a CLEAR_BG, then the cockpit's 20 bands, each sent and replayed (RECT_BG_RLE), and nothing of the field",
+          cleared and rects == 40 and not game, f"{rects} bands")
+    check("...and it stays the tunnel until FIRE (or its time) ends it",
+          cpu_mem[SCR_STATE_A] == SC_TUNNEL)
+    # (the stars, the lean and the rocks are checked by tools/tunnel_bench.py - make tunnel-test)
+    cur0 = cpu_mem[CURLEV_A]
+    nlev = asm_consts("levels.s")["NLEVELS"]
     frame(fire=True)
     cmds = frame()
-    check("...FIRE after it is the next sector: flying, the gate closed and the ship at its start",
-          cpu_mem[SCR_STATE_A] == 0 and ram(GTON_A) == 0 and
-          (ram(SHX[1]), ram(SHX[3])) == (0x80, 0x80) and cpu_mem[CURLEV_A] == 0,
-          f"SCR_STATE {cpu_mem[SCR_STATE_A]} GTON {ram(GTON_A)} CURLEV {cpu_mem[CURLEV_A]}")
+    check("...FIRE in it is the next sector: flying, the gate closed, and the level advanced (round to the first after the last)",
+          cpu_mem[SCR_STATE_A] == 0 and ram(GTON_A) == 0 and cpu_mem[CURLEV_A] == (cur0 + 1) % nlev,
+          f"SCR_STATE {cpu_mem[SCR_STATE_A]} GTON {ram(GTON_A)} CURLEV {cpu_mem[CURLEV_A]} (was {cur0}, {nlev} levels)")
     check("...keeping the score, the ships and the Saturnium in the hold",
           ram_block(SCORE_A, 6) == score and ram(LIVES_A) == lives and ram(SATN_A) == 123,
           f"score {ram_block(SCORE_A, 6)} vs {score}, lives {ram(LIVES_A)}, SATN {ram(SATN_A)}")
@@ -5940,7 +5949,8 @@ def base_bench():
     cpu_mem[BSON_A] = 0
 
 
-base_bench()
+if not QUICK:
+    base_bench()
 
 
 # =============================================================================

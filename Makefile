@@ -10,6 +10,7 @@
 # root too. proto/ is frozen; nothing in this build reads from it.
 
 DEMO ?= 0
+TUNTEST ?= 0                    # 1: power on straight into the tunnel (make run-tunnel)
 CART  = cart.bin
 
 # What cl65 is HANDED. main.s pulls every module in with .include, so only
@@ -25,7 +26,7 @@ MODULES = src/math.s src/input.s src/camera.s src/ship.s src/thrust.s \
           src/overlay.s \
           src/pulsar.s src/emp.s src/shield.s src/trainer.s src/gate.s \
           src/pickup.s src/capsule.s src/sprites.s src/base.s src/empmine.s \
-          src/speech.s
+          src/speech.s src/tunnel.s src/tunnel_art.s
 DATA    = src/shapes.s src/enemies.s src/levels.s src/radar_bg.s \
           src/flames.s src/arrows.s src/screens_art.s src/scroller_text.s \
           src/pickups_art.s src/capsule_art.s
@@ -48,7 +49,21 @@ all: $(CART)
 # (rock_destroy, foe_kill) instead of poking the state those routines would
 # have left behind - which is how a bench ends up agreeing with itself.
 $(CART): $(DEPS)
-	cl65 -g -t none -C cart.cfg -o $@ -Ln cart.lbl --asm-define DEMO=$(DEMO) $(UNITS)
+	cl65 -g -t none -C cart.cfg -o $@ -Ln cart.lbl --asm-define DEMO=$(DEMO) --asm-define TUNTEST=$(TUNTEST) $(UNITS)
+
+# THE TUNNEL ALONE, for working on it: a second image that powers on straight into
+# the tunnel - no intro, no title, no sector, no hunting for the gate - and flies it
+# again and again (FIRE restarts it). Its own files, so the real cart.bin and
+# cart.lbl are left as they were. `make run-tunnel`, or run_tunnel.bat.
+tunnel.bin: $(DEPS)
+	cl65 -g -t none -C cart.cfg -o $@ -Ln tunnel.lbl --asm-define DEMO=0 --asm-define TUNTEST=1 $(UNITS)
+
+# The tunnel's own bench (tools/tunnel_bench.py): seconds, on the tunnel image.
+tunnel-test: tunnel.bin
+	python tools/tunnel_bench.py
+
+run-tunnel: tunnel.bin
+	./madsim.exe --mix 0 --tate --gpu roms/gpu_os.bin --cpu1 roms/cpu_os.bin --cart tunnel.bin
 
 run: $(CART)
 	./madsim.exe --tate --gpu roms/gpu_os.bin --cpu1 roms/cpu_os.bin --cart $(CART)
@@ -78,6 +93,13 @@ TITLE_PNG = assets/png/bitmaps/efs_title_scr.png
 src/screens_art.s: $(LOGO_PNG) $(TITLE_PNG) tools/artgen.py tools/bggen.py
 	python tools/artgen.py $@ LOGO=$(LOGO_PNG)@22,160/128 TITLE=$(TITLE_PNG)@0,0/15
 
+# The tunnel's HUD: the same tool, a second set - its bands in bank 8 (TUNART, behind LEVELS),
+# its tables in TUNCODE, TUN_ART_* names. The 300 x 300 cockpit is centred: portrait
+# (0,50), the screen being 300 x 400. Tracked, like screens_art.s.
+TUNHUD_PNG = assets/png/tunnel_hud.png
+src/tunnel_art.s: $(TUNHUD_PNG) tools/artgen.py tools/bggen.py
+	python tools/artgen.py $@ --banks 8:TUNART --code-seg TUNCODE --prefix TUN_ HUD=$(TUNHUD_PNG)@0,50/15
+
 # The pickup's sprite, every animation frame (pickup.s). Tracked, like arrows.s.
 # PICKUP_SET picks the set: assets/png/<set>1.png, <set>2.png, ... as far as they go.
 PICKUP_SET = bonusbox
@@ -95,6 +117,6 @@ src/capsule_art.s: $(CAPSULE_PNG) tools/capsulegen.py tools/sprgen.py Makefile
 assets/vgm/%_stream.inc: assets/vgm/%_stream.bin ;
 
 clean:
-	rm -f $(CART) cart.lbl *.o src/*.o assets/vgm/*_stream.bin assets/vgm/*_stream.inc    # cl65 names its intermediates <src>.<pid>.<n>.o
+	rm -f $(CART) cart.lbl tunnel.bin tunnel.lbl *.o src/*.o assets/vgm/*_stream.bin assets/vgm/*_stream.inc    # cl65 names its intermediates <src>.<pid>.<n>.o
 
-.PHONY: all run preview clean
+.PHONY: all run run-tunnel tunnel-test preview clean

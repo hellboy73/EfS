@@ -12,6 +12,11 @@
 ; smul_core; if you find yourself wanting a general 16x16, you want a different
 ; algorithm instead.
 ; =============================================================================
+; THE KERNEL (CODE8). The whole file is kernel, not field: the tunnel
+; (design_technical 11.45) overwrites the run area and still multiplies. See
+; open_questions.md H1, the tunnel memory audit.
+        .pushseg
+        .segment "CODE8"
 ; -----------------------------------------------------------------------------
 ; init_qs — the quarter-square multiply table, f(x) = x*x/4 for x = 0..255.
 ; -----------------------------------------------------------------------------
@@ -252,4 +257,4 @@ smul16q7:
         sbc     MAH
         sta     MAH
 @done:  rts
-
+        .popseg

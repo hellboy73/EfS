@@ -967,6 +967,71 @@ them once rather than the game-over one alone.
   boundary is already proven) — and revisit the run area once the tunnel is
   actually being built and its real code size is known, rather than
   refactoring `main.s` on a guess.
+* **TUNNEL memory audit, step A, 2026-10-12 (measured, nothing built).** The
+  tunnel will not fit `DEMO_RAM`'s ~7.9 KB, so it is a list of overlay rows
+  (`ovl_walk` already takes several per tenant) laid over what the FIELD does
+  not need while it flies. Bytes per file and segment come from the linker's
+  `--dbgfile` (line -> span), not from the map. What it found:
+  * **The run area `$1000-$5FFE` is full (`CODE8` ends at `$5FFE`) and is
+    mostly field:** `CODE` 8,075 B, `CODE2` 8,163, `CODE3` 2,814, `CODE4` 1,171.
+    Reloading it costs one `cart_load` per bank (~20 KB) - TBM.
+  * **KERNEL in that area is small but INTERLEAVED with field code in `CODE`:**
+    `main.s` (cart_init, cart_frame, frame_body: 239 B), `math.s` (328), `input.s`
+    (318), `sprites.s` `spr_pump` (77) - ~1 KB scattered through the field's
+    first 8 KB. They have to move into one kernel segment (beside `CODE8`:
+    `overlay.s` 125 B + `rumble.s` 131 B) before anything around them can be
+    overwritten. That move is THE refactor, and it is ~1 KB, not a rewrite.
+  * **Already safe, not kernel:** `sfx.s` (HIDATA, the IRQ reads it), `window.s`,
+    the hot tables `$0400-$0FFF`, `SHAPES` `$9800` (the tunnel draws rocks),
+    `KEEP` `$DF00`, zero page.
+  * **TRAP: the state that must survive a tunnel is NOT in one place.** `SCORE`
+    `$708C`, `LIVES` `$7093`, `CURLEV` `$7094`, `LSRHAVE` `$73AF`, `EMPHAVE`
+    `$73B4` live in `$6000-$77FF`; `SATN` `$9688` (and `SATARM`) under the
+    window. So neither of those areas is free for tunnel scratch as it stands:
+    either the carried set (score, lives, level, Saturnium + armour, laser/EMP
+    taken - from `game_start` vs `level_begin`) moves into one block in KEEP/
+    low RAM, or the tunnel steers clear of those islands. Preferred: one block.
+  * **Under the window is DATA ONLY for the tunnel.** The tunnel may read the
+    cartridge (messages in bank 9, level data in bank 8, bitmaps by
+    `RECT_BG_CART`), so the window is switched on and off like the field's; code
+    there would run only while it is off. Code goes in `DEMO_RAM` + the run area.
+  * **Open to verify when building:** any self-modifying operand in the run area
+    that carries state across a reload (a reload restores its assembled
+    initial value); and the real `cart_load` time of the run area.
+  Plan: move the kernel out of `CODE` -> gather the carried state -> add the
+  TUNNEL rows (`DEMO_RAM` first, then the run area) -> reload the field on exit.
+  **Step 1 built 2026-10-12:** the kernel (`cart_frame`, `frame_body`, all of
+  `math.s`, `spr_pump`) is in `CODE8`, 809 B at `$5CD6-$5FFE`; `$1000-$5CD5`
+  (19,158 B) is pure field code now. `preview.py` is identical to HEAD (the one
+  failing check, "FIRE after it is the next sector", fails on HEAD too) and the
+  game plays; cycles moved by ~200 a frame.
+  **Step 2 result 2026-10-12 - the carried state is NOT relocated.** The audit
+  said `SCORE`, `LIVES`, `CURLEV`, `SATN`/`SATARM`, `LSRHAVE`, `EMPHAVE` are
+  scattered over `$6000-$77FF` and under the window. Moving them is not needed:
+  the tunnel has `DEMO_RAM` (7.9 KB) + the run area (19 KB) for code and data,
+  which is far more than it will use, so **the tunnel simply never writes
+  `$6000-$97FF`**, and whatever the sector carries survives by itself. The rule
+  is the map, not a refactor of seven equates:
+  * **Tunnel may write:** `DEMO_RAM` (its own rows), the run area `$1000-$5CD5`
+    (its own rows), KEEP `$DF8D-$DFFF` (115 B free after the screens' state),
+    and the stack.
+  * **Tunnel must not write:** `$6000-$77FF` (rumble `$73C2-$73C4`, `SCORE`,
+    `LIVES`, `CURLEV`, `LSRHAVE`, `EMPHAVE`, `SHAKEX`, `OVRCNT`...), under the
+    window `$8000-$97FF` (`SATN`, `SATARM`, the pool, `foes.s` - and while the
+    window is on, all of `$8000-$9FFF` is ROM anyway), `SHAPES` `$9800-$9FFF`
+    (read only), UPPER (`RODATA`/`HIDATA`/`CODE7`: the IRQ reads it), KEEP
+    `$DF00-$DF8C` (hiscores and `SCR_*`), `CODE8` (the kernel), lower RAM
+    `QSL`/`QSH` `$0E00-$0FFF` and `MAT` `$0CAE` (the multiply).
+  * **Zero page is the one shared resource** (2 B free). The tunnel borrows the
+    field's, and the exact way is **save on entry, restore on exit** (copy the
+    bytes it uses into its own RAM; ~100 B, a few hundred cycles once) rather
+    than auditing which of ~120 variables `level_begin` re-initialises. NEVER
+    borrow: `FRAME` `$80-$81`, `BGDONE` `$82`, `SPRJOB` `$EC`, the PRNG `$BF`/
+    `$D2`, the multiply's `MAL..MSGN` `$A4-$AA`, `T0`/`T1` `$B7-$B8`, `MQA-MQR`
+    `$E8-$EB` and `MAT`, which `cart_frame` and `math.s` (kernel) use.
+  * **Lower RAM `$0400-$0DFF` (3.5 KB) is also field's** (rotation tables, star
+    layers, occluders, HUD strings) and is NOT used by the tunnel until it is
+    verified which of it `level_begin` rebuilds; the same save/restore applies.
 
 **H2. The wreck's numbers (TBM, and being flown).** `DEBRIS_FRAMES` 120,
 `DEBRIS_K` 11, `DEBRIS_JIT` 32, `DEBRIS_SPIN` 2 (`src/debris.s`). It has already
@@ -1058,6 +1123,19 @@ the Saturnium collected in this passage, never a pod. Open:
   silhouette that flickers and is gone, L3 wrecks of SRVs, L4 shadows pacing
   the ship, L5 the tunnel folding back on itself.
 * Its music.
+* **Built 2026-10-13: the tunnel flies (`src/tunnel.s`, TUNCODE bank 10 -> TUNRAM, the third DEMO_RAM tenant).**
+  Entered by flying into the exit gate (DEMO=0), `make run-tunnel` / `run_tunnel.bat` boots straight into it
+  (TUNTEST=1, FIRE skips to the rush), `make tunnel-test` = `tools/tunnel_bench.py` is its own bench (minutes
+  less than `preview.py`). What is in: the 300 x 300 cockpit (`tunnel_hud.png`, background layer, centred),
+  32 DUST stars (the near field, a torus, born at 510 and projected rel*F/z) + 32 FAR stars (pixels at infinity,
+  sliding CAM >> 3), the lean (critically damped spring, 9 places, +-81), up to 16 rocks (the sector's 192
+  outlines; reduced outlines beyond z 220, dotted beyond 500; occluded by nearer rocks; cut to the HUD frame
+  edge by CPU line clipping), the hit (kick, shake, rumble, SE_KLANG, the rock thrown aside at its depth), the
+  noise rumble (mode 7 + a silent tone on voice 6 for a smooth rise), and the 6 s end rush (eased speed-up,
+  streaks growing from a pixel). Parameters are the TUN_* constants at the top of `tunnel.s`. Measured: a
+  flying frame 49 k CPU cycles (21%), the rush 69 k CPU / 67 k GPU. NOT built: pods, Saturnium, the stat/radio
+  bars, the seeded per-level generator, the reload of the run area. **TUNRAM is full (about 90 B free):** the
+  next code goes to a second overlay row over the run area (`$1000-$5B2C`, see the memory audit above).
 * **Rock outline scaling (11.45).** The field's rock shapes are reused, but
   the tunnel needs them credible across nearly the whole zoom range, from
   just short of a point near the vanishing point to full-screen at the

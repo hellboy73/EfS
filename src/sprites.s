@@ -74,6 +74,9 @@ spr_arm:
         sta     SPRJOB
         rts
 
+        .popseg
+        .pushseg
+        .segment "CODE8"                ; THE KERNEL: cart_frame tail-calls it
 ; -----------------------------------------------------------------------------
 ; spr_pump - last in every frame: drain the armed job, and when it is done arm
 ; the next. Preserves nothing; the frame is over.

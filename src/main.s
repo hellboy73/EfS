@@ -1193,6 +1193,10 @@ cart_init:
 .endif
 
 
+; THE KERNEL (CODE8): cart_frame and frame_body stay resident when the tunnel
+; overwrites the run area (open_questions.md H1, the tunnel memory audit).
+        .pushseg
+        .segment "CODE8"
 ; =============================================================================
 ; cart_frame — called once per frame, between gpu_begin and gpu_end.
 ; =============================================================================
@@ -1209,12 +1213,20 @@ frame_body:
         inc     FRAME+1
 :       lda     SCR_STATE               ; SC_PLAY (0) needs FIELD resident;
         beq     @field                  ;   anything else needs SCREEN - a
+        cmp     #SC_TUNNEL              ; ...except the tunnel, its own tenant
+        beq     @tunnel
         lda     overlay_cur             ;   screen (screens.s) takes the whole
         cmp     #OVL_SCREEN             ;   frame either way, so the swap (if
         beq     @go_scr                 ;   any) has to land before it does
         jsr     ovl_load_screen         ;   (overlay.s)
 @go_scr:
         jmp     scr_frame
+@tunnel:
+        lda     overlay_cur
+        cmp     #OVL_TUNNEL
+        beq     :+
+        jsr     ovl_load_tunnel         ; (overlay.s) - the frame after the
+:       jmp     tunnel_frame            ;   field set SC_TUNNEL (gate.s)
 @field:
         lda     overlay_cur
         cmp     #OVL_FIELD
@@ -1430,6 +1442,7 @@ frame_body:
                                         ;   earliest the bracket can close.
         jsr     emit_stars
         jmp     emit_motes
+        .popseg
 
 ; =============================================================================
 ; The rest of the frame
@@ -1555,6 +1568,9 @@ frame_body:
                                         ; the run area, on purpose: see its
                                         ; header for why it cannot be one of
                                         ; the segments it swaps.
+        .include "tunnel.s"             ; the tunnel between sectors: TUNCODE
+                                        ; (bank 10), run in TUNRAM - the third
+                                        ; tenant of DEMO_RAM (overlay.s)
         .include "gate.s"               ; the exit gate, the mission that opens
                                         ; it, and SECTOR COMPLETED. CODE6, after
                                         ; shield.s (its state follows that

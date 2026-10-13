@@ -38,6 +38,7 @@ SC_INTRO    = 1
 SC_TLOAD    = 2
 SC_TITLE    = 3
 SC_SECTOR   = 4                 ; SECTOR COMPLETED - gate.s sector_frame
+SC_TUNNEL   = 5                 ; the tunnel - tunnel.s tunnel_frame (TUNRAM)
 
 VR_BLIND_OFF = 4                ; API_GPU_VREG sub-ops (MAD65_CPU_OS.md)
 VR_BLIND_ON  = 5
@@ -124,7 +125,11 @@ SCR_END     = SC_BUF + SC_WIN + 1
 ; scr_boot - from cart_init: the machine powers on into the intro.
 ; -----------------------------------------------------------------------------
 scr_boot:
+.if TUNTEST
+        lda     #SC_TUNNEL              ; make run-tunnel: straight into the tunnel
+.else
         lda     #SC_INTRO
+.endif
         sta     SCR_STATE
         stz     SCR_PH
         stz     JOYPORT                 ; port 1 until a FIRE says otherwise
@@ -428,6 +433,12 @@ marquee:
 @st:    sta     SC_SCRL
         rts
 
+; THE ART RUNTIME IS A MACRO because two tenants of DEMO_RAM need it - the screens
+; (UICODE, ART_GEO/ART_TAB) and the tunnel (TUNCODE, TUN_ART_GEO/TUN_ART_TAB) -
+; and never both at once, so each carries its own copy over its own tables.
+; Invoked once per tenant: ART_RUNTIME art_arm, art_step, ART_GEO, ART_TAB.
+ART_BATCH   = 4                 ; bands a batch: ~90% of the GPU's frame
+.macro ART_RUNTIME ARTARM, ARTSTEP, ARTGEO, ARTTAB
 ; -----------------------------------------------------------------------------
 ; art_arm - X = ART_<picture>: arm its rectangle, point art_step at its bands.
 ; -----------------------------------------------------------------------------
@@ -435,18 +446,18 @@ marquee:
 ; picture still waits for its replay - the replay would take the new geometry
 ; (MAD65_CPU_OS.md, the job contract); every caller has SETTLE frames behind it.
 ; -----------------------------------------------------------------------------
-art_arm:
-        lda     ART_GEO,x
+ARTARM:
+        lda     ARTGEO,x
         sta     OS_ARG+0                ; XB
-        lda     ART_GEO+1,x
+        lda     ARTGEO+1,x
         sta     OS_ARG+1                ; WB
-        lda     ART_GEO+2,x
+        lda     ARTGEO+2,x
         sta     OS_ARG+2                ; GAP
-        lda     ART_GEO+3,x
+        lda     ARTGEO+3,x
         sta     OS_ARG+3                ; H
-        lda     ART_GEO+4,x
+        lda     ARTGEO+4,x
         sta     SCR_BI
-        lda     ART_GEO+5,x
+        lda     ARTGEO+5,x
         sta     SCR_BE
         jmp     API_GPU_RECT_BG_BEGIN
 
@@ -469,9 +480,8 @@ art_arm:
 ; RECT_BG_CART can still refuse with C set when PPRAM is full, emitting and
 ; recording nothing; what is left of the batch then goes on the next free frame.
 ; -----------------------------------------------------------------------------
-ART_BATCH   = 4                 ; bands a batch: ~90% of the GPU's frame
 
-art_step:
+ARTSTEP:
         lda     SCR_T                   ; last frame sent a batch: this one is
         beq     @go                     ;   its replay, and nothing else
         stz     SCR_T
@@ -481,15 +491,15 @@ art_step:
 @lp:    ldx     SCR_BI
         cpx     SCR_BE
         bcs     @done
-        lda     ART_TAB,x
+        lda     ARTTAB,x
         sta     OS_ARG+0                ; bank
-        lda     ART_TAB+1,x
+        lda     ARTTAB+1,x
         sta     OS_ARG+1                ; the band's blob, in the window
-        lda     ART_TAB+2,x
+        lda     ARTTAB+2,x
         sta     OS_ARG+2
-        lda     ART_TAB+3,x
+        lda     ARTTAB+3,x
         sta     OS_ARG+3                ; its destination row
-        lda     ART_TAB+4,x
+        lda     ARTTAB+4,x
         sta     OS_ARG+4
         phy                             ; (the builder's registers are its own)
         jsr     API_GPU_RECT_BG_CART
@@ -509,5 +519,8 @@ art_step:
         rts
 @done:  clc
         rts
+.endmacro
+
+        ART_RUNTIME art_arm, art_step, ART_GEO, ART_TAB
 
         .popseg

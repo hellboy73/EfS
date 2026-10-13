@@ -14,6 +14,11 @@
 ; =============================================================================
 ; -----------------------------------------------------------------------------
 ; do_camera — cos/sin of the heading, then the two rotation tables.
+; THE RUN AREA IS FULL (cart.cfg RAM), and the kernel grew when the tunnel became
+; a third DEMO_RAM tenant. This file is field-only code at full speed either way,
+; so it runs from CODE6 (FIELDRAM) - same speed, 1.8 KB of room there.
+        .pushseg
+        .segment "CODE6"
 ; -----------------------------------------------------------------------------
 do_camera:
         lda     HEAD
@@ -96,3 +101,4 @@ view_xform:
         sbc     T1
         sta     VYH
         rts
+        .popseg

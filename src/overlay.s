@@ -34,6 +34,7 @@
         .import __CODE5_LOAD__, __CODE5_RUN__, __CODE5_SIZE__
         .import __CODE6_LOAD__, __CODE6_RUN__, __CODE6_SIZE__
         .import __UICODE_LOAD__, __UICODE_RUN__, __UICODE_SIZE__
+        .import __TUNCODE_LOAD__, __TUNCODE_RUN__, __TUNCODE_SIZE__
                                         ; game_start/level_begin (gameover.s)
                                         ;   need no import - one translation
                                         ;   unit, same as every other cross-file
@@ -41,6 +42,7 @@
 
 CODE5_BANK  = 4                 ; must match cart.cfg's MEMORY order and
 CODE6_BANK  = 6                 ;   bootstrap.s's own copies of these - nothing
+TUNCODE_BANK = 10
 UICODE_BANK = 6                 ;   links the two together but a bank number
 
 OVL_FIELD  = 0                  ; matches boot: bootstrap.s's boot_segs copies
@@ -48,6 +50,7 @@ OVL_FIELD  = 0                  ; matches boot: bootstrap.s's boot_segs copies
                                  ;   holds FIELD from power-on, before
                                  ;   overlay_cur below is even initialised
 OVL_SCREEN = 1
+OVL_TUNNEL = 2                  ; the third tenant: TUNCODE (tunnel.s)
 
 FE_NEWGAME    = 1                ; title_frame's FIRE (screens.s): jsr game_start
 FE_NEXTSECTOR = 2                ; sector_frame's FIRE (gate.s): jsr level_begin
@@ -66,6 +69,11 @@ ovl_field_segs:
 ovl_screen_segs:
         .byte   UICODE_BANK
         .word   __UICODE_LOAD__, __UICODE_RUN__, __UICODE_SIZE__
+        .byte   $FF
+
+ovl_tunnel_segs:
+        .byte   TUNCODE_BANK
+        .word   __TUNCODE_LOAD__, __TUNCODE_RUN__, __TUNCODE_SIZE__
         .byte   $FF
 
 overlay_cur: .byte OVL_FIELD    ; which tenant DEMO_RAM holds right now
@@ -121,6 +129,20 @@ ovl_load_screen:
         sta     overlay_cur
         lda     #<ovl_screen_segs
         ldx     #>ovl_screen_segs
+        jsr     ovl_walk
+@ret:   rts
+
+; ovl_load_tunnel - the same for TUNNEL. Called by frame_body (main.s) on the
+; first frame it sees SC_TUNNEL, which is the frame AFTER the field set it, so
+; the field's last frame has already returned out of CODE6.
+ovl_load_tunnel:
+        lda     overlay_cur
+        cmp     #OVL_TUNNEL
+        beq     @ret
+        lda     #OVL_TUNNEL
+        sta     overlay_cur
+        lda     #<ovl_tunnel_segs
+        ldx     #>ovl_tunnel_segs
         jsr     ovl_walk
 @ret:   rts
 
