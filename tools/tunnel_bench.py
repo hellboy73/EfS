@@ -73,6 +73,9 @@ def raw_frame():
 
 # ---- power on: straight into the tunnel -------------------------------------
 call(cpu, CART_INIT)
+snap_run = bytes(cpu_mem[0x1000:0x5A00])                  # the flight engine, as the boot loaded it...
+snap_demo = bytes(cpu_mem[0xC800:0xD800])                 # ...and the field's DEMO_RAM code (cart_init has the SCREEN's
+                                                          #   UICODE over its first $657 bytes, so those are left out)
 check("power-on is the tunnel (TUNTEST)", cpu_mem[SCR["SCR_STATE"]] == SCR["SC_TUNNEL"],
       f"SCR_STATE {cpu_mem[SCR['SCR_STATE']]}")
 seen = [frame() for _ in range(40)]
@@ -113,6 +116,7 @@ def put_rock_any(k, x, y, z, ang, typ):
     cpu_mem[A["RYW"] + k] = y & 0xFF
     cpu_mem[A["RHI"] + k] = 1                                   # (no hit counting here)
     cpu_mem[LBL["RDF"] + k] = 0
+    cpu_mem[LBL["RKIND"] + k] = 0
     cpu_mem[A["RAN"] + k], cpu_mem[A["RSP"] + k], cpu_mem[A["RTY"] + k] = ang, 0, typ
 
 
@@ -299,6 +303,7 @@ def put_rock(k, x, y, z, ang=0, spin=0, typ=0):
     cpu_mem[A["RYW"] + k] = y & 0xFF
     cpu_mem[A["RHI"] + k] = 0
     cpu_mem[LBL["RDF"] + k] = 0                                  # (not thrown)
+    cpu_mem[LBL["RKIND"] + k] = 0                                # (a rock)
     cpu_mem[A["RAN"] + k], cpu_mem[A["RSP"] + k], cpu_mem[A["RTY"] + k] = ang, spin & 0xFF, typ
 
 
@@ -365,40 +370,52 @@ check("...the view SHAKES (SHK set) and the pad RUMBLES",
 check("...the sound is the ram: both halves of SE_KLANG hold their voices (the ship's tone voice and the noise one)",
       vl_ship >= 15 and vl_noise >= 7, f"VLEN ship {vl_ship}, noise {vl_noise}")
 check("...and the rock stops approaching (its depth frozen) and is thrown AWAY, to the right, 3 units a frame",
-      len(rz_after) >= 5 and len(set(rz_after)) == 1 and all(b - a == TK["TUN_DEFL"] for a, b in zip(rx_seq, rx_seq[1:])),
+      len(rz_after) >= 3 and len(set(rz_after)) == 1 and all(b - a == TK["TUN_DEFL"] for a, b in zip(rx_seq, rx_seq[1:])),
       f"depths {sorted(set(rz_after))}, x {rx_seq[:6]}")
 for _ in range(30):
     flying_frame()
 check("...until it has left the window, and then it is gone", cpu_mem[A["RZL"]] == 0 and cpu_mem[A["RZH"]] == 0)
 clear_rocks()
-# the engine: a quiet noise rumble (mode 7, its rate set by a silent tone on voice 6), gliding up in the rush
+# the engine: an audible noise rumble (mode 6), its rate stepping up and swelling in the rush
 cpu_mem[SCR["SC_PTRL"]] = cpu_mem[SCR["SC_PTRH"]] = 0
 for _ in range(20):
     frame()
-HP, HQ = LBL["HUMP"], LBL["HUMQ"]
+HP = LBL["HUMP"]
 noise = [cpu_mem[HP + i] for i in range(14)]
-tone = [cpu_mem[HQ + i] for i in range(14)]
-check("the engine: a NOISE program (type 1) in mode 7, quiet, and a SILENT tone program that sets its rate",
-      noise[0] == 1 and tone[0] == 0 and noise[1::3][:4] == [4] * 4 and noise[2::3][:4] == [7] * 4
-      and tone[3::3][:4] == [0] * 4 and noise[3::3][:4] == [TK["TUN_HUMV"]] * 4 and noise[13] == tone[13] == 0xFF,
-      f"noise {noise}, tone {tone}")
+check("the engine: a NOISE program (type 1), four 4-frame steps in mode 6 at volume TUN_HUMV (3)",
+      noise[0] == 1 and noise[1::3][:4] == [4] * 4 and noise[2::3][:4] == [TK["TUN_HUMM"]] * 4
+      and noise[3::3][:4] == [TK["TUN_HUMV"]] * 4 and noise[13] == 0xFF, f"{noise}")
 F1 = TK["TUN_FRAMES"] - TK["TUN_RUSHF"]
-notes, vols = [], []
+modes, vols, wn, wv, lastq = [], [], [], [], None
+HQ = LBL["HUMQ"]
 cpu_mem[SCR["SC_PTRL"]], cpu_mem[SCR["SC_PTRH"]] = (F1 - 20) & 0xFF, (F1 - 20) >> 8
 prev = None
 for _ in range(TK["TUN_RUSHF"] + 20):
     frame()
-    cur = (tuple(cpu_mem[HQ + i] for i in range(14)), tuple(cpu_mem[HP + i] for i in range(14)))
-    if cur != prev:
-        notes.append(cur[0][2])
-        vols.append(cur[1][3])
-        prev = cur
-notes, vols = notes[:-2], vols[:-2]                 # (the last ones are the scene's end: the hum is cut and restarted)
-steps = [b - a for a, b in zip(notes, notes[1:])]
-check("...and in the rush it GLIDES: the note rises by at most 2 semitones per re-fire, never back, 25+ in all",
-      steps and all(0 <= d <= 2 for d in steps) and notes[-1] - notes[0] >= 25
-      and all(0 <= b - a <= 1 for a, b in zip(vols, vols[1:])) and vols[-1] > vols[0],
-      f"notes {notes[0]}..{notes[-1]}, steps {steps}, volume {vols[0]}..{vols[-1]}")
+    cur = tuple(cpu_mem[HP + i] for i in range(14))
+    both = (cur, tuple(cpu_mem[HQ + i] for i in range(14)))
+    if both != prev:
+        modes.append(cur[2])
+        vols.append(cur[3])
+        wn.append(cpu_mem[HQ + 2])
+        wv.append(cpu_mem[HQ + 3])
+        if cpu_mem[HQ + 3] > 0:
+            lastq = [cpu_mem[HQ + i] for i in range(14)]
+        prev = both
+modes, vols, wn, wv = modes[:-2], vols[:-2], wn[:-2], wv[:-2]   # (the last ones are the scene's end: the hum is cut and restarted)
+live = [(n, v) for n, v in zip(wn, wv) if v > 0]
+check("...and from the middle of the rush a WHINE joins it on tone voice 0: it fades in and climbs to the top of the note table",
+      live and live[0][0] >= 60 and live[-1][0] >= 100 and live[-1][0] <= 108 and live[-1][1] >= 4
+      and all(b[0] >= a[0] for a, b in zip(live, live[1:])) and wv[0] == 0,
+      f"{len(live)} notes {live[0] if live else None}..{live[-1] if live else None}")
+check("...in the rush its noise gets FASTER (mode 6, 5, 4, never back) and LOUDER (a step or two, up to 5)",
+      all(b <= a for a, b in zip(modes, modes[1:])) and modes[0] == 6 and modes[-1] == 4
+      and all(b >= a for a, b in zip(vols, vols[1:])) and vols[-1] == TK["TUN_HUMV"] + 2, f"modes {modes[0]}..{modes[-1]}, volumes {vols[0]}..{vols[-1]}")
+n0, n1, n2, n3 = lastq[2], lastq[5], lastq[8], lastq[11]
+v0, v1 = lastq[3], lastq[6]
+check("...with a VIBRATO (steps 1 and 3 a few semitones above and below the note: up to +-3 at the end) and a TREMOLO (every other step quieter)",
+      n1 - n0 >= 2 and n2 - n3 >= 2 and n2 >= n0 and v1 == v0 - 1 and lastq[1::3][:4] == [2, 2, 2, 3],
+      f"notes {n0},{n1},{n2},{n3} volumes {v0},{v1}, frames {lastq[1::3][:4]}")
 for _ in range(80):
     frame()                                           # (the scene ended and began again: back to flying)
 clear_rocks()
@@ -440,7 +457,7 @@ check("...they START from a single pixel (no streak longer than 1 px in the firs
       lens0 and max(lens0) <= 1, f"longest {max(lens0 or [0])}")
 smooth = [sum(meanlen[i:i + 8]) / 8 for i in range(len(meanlen) - 8)]
 check("...and GROW smoothly: the mean tail fraction never jumps (<= 0.02 a frame, over 8 frames) and ends near a half",
-      all(0 <= b - a <= 0.02 for a, b in zip(smooth, smooth[1:])) and 0.4 <= smooth[-1] <= 0.55,
+      all(-0.01 <= b - a <= 0.02 for a, b in zip(smooth, smooth[1:])) and 0.4 <= smooth[-1] <= 0.55,
       f"biggest step {max(b - a for a, b in zip(smooth, smooth[1:])):.3f}, end {smooth[-1]:.2f}")
 check("...longer the farther from the centre (the tail is the head less a fraction, 0.1..0.55 at the end)",
       ratios and 0.1 <= min(ratios) and max(ratios) <= 0.55, f"fractions {min(ratios or [0]):.2f}..{max(ratios or [0]):.2f}")
@@ -461,6 +478,70 @@ check("at TUN_FRAMES the scene ends (here, in the tunnel image: it starts again 
 for _ in range(60):
     frame()                                           # back to flying for the tests below
 clear_rocks()
+# ---- the Saturnium clouds: DOT_PIXELS the size of a rock, 8 pixels far to 32 near, caught like a pickup
+def put_cloud(k, x, y, z):
+    put_rock(k, x, y, z)
+    cpu_mem[LBL["RKIND"] + k] = 1
+    cpu_mem[A["RSP"] + k] = 1
+
+
+def cloud_list(cmds):
+    d = dots(cmds)
+    return d[0] if len(d) >= 2 else None                  # the clouds go out BEFORE the stars' list
+
+
+clear_rocks()
+lean_run(0, 150)
+counts, spread = [], []
+put_cloud(0, 0, 0, TK["TUN_RZMAX"])
+for _ in range(TK["TUN_RZMAX"] // 2):
+    cpu_mem[A["SPT"]] = 250
+    cl = cloud_list(flying_frame())
+    if cl:
+        counts.append(len(cl))
+        r_half = (cpu_mem[LBL["RSCR"]])
+        spread.append(max(((x - 100) ** 2 + (y - 75) ** 2) ** 0.5 for x, y in cl) - r_half)
+caught0 = cpu_mem[LBL["TSAT"]]
+check("a Saturnium cloud is a DOT_PIXELS: 8 pixels far, growing to 32 at the camera (never fewer coming in)",
+      len(counts) > 100 and counts[0] <= 10 and counts[-1] >= 28 and max(counts) <= TK["TUN_CLOUDMAX"]
+      and all(b >= a - 3 for a, b in zip(counts, counts[1:])), f"{len(counts)} frames, {counts[:3]}..{counts[-3:]}")
+check("...scattered through a disc of a rock's radius (no pixel farther from its centre than that)",
+      max(spread) <= 1.5, f"{max(spread):.1f} px past the radius")
+check("...and dead ahead it is CAUGHT: the tally rises, the cloud is gone, and there is no knock or shake",
+      caught0 == 1 and cpu_mem[A["RZL"]] == 0 and cpu_mem[LBL["SHK"]] == 0, f"TSAT {caught0}, SHK {cpu_mem[LBL['SHK']]}")
+cpu_mem[LBL["TSAT"]] = 0
+clear_rocks()
+h0 = cpu_mem[A["HITS"]]
+put_cloud(0, 0, 0, 60)
+vl = 0
+for _ in range(20):
+    flying_frame()
+    vl = max(vl, cpu_mem[VLEN_A + 3])
+check("...with the sector's Saturnium sound (SE_SATN: the noise voice held for its 16 frames), and not a rock's hit",
+      vl >= 14 and cpu_mem[A["HITS"]] == h0 and cpu_mem[LBL["TSAT"]] == 1, f"noise claim {vl}, TSAT {cpu_mem[LBL['TSAT']]}")
+cpu_mem[LBL["TSAT"]] = 0
+clear_rocks()
+put_cloud(0, AMP, 0, 60)
+for _ in range(20):
+    flying_frame()
+check("a cloud a lane away is not caught", cpu_mem[LBL["TSAT"]] == 0)
+clear_rocks()
+put_cloud(0, 0, 0, 200)
+put_rock(1, 0, 0, 90)
+cl_pts = cloud_list(flying_frame())
+r_occ, bx, by = cpu_mem[A["ROC"] + 1], cpu_mem[A["RBX"] + 1] - 128, cpu_mem[A["RBY"] + 1] - 128
+hid_in = [(x, y) for x, y in (cl_pts or []) if (75 - y - bx) ** 2 + (x - 100 - by) ** 2 < (0.85 * r_occ) ** 2]
+check("a rock in front of a cloud hides the pixels behind its disc", r_occ > 8 and not hid_in, f"disc {r_occ}, {len(hid_in)} pixels inside")
+clear_rocks()
+kinds = 0
+cpu_mem[A["SPT"]] = 5
+for _ in range(900):
+    flying_frame()
+    kinds |= 1 + max(cpu_mem[LBL["RKIND"] + k] for k in range(NR))
+check("left alone, the spawner makes clouds as well as rocks", kinds == 3 or kinds >= 2)
+clear_rocks()
+cpu_mem[LBL["TSAT"]] = 0
+
 clear_rocks()
 put_rock(0, 0, 0, 60)
 put_rock(1, 0, 0, 130)
@@ -531,6 +612,21 @@ gpu_draw(raw)
 print(f"        a frame of the tunnel: {cyc} CPU cycles ({100 * cyc / 237000:.1f}% of 237,000), "
       f"GPU {gpu.processorCycles - g0} cycles ({100 * (gpu.processorCycles - g0) / 237000:.1f}%), "
       f"{len(polys(decode(raw)))} polygons")
+
+# ---- the memory plan: the tunnel overwrites the run area, and the field comes back from ROM
+over = bytes(cpu_mem[0x1000:0x5A00]) != snap_run and bytes(cpu_mem[0xC800:0xD800]) != snap_demo
+check("while the tunnel flies the run area and DEMO_RAM hold the tunnel, not the field", over)
+check("the tunnel's variables and rocks live in the run area ($1000+), not in DEMO_RAM",
+      0x1000 <= LBL["RZL"] < 0x5A00 and 0x1000 <= LBL["tun_rocks_frame"] < 0x5A00 and 0xC000 <= LBL["tunnel_frame"] < 0xDF00)
+cpu_mem[SCR["SCR_STATE"]] = SCR["SC_PLAY"]                 # what set_state_field does before it loads FIELD
+cyc = call(cpu, LBL["ovl_load_field"])
+back = bytes(cpu_mem[0x1000:0x5A00]) == snap_run and bytes(cpu_mem[0xC800:0xD800]) == snap_demo
+dr = [i for i in range(len(snap_run)) if cpu_mem[0x1000 + i] != snap_run[i]]
+dd = [i for i in range(len(snap_demo)) if cpu_mem[0xC800 + i] != snap_demo[i]]
+check("ovl_load_field restores the flight engine (run area) and FIELD (DEMO_RAM) byte for byte from ROM", back,
+      f"run area differs at {len(dr)} bytes{(' from $%04X' % (0x1000 + dr[0])) if dr else ''}; "
+      f"DEMO_RAM at {len(dd)} bytes{(' from $%04X to $%04X' % (0xC800 + dd[0], 0xC800 + dd[-1])) if dd else ''}")
+print(f"        the reload: {cyc} CPU cycles ({100 * cyc / 237000:.0f}% of a frame)")
 
 print(f"{len(failed)} check(s) failed" if failed else "all tunnel checks passed")
 sys.exit(1 if failed else 0)

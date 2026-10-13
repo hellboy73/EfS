@@ -69,22 +69,44 @@ TUN_DEFL    = 3                 ; the rock's sideways speed, world units a frame
 TUN_SHAKE   = 24                ; frames of shake: the jitter is SHK / 4 units, so 6..0
 TUN_RUMBLE  = 20                ; frames of pad rumble
 
+; --- THE SATURNIUM CLOUDS (design: the user, 2026-10-13) --------------------------------
+; Something to catch. A cloud is a thing like a rock - a place in the tube, a depth, the
+; same perspective, the same size (its radius is a rock's, 48 half-res px at 1:1) - but it
+; is drawn as DOT_PIXELS: TUN_CLOUDMIN pixels when far, growing to TUN_CLOUDMAX when it is
+; at the camera, scattered through a disc by a fixed pattern (CLDP) that drifts along
+; so it shimmers. It hides nothing, and a rock in front of it hides its pixels. Reaching
+; the ship within TUN_CATCHR CATCHES it: the sector's own Saturnium sound (SE_SATN), the
+; cloud gone, TUN_SATPAY added to a tally (TSAT) that is paid into the hold (SATN, under the
+; window) when the scene ends. One spawn in TUN_CLOUDP is a cloud.
+TUN_CLOUDMIN = 8                ; pixels at the farthest
+TUN_CLOUDMAX = 32               ; ...and at the camera (scale 128: the formula is 8 + 3/16 s)
+TUN_CATCHR  = 22                ; a catch: |rel x| and |rel y| both under this (a rock's is 15)
+TUN_SATPAY  = 16                ; Saturnium a cloud pays (a kill in the sector pays 8)
+TUN_CLOUDP  = 7                 ; a spawn is a cloud when (random AND this) = 0: 1 in 8
+
 ; --- THE ENGINE (design: the user, 2026-10-13) --------------------------------------
-; A quiet low rumble on the effects chip's NOISE voice, and a SMOOTH rise in the rush.
-; The noise voice has only eight modes, and the three white ones that differ in rate
-; (6, 5, 4) are an octave apart - the first version rose in those jumps. Mode 7 takes its
-; rate from the TONE voice 6 instead, and that voice is a note: so the noise runs in mode
-; 7, and a silent (volume 0) tone program on voice 6 sets the noise's rate, a semitone
-; at a time - 6% a step instead of 100%, and on a noise, which has no pitch to hear a
-; step in. Both are 4-step programs of 4 frames (16 in all), RE-FIRED every TUN_HUMP
-; frames from RAM that is always mapped (the OS reads it from the frame IRQ), the steps
-; computed ahead from the rush's clock so the glide carries over from one to the next.
-; They never cut a ram: nothing is re-fired while sfx.s holds the noise voice or voice
-; 6 (VLEN+3, VLEN+2), and a ram, fired through sfx_fire, simply replaces them.
-TUN_HUMN    = 45                ; the tone voice's base note (MIDI 45 = A2, the lowest)
-TUN_HUMV    = 2                 ; volume 0-15 (15 = loudest): quiet
-TUN_HUMP    = 8                 ; frames between re-fires (the programs last 16: only their first half plays)
-                                ; ...and the rise is RUSHR / 5.8 semitones: about 31 in the rush
+; A low RUMBLE on the effects chip's NOISE voice: white noise at its slowest rate (mode 6),
+; loud enough to hear over the flight (the boost's hiss, which is the game's own quiet
+; noise bed, peaks at 6; this one starts at TUN_HUMV = 3 and swells to 5). A four-step program of four
+; frames, RE-FIRED every TUN_HUMP frames from RAM that is always mapped (the OS reads it
+; from the frame IRQ), its steps computed ahead from the rush's clock. In the rush the
+; noise rate steps up (modes 6, 5, 4) and it swells. It is never re-fired over a ram's
+; crunch (sfx.s's claim on the noise voice, VLEN+3), which, fired through sfx_fire,
+; simply replaces it.
+; NOT YET SMOOTH: the three rates are an octave apart. An earlier try took the rate from
+; a silent tone on voice 6 (noise mode 7) and could not be heard at all.
+TUN_HUMM    = 6                 ; the noise mode: white, slowest (4 = fastest white)
+TUN_HUMV    = 3                 ; volume 0-15 (15 = loudest); 5 was too loud (the user, 2026-10-13)
+TUN_HUMP    = 8                 ; frames between re-fires (the program lasts 16)
+; The noise tops out at its fastest rate (mode 4), and the user wanted the end of the rush
+; to climb far higher - an escape into hyperspace. So from RUSHR = TUN_WHINES a WHINE joins
+; it: a tone on the chip's voice 0 (the gun's, which nothing fires here) that fades in and
+; climbs from TUN_WHINEN to the top of the note table (MIDI 108, 4 kHz) by the last frame,
+; r * 68 / 256 semitones, a note per ~7 frames, re-fired with the noise, with a VIBRATO of
+; its own (7.5 Hz, +-1 to 3 semitones) and a tremolo, so that it does not sound a plain
+; sine sliding up.
+TUN_WHINES  = 80                ; the rush clock (units of 2 frames) at which it begins
+TUN_WHINEN  = 60                ; its first note (MIDI 60 = middle C)
 
 ; --- THE END OF THE RUN (design_technical 11.45; the user, 2026-10-13) ---------------
 ; The scene ends in a RUSH: no more rocks (the last is born TUN_CLEAR frames before
@@ -157,6 +179,7 @@ TUN_CY      = 75                ;   coordinates: fb x = 100 + (portrait down),
         .assert TUN_F * 128 / TUN_ZMIN / 128 + 128 <= 255, error, "tunnel.s: |rel| (<= 128) + R's high byte must fit umul's table index"
         .assert TUN_AMP <= 127, error, "tunnel.s: the lean is a signed byte"
         .assert TUN_ZMIN > TUN_SPEED + 1, error, "tunnel.s: z would borrow"
+        .assert TUN_SATPAY = 16, error, "tunnel.s: tun_pay pays TSAT * 16 by shifting"
         .assert TUN_ROCKS <= 32, error, "tunnel.s: the near list is indexed by a byte and the arrays are 32 apart in cost"
 
         .pushseg
@@ -171,7 +194,7 @@ RDF:    .res    TUN_ROCKS               ; 1 = it has been thrown: depth frozen, 
 SHK:    .res    1                       ; frames of shake left
 HUMT:   .res    1                       ; frames to the next re-fire of the drone
 HUMP:   .res    14                      ; the noise program: type, 4 x (frames, mode, volume), end
-HUMQ:   .res    14                      ; the tone program on voice 6: the same, a note, volume 0
+HUMQ:   .res    14                      ; the whine: a tone program on voice 0, the same shape
 RUSHR:  .res    1                       ; the rush's clock (units of 2 frames): 0 = not yet, else 1..TUN_RUSH
 SHV:    .res    1                       ; a streak's length fraction (FRAC), 0..127
 ACCF:   .res    1                       ; the rush's speed-up, the fraction not yet added (1/32)
@@ -203,6 +226,20 @@ SVY:    .res    1
 TMP:    .res    1
 TMP2:   .res    1
 DOTM:   .res    1                       ; 1 = the rock is far: drawn as a DOTTED polygon
+CLB:    .res    1 + 2 * TUN_CLOUDMAX    ; a cloud's DOT_PIXELS payload
+CLDP:   .res    64                      ; the pattern: 32 pairs (dx, dy), a signed disc of radius 127
+CIDX:   .res    1                       ; the pattern place being drawn...
+CK:     .res    1                       ; ...and how many are left
+CDN:    .res    1                       ; pixels kept (in the window, not hidden)
+CHXL:   .res    1                       ; the cloud's centre, half-res fb, signed 16
+CHXH:   .res    1
+CHYL:   .res    1
+CHYH:   .res    1
+CPXL:    .res    1                       ; a pixel
+CPXH:    .res    1
+CPYL:    .res    1
+CPYH:    .res    1
+TSAT:   .res    1                       ; clouds caught this passage
 SPD:    .res    1                       ; z a frame this frame (a star's units): TUN_SPEED, +1 on odd frames
 SPD2:   .res    1                       ; ...and in true z, a rock's: twice that
 T3L:    .res    1                       ; a star's true depth, 9 bit, for the occluder test
@@ -282,6 +319,7 @@ RXW:    .res    TUN_ROCKS               ; world x and y, signed (the lean is +-A
 RYW:    .res    TUN_ROCKS
 RAN:    .res    TUN_ROCKS               ; its angle, brad
 RSP:    .res    TUN_ROCKS               ; ...and its spin, signed brad a frame
+RKIND:  .res    TUN_ROCKS               ; 0 = a rock, 1 = a Saturnium cloud
 RTY:    .res    TUN_ROCKS               ; which of the four outlines
 RHI:    .res    TUN_ROCKS               ; 1 once it has been tested against the ship
 ROC:    .res    TUN_ROCKS               ; its occlusion radius on the window this frame,
@@ -338,6 +376,11 @@ RLT:    .repeat 256, I
         .byte   ((128 * TUN_F) / .max(I, 1)) & 127
         .endrepeat
 
+; THE TUNNEL'S CODE IS IN TWO AREAS (open_questions.md H1, the memory plan): TUNCODE runs in
+; TUNRAM (DEMO_RAM, $C000) and TUNCODE2 - the rocks - in the RUN AREA ($1000, TUNRUN), which
+; the tunnel overwrites for as long as it flies and which overlay.s reloads from ROM when it
+; ends. The variables (TUNBSS) are in the run area too.
+        .segment "TUNCODE2"
 ; The rocks' scale, by depth: Q0.7, 128 (1:1) at TUN_ZFULL and nearer. A rock's depth
 ; is 16 bit; the table is indexed by TZ = z >> RTIER, RTIER 0 for z < 256 (z = TZ), 1 for
 ; z < 512 (z = 2 TZ), 2 above (z = 4 TZ). The projection reuses the stars' RHT/RLT at
@@ -352,6 +395,8 @@ RST2:   .repeat 128, J
         .byte   .min(128, (32 * TUN_ZFULL) / (J + 128))
         .endrepeat
 TSHO:   .byte   0, 26, 52, 78, 104, 120, 136, 152   ; each outline's offset in TSHP
+LANE:   .byte   <(-TUN_AMP), 0, TUN_AMP, 0
+        .segment "TUNCODE"
 ; The rush's two ease-ins, by RUSHR (0..TUN_RUSH): the extra speed in 1/32 of a z unit a
 ; frame (quadratic, 0 to 255 = 8 units) and a streak's length as a fraction of its head's
 ; offset, in 1/256 (quadratic, 0 to 127 = a half): both start at ZERO and grow smoothly.
@@ -361,7 +406,6 @@ RSPT:   .repeat TUN_RUSH + 1, I
 FRAC:   .repeat TUN_RUSH + 1, I
         .byte   .min(127, (127 * I * I) / (TUN_RUSH * TUN_RUSH))
         .endrepeat
-LANE:   .byte   <(-TUN_AMP), 0, TUN_AMP, 0
 
 ; -----------------------------------------------------------------------------
 ; umul - TA * TB -> PH:PL, exact. Both <= 127, so TA + TB is a table index.
@@ -743,6 +787,7 @@ tun_occ0:                               ; (a far star enters here with T3 = infi
 @hid:   sec
         rts
 
+        .segment "TUNCODE2"
 ; -----------------------------------------------------------------------------
 ; tun_rocks_init - the four 192 outlines AND their reduced ones (the authored LOD
 ; outlines of the sector, for the rocks that are far) out of SHAPES (the RAM under
@@ -770,7 +815,45 @@ tun_occ0:                               ; (a far star enters here with T3 = infi
         sta     TSHN + 4 + idx
         .endmacro
 
+tun_cloud_init:                         ; CLDP: 32 random points in a disc, by rejection
+        ldx     #0
+@pt:    stx     TI
+@try:   jsr     prng
+        cmp     #$80                    ; (-128 would not do as a tun_sm operand)
+        beq     @try
+        sta     CHXL                    ; (scratch: the cloud's centre is not in use yet)
+        jsr     prng
+        cmp     #$80
+        beq     @try
+        sta     CHYL
+        sta     SMB
+        lda     CHYL
+        jsr     tun_sm                  ; dy * dy >> 7
+        sta     TMP
+        lda     CHXL
+        sta     SMB
+        lda     CHXL
+        jsr     tun_sm                  ; dx * dx >> 7
+        clc
+        adc     TMP
+        cmp     #127                    ; inside the disc: dx2 + dy2 <= 127 (of 128)
+        bcs     @try
+        lda     TI
+        asl     a
+        tax
+        lda     CHXL
+        sta     CLDP,x
+        lda     CHYL
+        sta     CLDP+1,x
+        ldx     TI
+        inx
+        cpx     #32
+        bne     @pt
+        rts
+
 tun_rocks_init:
+        jsr     tun_cloud_init
+        stz     TSAT
         jsr     win_off
         CPSHP   0, SHP192_A, SHP192_A_LOD
         CPSHP   1, SHP192_B, SHP192_B_LOD
@@ -782,6 +865,7 @@ tun_rocks_init:
         stz     RZH,x
         stz     ROC,x
         stz     RVIS,x
+        stz     RKIND,x
         dex
         bpl     :-
         stz     HITS
@@ -849,7 +933,15 @@ tun_spawn:
         and     #3
         ldx     TRK
         sta     RTY,x
-        rts
+        stz     RKIND,x
+        jsr     prng
+        and     #TUN_CLOUDP
+        bne     @rk
+        ldx     TRK                     ; a Saturnium cloud: no spin to speak of, its
+        lda     #1                      ;   pattern drifts a place every 4 frames
+        sta     RKIND,x
+        sta     RSP,x
+@rk:    rts
 
 ; tun_shr - OH:OL >>= RTIER (a rock's offset was projected with z >> RTIER).
 tun_shr:
@@ -994,14 +1086,24 @@ tun_rocks_frame:
         bne     @nohit
         lda     #1
         sta     RHI,x
+        lda     #TUN_HITR               ; how near is a hit (a rock) or a catch (a cloud)
+        ldy     RKIND,x
+        beq     :+
+        lda     #TUN_CATCHR
+:       sta     TMV
         lda     HXM
-        cmp     #TUN_HITR
+        cmp     TMV
         bcs     @nohit
         lda     HYM
-        cmp     #TUN_HITR
+        cmp     TMV
         bcs     @nohit
+        ldy     RKIND,x
+        bne     @catch
         jsr     tun_hit                 ; the knock, the shake, the sound; the rock is thrown
         ldx     TRK
+        bra     @nohit
+@catch: jsr     tun_catch               ; the Saturnium: a sound and a tally; the cloud is gone
+        jmp     @next
 @nohit: ldy     TZ                      ; its SCALE by depth (Q0.7, 128 = 1:1)
         lda     RTIER
         beq     @s0
@@ -1064,7 +1166,11 @@ tun_rocks_frame:
         sec
         sbc     YML
 :       sta     RBY,x
-        lda     SCL                     ; the occlusion radius: 5/16 of the scale
+        lda     RKIND,x                 ; a cloud hides nothing (ROC = 0 keeps it out of every
+        beq     @ocr                    ;   rock's list of nearer discs and every star's test)
+        stz     ROC,x
+        bra     @ocd
+@ocr:   lda     SCL                     ; the occlusion radius: 5/16 of the scale
         lsr     a                       ;   (39 of 128)
         lsr     a
         sta     TMP
@@ -1076,7 +1182,7 @@ tun_rocks_frame:
         clc
         adc     TMP
         sta     ROC,x
-        lda     SCL
+@ocd:   lda     SCL
         sta     RSCA,x
         lda     RSC
         sta     RSCR,x
@@ -1778,7 +1884,11 @@ tun_verts:
 ; LINE16, cut to the window. Nothing visible: nothing drawn.
 ; -----------------------------------------------------------------------------
 tun_draw_rock:
-        stz     NCNT
+        ldx     TRK
+        lda     RKIND,x
+        beq     :+
+        jmp     tun_draw_cloud          ; a Saturnium cloud: pixels
+:       stz     NCNT
         ldy     #TUN_ROCKS - 1
 @n:     cpy     TRK
         bne     :+
@@ -2004,6 +2114,147 @@ tun_run:
         bne     @c
         jmp     tun_go
 
+        .segment "TUNCODE"
+; -----------------------------------------------------------------------------
+; tun_catch - cloud TRK has been caught: the sector's own Saturnium sound, the tally up,
+; the cloud gone.
+; -----------------------------------------------------------------------------
+tun_catch:
+        lda     #SE_SATN
+        jsr     sfx_fire
+        lda     TSAT
+        cmp     #15                     ; (the tally pays 16 a cloud into a byte)
+        bcs     :+
+        inc     TSAT
+:       ldx     TRK
+        stz     RZL,x
+        stz     RZH,x
+        rts
+
+; -----------------------------------------------------------------------------
+; tun_draw_cloud - cloud TRK as one DOT_PIXELS: 8 + 3/16 of its scale pixels (8 far, 32 at
+; the camera), each a place from the pattern (CLDP) times its radius (a rock's, RSCR),
+; round its centre; those outside the window or behind a rock are dropped.
+; -----------------------------------------------------------------------------
+tun_draw_cloud:
+        ldx     TRK
+        lda     RSCA,x
+        lsr     a
+        lsr     a
+        lsr     a
+        sta     TMP
+        lda     RSCA,x
+        lsr     a
+        lsr     a
+        lsr     a
+        lsr     a
+        clc
+        adc     TMP
+        clc
+        adc     #TUN_CLOUDMIN
+        sta     CK                      ; how many pixels
+        lda     RSCR,x
+        sta     SMB                     ; its radius, half-res px
+        lda     RCXH,x                  ; the centre, half-res: the full-res one halved
+        cmp     #$80
+        ror     a
+        sta     CHXH
+        lda     RCXL,x
+        ror     a
+        sta     CHXL
+        lda     RCYH,x
+        cmp     #$80
+        ror     a
+        sta     CHYH
+        lda     RCYL,x
+        ror     a
+        sta     CHYL
+        lda     RZL,x                   ; its depth, for the rocks that may hide it
+        sta     T3L
+        lda     RZH,x
+        sta     T3H
+        lda     RAN,x                   ; where in the pattern it starts: it drifts
+        lsr     a
+        lsr     a
+        and     #31
+        sta     CIDX
+        stz     CDN
+@p:     lda     CIDX
+        asl     a
+        tax
+        lda     CLDP,x                  ; dx: its offset in fb x
+        jsr     tun_sm                  ; * the radius >> 7
+        sta     TMV
+        clc
+        adc     CHXL
+        sta     CPXL
+        lda     #0
+        bit     TMV
+        bpl     :+
+        lda     #$FF
+:       adc     CHXH
+        sta     CPXH
+        lda     CIDX
+        asl     a
+        tax
+        lda     CLDP+1,x                ; dy
+        jsr     tun_sm
+        sta     TMV
+        clc
+        adc     CHYL
+        sta     CPYL
+        lda     #0
+        bit     TMV
+        bpl     :+
+        lda     #$FF
+:       adc     CHYH
+        sta     CPYH
+        lda     CPXH                     ; in the window? fb x 25..174, y 0..149
+        ora     CPYH
+        bne     @skip
+        lda     CPXL
+        cmp     #25
+        bcc     @skip
+        cmp     #175
+        bcs     @skip
+        lda     CPYL
+        cmp     #150
+        bcs     @skip
+        lda     #75                     ; behind a rock? the offsets from the window's centre
+        sec
+        sbc     CPYL
+        sta     OXS
+        lda     CPXL
+        sec
+        sbc     #100
+        sta     OYS
+        jsr     tun_occ0
+        bcs     @skip
+        lda     CDN
+        asl     a
+        tax
+        lda     CPXL
+        sta     CLB+1,x
+        lda     CPYL
+        sta     CLB+2,x
+        inc     CDN
+@skip:  inc     CIDX
+        lda     CIDX
+        and     #31
+        sta     CIDX
+        dec     CK
+        beq     :+
+        jmp     @p
+:       lda     CDN
+        beq     @done
+        sta     CLB
+        lda     #<CLB
+        sta     OS_ARG+0
+        lda     #>CLB
+        sta     OS_ARG+1
+        jmp     API_GPU_DOTPIXELS       ; tail
+@done:  rts
+
 ; -----------------------------------------------------------------------------
 ; tun_hit - rock TRK has struck the ship. HXM/HYM, SXS/SYS: how far, and on which side
 ; (SXS/SYS $80 = the rock is left of / above the ship).
@@ -2075,6 +2326,30 @@ tun_hit:
         rts
 
 ; -----------------------------------------------------------------------------
+; tun_pay - the clouds caught are paid into the hold: SATN (satn.s, under the window) +
+; TSAT * TUN_SATPAY, clamped at SATN_MAX. The window is borrowed for the one write.
+; -----------------------------------------------------------------------------
+tun_pay:
+        lda     TSAT
+        beq     @r
+        stz     TMP                     ; TSAT * 16 as a count: the cloud pays 16 (a shift)
+        asl     a
+        asl     a
+        asl     a
+        asl     a
+        sta     TMP
+        jsr     win_off
+        lda     SATN
+        clc
+        adc     TMP
+        bcc     :+
+        lda     #SATN_MAX
+:       sta     SATN
+        jsr     win_on
+        stz     TSAT
+@r:     rts
+
+; -----------------------------------------------------------------------------
 ; tun_jit - A = amplitude (0-6) -> A = a random signed jitter within +-amplitude.
 ; -----------------------------------------------------------------------------
 tun_jit:
@@ -2100,28 +2375,35 @@ tun_jit:
         rts
 
 ; -----------------------------------------------------------------------------
-; tun_hum_init - the two programs' fixed bytes: noise (type 1) in mode 7 and a silent tone
-; (type 0), four steps of four frames each, and the end marker.
+; tun_hum_init - the program's fixed bytes: noise (type 1), four steps of four frames.
 ; -----------------------------------------------------------------------------
 tun_hum_init:
         ldy     #1                      ; Y = 1 + 3 * step: where a step begins
         ldx     #4
 @i:     lda     #4
         sta     HUMP,y                  ; frames
-        sta     HUMQ,y
-        lda     #7
-        sta     HUMP+1,y                ; noise mode 7: the rate follows tone voice 6
-        lda     #TUN_HUMN
-        sta     HUMQ+1,y                ; the note
+        lda     #TUN_HUMM
+        sta     HUMP+1,y                ; the noise mode
         lda     #TUN_HUMV
-        sta     HUMP+2,y                ; the noise's volume
-        lda     #0
-        sta     HUMQ+2,y                ; ...and the tone's: silent, it only sets the rate
+        sta     HUMP+2,y                ; the volume
         iny
         iny
         iny
         dex
         bne     @i
+        ldy     #1
+        ldx     #4
+@q:     lda     #2
+        sta     HUMQ,y                  ; the whine: four steps of two frames (the last three), silent
+        lda     #0
+        sta     HUMQ+2,y
+        iny
+        iny
+        iny
+        dex
+        bne     @q
+        lda     #3
+        sta     HUMQ+10                 ; (the last step overlaps the re-fire by a frame: no gap)
         lda     #$FF
         sta     HUMP+13
         sta     HUMQ+13
@@ -2131,16 +2413,15 @@ tun_hum_init:
         rts
 
 ; -----------------------------------------------------------------------------
-; tun_hum - the engine: on the timer, write the next 16 frames of both programs (4 steps
+; tun_hum - the engine: on the timer, write the next 16 frames of the program (4 steps
 ; of 4 frames, each from the rush's clock plus 2 per step: RUSHR counts every second
-; frame) and fire them - unless a ram holds the noise voice or voice 6.
+; frame) and fire it - unless a ram holds the noise voice.
 ; -----------------------------------------------------------------------------
 tun_hum:
         dec     HUMT
         beq     @go
         rts
-@go:    lda     VLEN+3                  ; sfx.s's claims: the noise voice, and voice 6 (VOICE_SHIP)
-        ora     VLEN+2
+@go:    lda     VLEN+3                  ; sfx.s's claim on the noise voice
         beq     @free
         lda     #1
         sta     HUMT                    ; a ram is sounding: try again next frame
@@ -2158,46 +2439,122 @@ tun_hum:
         adc     RT2                     ; r = RUSHR + 2 * step
 @r1:    sta     RT2
         lsr     a
-        sta     TA                      ; r / 2 (<= 95), times 44, over 128: r * 44 / 256 = r / 5.8
-        lda     #44                     ;   semitones, rounded down exactly (three shifted terms
-        sta     TB                      ;   added up jumped by 3 at the powers of two)
-        phy
-        jsr     umul
-        ply
-        lda     PL
-        asl     a                       ; bit 7 of the low byte into carry...
-        lda     PH
-        rol     a                       ; ...and in at the bottom: P >> 7
-        clc
-        adc     #TUN_HUMN
-        sta     HUMQ+1,y                ; the tone's note for this step
+        lsr     a
+        lsr     a
+        lsr     a
+        lsr     a
+        lsr     a                       ; 0..2 over the rush: a faster noise every 64
+        sta     TMP
+        lda     #TUN_HUMM
+        sec
+        sbc     TMP
+        sta     HUMP+1,y                ; the mode
         lda     RT2
         lsr     a
         lsr     a
         lsr     a
         lsr     a
-        lsr     a                       ; 0..5: a step of volume every 32
+        lsr     a
+        lsr     a                       ; 0..2: a step louder every 64
         clc
         adc     #TUN_HUMV
-        sta     HUMP+2,y                ; the noise's volume
-        iny
+        sta     HUMP+2,y                ; the volume
+        lda     RT2                     ; the whine: silent until TUN_WHINES, then fading in
+        sec
+        sbc     #TUN_WHINES
+        bcs     @w
+        lda     #0
+        sta     HUMQ+2,y
+        sta     HUMQ+1,y
+        bra     @wd
+@w:     lsr     a
+        lsr     a
+        lsr     a
+        lsr     a                       ; a step of volume every 16 clock units...
+        clc
+        adc     #1
+        cmp     #5
+        bcc     :+
+        lda     #5                      ; ...up to 5 (it was 8: too loud)
+:       pha                             ; TREMOLO: every other step one quieter
+        lda     TMV
+        and     #1
+        beq     @t0
+        pla
+        sec
+        sbc     #1
+        bra     @t1
+@t0:    pla
+@t1:    sta     HUMQ+2,y
+        lda     RT2
+        lsr     a
+        sta     TA                      ; r / 2, times 68, over 128: r * 68 / 256 semitones
+        lda     #68
+        sta     TB
+        phy
+        jsr     umul
+        ply
+        lda     PL
+        asl     a
+        lda     PH
+        rol     a
+        clc
+        adc     #TUN_WHINEN
+        sta     TMP2                    ; the base note
+        lda     TMV                     ; VIBRATO: steps 0, 2 on the note, 1 above it and 3
+        and     #1                      ;   below by d semitones - the 8-frame pattern repeats
+        beq     @vz                     ;   with every re-fire, 7.5 Hz, and d widens with the
+        lda     RUSHR                   ;   rush: 1, 2 then 3
+        lsr     a
+        lsr     a
+        lsr     a
+        lsr     a
+        lsr     a
+        lsr     a
+        clc
+        adc     #1
+        ldx     TMV
+        cpx     #3
+        bne     @vp
+        eor     #$FF
+        clc
+        adc     #1
+@vp:    clc
+        adc     TMP2
+        bra     @vs
+@vz:    lda     TMP2
+@vs:    sta     HUMQ+1,y                ; its note
+@wd:    iny
         iny
         iny
         inc     TMV
         lda     TMV
         cmp     #4
-        bne     @k
-        lda     #<HUMQ                  ; the silent tone first (it sets the rate)...
+        beq     :+
+        jmp     @k
+:       lda     RUSHR
+        cmp     #TUN_WHINES
+        bcc     @nw
+        lda     #<HUMQ                  ; the whine first, on tone voice 0...
         ldx     #>HUMQ
-        ldy     #2                      ; ...on tone voice 6
+        ldy     #0
         jsr     API_SFX_PLAY_PTR
-        lda     #<HUMP                  ; ...then the noise
+@nw:    lda     #<HUMP                  ; ...and the noise
         ldx     #>HUMP
-        ldy     #$FF
+        ldy     #$FF                    ; the effects chip's noise voice
         jmp     API_SFX_PLAY_PTR        ; tail
 
 ; tun_hum_off - silence it: the noise program cut to one frame at volume 0.
 tun_hum_off:
+        stz     HUMQ+3                  ; the whine: one frame, silent
+        lda     #1
+        sta     HUMQ+1
+        lda     #$FF
+        sta     HUMQ+4
+        lda     #<HUMQ
+        ldx     #>HUMQ
+        ldy     #0
+        jsr     API_SFX_PLAY_PTR
         lda     #1
         sta     HUMP+1
         stz     HUMP+3
@@ -2605,7 +2962,8 @@ tunnel_frame:
         lda     SC_PTRH
         cmp     #>TUN_FRAMES
         bne     @ret
-@leave: jsr     tun_hum_off
+@leave: jsr     tun_pay
+        jsr     tun_hum_off
         ldx     JOYPORT
         lda     JOY1_PRESS,x            ; consume the edge, or the press that
         and     #<~JOY_FIRE             ;   ends this also fires the gun on the
@@ -2634,5 +2992,10 @@ tunnel_frame:
         lda     SCR_T
         cmp     #SETTLE
         rts
+
+; The tunnel's run-area tenants (TUNCODE2, TUNBSS) must end below the kernel (CODE8): the
+; kernel stays resident across the overlay, and CODE8 moves whenever the engine grows.
+        .import __TUNBSS_RUN__, __TUNBSS_SIZE__, __CODE8_RUN__
+        .assert __TUNBSS_RUN__ + __TUNBSS_SIZE__ <= __CODE8_RUN__, lderror, "tunnel.s: TUNCODE2 + TUNBSS run into the kernel (CODE8) - cart.cfg's TUNRUN"
 
         .popseg

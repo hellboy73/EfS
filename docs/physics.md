@@ -606,3 +606,29 @@ against it, and now the gun drives it away while the laser finishes it.
 | `PLS_FRAMES` | game frames one shot burns, the animation frozen on frame 0 | **10** **(TBM)** |
 | `PLS_DMG` | hit points a lit frame to rocks and enemies it crosses | **`LSR_DMG`** (4) — 40 a shot **(TBM)** |
 | `PLS_SHIPDMG` | ...and to the ship | **1** — 10 a shot, one ordinary hit **(TBM)** |
+
+## 12. The tunnel — a flight in a tube (`src/tunnel.s`)
+
+Built 2026-10-13 (design_technical 11.45, open_questions H6). Not the field's physics: a
+camera that leans inside a tube, a star field, and rocks and clouds that come at it. Every
+number is a `TUN_*` constant at the top of `tunnel.s`; all are TBM. The units: x, y are
+world units (the lean is +-81); z is depth, a rock's in true units (16 bit, 1020 at birth),
+the dust's in units of 2 (a byte, 255 at birth = 510); a window pixel is a half-res pixel,
+the window 150 x 150 of them (300 x 300 full-res).
+
+| what | constant | now | notes |
+|---|---|---|---|
+| the lean | `TUN_AMP`, `TUN_K1`, `TUN_K2` | 81, 6, 2 | a critically damped spring: 90% of the way in 31 frames, 98% in 47, no overshoot; `K1` = 7 is ~1 s |
+| speed | `TUN_SPEED` | 2 (+1 on odd frames) | dust units of 2, so 5 true z a frame; a rock subtracts twice that |
+| dust | `TUN_STARS`, `TUN_F`, `TUN_ZMIN`, `TUN_ZMAX`, `TUN_HOLE` | 32, 150, 6, 255, 24 | a torus 256 x 256 round the ship: x - cam is a wrapping signed byte; offset = rel * F / (2 z) |
+| far stars | `TUN_FAR`, `TUN_FSH` | 32, 3 | pixels at infinity, sliding CAM >> 3 against the lean, wrapping round the window |
+| rocks | `TUN_ROCKS`, `TUN_SPAWN`, `TUN_RZMAX`, `TUN_ZFULL`, `TUN_ZHIT`, `TUN_RZMIN` | 16, 25 + 0..15, 1020, 40, 36, 14 | the sector's 192 outlines; a rock is drawn 1:1 at z 40 and no bigger; tested against the ship once, at z 36 |
+| rock detail | `TUN_ZLOD`, `TUN_ZDOT` | 220, 500 | beyond 220 the reduced outline; beyond 500 also dotted (`DOTPOLYGON`) |
+| the hit | `TUN_HITR`, `TUN_KICK`, `TUN_DEFL`, `TUN_SHAKE`, `TUN_RUMBLE` | 15, 3, 3, 24, 20 | the camera is kicked away (units a frame, then the spring), the rock thrown aside at its depth, the view shaken, the pad rumbles, SE_KLANG + SE_KLANG_N |
+| Saturnium | `TUN_CLOUDMIN/MAX`, `TUN_CATCHR`, `TUN_SATPAY`, `TUN_CLOUDP` | 8, 32, 22, 16, 1 in 8 | DOT_PIXELS the size of a rock, 8 + 3/16 of the scale pixels; caught = SE_SATN, paid into SATN when the scene ends |
+| the run | `TUN_FRAMES`, `TUN_RUSHF`, `TUN_CLEAR` | 3600, 360, 200 | a minute; the last 6 s are the rush; no rock is born in the 200 + 360 before the end |
+| the rush | `RSPT`, `FRAC` | 0 to 8 units, 0 to 1/2 | eased (quadratic) from zero: the speed-up is added with a fraction, the streaks grow from a pixel |
+| the engine | `TUN_HUMM/V/P`, `TUN_WHINES/N` | mode 6, 3, 8; 80, 60 | noise rumble (3, swelling to 5); from the middle of the rush a whine (tone, voice 0) climbs to MIDI ~107 with a 7.5 Hz vibrato and a tremolo |
+
+Costs measured with `tools/tunnel_bench.py` (py65, no wait states): a flying frame ~50 k CPU
+cycles (21%), the rush 69 k CPU and 67 k GPU (28%), the reload on the way out 1.43 M cycles.

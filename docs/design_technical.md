@@ -1927,6 +1927,24 @@ These are settled and should not be re-opened without a reason:
     the score, and marks an entry whose game was continued. The ENDINGS
     replacing the GAME OVER banner are agreed but deferred.
 
+    **Built 2026-10-13 (what 11.45's tunnel became; the parameters are `physics.md` 12).**
+    Where the text above and this differ, this is what is built. The window is 300 x 300
+    **centred** (no stat and radio bars yet: they are 50 + 50 px, later); the cockpit art is
+    on the background layer, so the flight draws over its thin lines. Entered by flying into
+    the exit gate (DEMO=0; DEMO=1 still goes to SECTOR COMPLETED), left after 3,600 frames
+    by `set_state_field`. **A rock hit costs no Saturnium** (the user, 2026-10-13): it knocks
+    the ship, shakes the view, throws the rock aside at its own depth and plays the sector's
+    ram - the Saturnium is only ever gained, from **clouds** (DOT_PIXELS the size of a rock,
+    8 to 32 pixels by distance), caught with the sector's pickup sound and paid into the hold
+    when the scene ends. The stars are two layers: DUST (the near field, a torus, perspective
+    projected) and FAR stars (pixels at infinity, sliding with the lean). The end is a 6 s
+    RUSH: no new rocks, an eased acceleration, the dust stretching from pixels into streaks,
+    a noise rumble and a rising whine. **Memory: the tunnel is the third DEMO_RAM tenant AND
+    is laid over the run area** (`TUNRUN`, `$1000-$59FF`: the rocks and the variables), which
+    the flight engine reloads from ROM on the way out (`ovl_load_field`, ~0.1 s); the kernel
+    (`CODE8`) and every carried variable stay. `make run-tunnel` boots into it,
+    `make tunnel-test` is its own bench.
+
 46. **Mining stations: one fixed, indestructible landmark in some sectors.**
     Decided 2026-09-18 (the user); **the figure and its wall are built as the
     human base, 48**; the rest is not, and the open parts are

@@ -1133,9 +1133,45 @@ the Saturnium collected in this passage, never a pod. Open:
   edge by CPU line clipping), the hit (kick, shake, rumble, SE_KLANG, the rock thrown aside at its depth), the
   noise rumble (mode 7 + a silent tone on voice 6 for a smooth rise), and the 6 s end rush (eased speed-up,
   streaks growing from a pixel). Parameters are the TUN_* constants at the top of `tunnel.s`. Measured: a
-  flying frame 49 k CPU cycles (21%), the rush 69 k CPU / 67 k GPU. NOT built: pods, Saturnium, the stat/radio
-  bars, the seeded per-level generator, the reload of the run area. **TUNRAM is full (about 90 B free):** the
-  next code goes to a second overlay row over the run area (`$1000-$5B2C`, see the memory audit above).
+  flying frame 49 k CPU cycles (21%), the rush 69 k CPU / 67 k GPU. Also built the same day: the Saturnium
+  CLOUDS (DOT_PIXELS the size of a rock, 8 to 32 pixels, caught with SE_SATN, paid into SATN at the end), the
+  end-of-run whine with vibrato and tremolo, and the engine volume (3, swelling to 5). Parameters:
+  `physics.md` 12.
+* **THE TUNNEL: what is still to do (2026-10-13, from 11.45, H6 and the user's plans).**
+  1. **Lifepods**: one per ship lost in THIS sector (needs a per-sector count of ships lost, which the field
+     does not keep), pseudo-3D art (undrawn), a catch returns a ship (LIVES). The generator must always make
+     a pod reachable.
+  2. **The stat bar (top 50 px) and the radio bar (bottom 50 px)**: Saturnium, ships, the sector's score /
+     time / kills (the field would have to count time and kills), and the debrief / brief text typed out like
+     a telegraph (H5). Also the window may move to the top later (the user): the HUD art and the 150 x 150
+     half-res box (`TUN_CX`, `TUN_CY`, the 50 px offset in `tools` / Makefile) are the only places that know.
+  3. **A per-level seeded generator** (the same stream every run, a density per level, the pod guarantee),
+     replacing the free PRNG; plus the per-level variety (L1 clean ice, L2 a silhouette that flickers, L3 SRV
+     wrecks, L4 shadows pacing the ship, L5 the tunnel folding back).
+  4. **The Saturnium rule to settle**: the design said any rock hit costs all of the passage's Saturnium;
+     the user made a hit a knock only. Decide whether the loss comes back (tally `TSAT` is the place).
+  5. **The states round it**: the picture / summary / story between the tunnel and the next sector (the
+     tunnel now exits straight to `set_state_field`); the 0.1 s reload hitch hidden under a blind.
+  6. **Entry**: only the exit gate (and `run-tunnel`); the original idea was a test tunnel at the start of the
+     test level, straight ahead of the ship. DEMO=1 (the expo build) still skips the tunnel.
+  7. **Sound**: the engine and the whine are by ear and the user said they are not right yet; the tunnel's own
+     music (H6) is not decided (the title theme is stopped on entry).
+  8. **Budget**: 16 rocks at once have been measured only for CPU and for a typical frame; the GPU worst case
+     (several near rocks, all drawn solid, clipped edge by edge) is TBM, and the difficulty (rock density, the
+     lean's 1 s, the speed) is for play-testing.
+* **Built 2026-10-13: the TUNNEL's memory plan - two areas, the run area overlaid.** TUNRAM was full, so the
+  tunnel is now laid over TWO things the field does not need while it flies: DEMO_RAM (`TUNCODE`: the flight
+  frame, dust, far stars, lean, hum, streaks, hit, the art) and the RUN AREA `$1000-$59FF` (`TUNCODE2`: the
+  rocks and their tables, 3.3 KB; `TUNBSS`: all its variables, 1.2 KB). Both rows load from ROM bank 10
+  (`ovl_tunnel_segs`); on the way out `ovl_load_field`, seeing the tenant it replaces is the tunnel, first
+  reloads the engine (`ovl_engine_segs`: CODE, CODE2, CODE3, CODE4 - the same four rows as the boot) and then
+  FIELD. The kernel (`CODE8`, `$5B2D+`) stays, and a `lderror` assert in `tunnel.s` stops TUNRUN running into
+  it. The carried state is untouched (the tunnel never writes `$6000-$97FF`), and no run-area label is a
+  variable (checked: none is written at run time), so a reload restores exactly the code. **Measured**
+  (`tools/tunnel_bench.py`): the reload is byte for byte the boot's, and costs 1.43 M CPU cycles - about 6
+  frames, ~0.1 s, once, at the tunnel's exit (TBM on hardware, where the window adds wait states). **Free now:**
+  TUNRAM about 4.8 KB, TUNRUN about 15 KB (18,944 less 4.5 KB). Next tenants (pods, Saturnium, the bars, the
+  radio text) go in either, whichever the data wants.
 * **Rock outline scaling (11.45).** The field's rock shapes are reused, but
   the tunnel needs them credible across nearly the whole zoom range, from
   just short of a point near the vanishing point to full-screen at the

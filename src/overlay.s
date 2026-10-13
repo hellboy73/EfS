@@ -35,6 +35,11 @@
         .import __CODE6_LOAD__, __CODE6_RUN__, __CODE6_SIZE__
         .import __UICODE_LOAD__, __UICODE_RUN__, __UICODE_SIZE__
         .import __TUNCODE_LOAD__, __TUNCODE_RUN__, __TUNCODE_SIZE__
+        .import __TUNCODE2_LOAD__, __TUNCODE2_RUN__, __TUNCODE2_SIZE__
+        .import __CODE_LOAD__, __CODE_RUN__, __CODE_SIZE__
+        .import __CODE2_LOAD__, __CODE2_RUN__, __CODE2_SIZE__
+        .import __CODE3_LOAD__, __CODE3_RUN__, __CODE3_SIZE__
+        .import __CODE4_LOAD__, __CODE4_RUN__, __CODE4_SIZE__
                                         ; game_start/level_begin (gameover.s)
                                         ;   need no import - one translation
                                         ;   unit, same as every other cross-file
@@ -43,6 +48,10 @@
 CODE5_BANK  = 4                 ; must match cart.cfg's MEMORY order and
 CODE6_BANK  = 6                 ;   bootstrap.s's own copies of these - nothing
 TUNCODE_BANK = 10
+ENG0_BANK   = 0                 ; the flight engine's four banks - bootstrap.s's CODE_BANK ..
+ENG1_BANK   = 1                 ;   CODE4_BANK, which nothing links to this file but a number
+ENG3_BANK   = 3
+ENG4_BANK   = 4
 UICODE_BANK = 6                 ;   links the two together but a bank number
 
 OVL_FIELD  = 0                  ; matches boot: bootstrap.s's boot_segs copies
@@ -74,6 +83,21 @@ ovl_screen_segs:
 ovl_tunnel_segs:
         .byte   TUNCODE_BANK
         .word   __TUNCODE_LOAD__, __TUNCODE_RUN__, __TUNCODE_SIZE__
+        .byte   TUNCODE_BANK            ; ...and the rocks, over the run area
+        .word   __TUNCODE2_LOAD__, __TUNCODE2_RUN__, __TUNCODE2_SIZE__
+        .byte   $FF
+; THE FLIGHT ENGINE, which the tunnel's second row overwrites: reloaded (before FIELD's own
+; rows) by ovl_load_field when the tenant it replaces is the tunnel. The same four rows as
+; bootstrap.s's boot_segs.
+ovl_engine_segs:
+        .byte   ENG0_BANK
+        .word   __CODE_LOAD__, __CODE_RUN__, __CODE_SIZE__
+        .byte   ENG1_BANK
+        .word   __CODE2_LOAD__, __CODE2_RUN__, __CODE2_SIZE__
+        .byte   ENG3_BANK
+        .word   __CODE3_LOAD__, __CODE3_RUN__, __CODE3_SIZE__
+        .byte   ENG4_BANK
+        .word   __CODE4_LOAD__, __CODE4_RUN__, __CODE4_SIZE__
         .byte   $FF
 
 overlay_cur: .byte OVL_FIELD    ; which tenant DEMO_RAM holds right now
@@ -114,7 +138,12 @@ ovl_load_field:
         lda     overlay_cur
         cmp     #OVL_FIELD
         beq     @ret
-        lda     #OVL_FIELD
+        cmp     #OVL_TUNNEL
+        bne     @f
+        lda     #<ovl_engine_segs       ; the tunnel has been over the run area: the
+        ldx     #>ovl_engine_segs       ;   flight engine comes back from ROM first
+        jsr     ovl_walk
+@f:     lda     #OVL_FIELD
         sta     overlay_cur
         lda     #<ovl_field_segs
         ldx     #>ovl_field_segs
