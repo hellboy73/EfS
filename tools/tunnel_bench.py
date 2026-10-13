@@ -852,6 +852,32 @@ check("...never past TUN_LIVMAX", cpu_mem[LIVES_A] == TH["TUN_LIVMAX"])
 cpu_mem[LIVES_A] = 5
 cpu_mem[LBL["TSATN"]] = 0
 clear_rocks()
+# the message bar (line 2, above the window): PILOT RESCUED for a catch, PILOT LOST IN SPACE for one
+# gone past - spoken, so the bar waits for SPK_BUSY, which nothing clears in py65: it is cleared here
+SPK_BUSY_A = asm_consts("mad65.inc")["SPK_BUSY"]
+
+
+def bar_run(n):
+    out = []
+    for _ in range(n):
+        cpu_mem[SPK_BUSY_A] = 0
+        cpu_mem[A["SPT"]] = 250
+        out += [bytes(pl[3:-1]).decode("latin-1").strip() for op, pl in flying_frame() if op == 0x63 and pl[1] == HK["IND_ROW"]]
+    return out
+
+
+call(cpu, LBL["indicate_reset"])
+call(cpu, LBL["tun_hud_pod"])
+said = bar_run(12)
+check("a lifepod caught: PILOT RESCUED on the message bar (line 2), spoken",
+      "PILOT RESCUED" in said, f"{said[:3]}")
+for nm, v in (("RZL", 20), ("RZH", 0), ("RXW", AMP), ("RYW", 0), ("RHI", 1), ("RDF", 0), ("RKIND", 2), ("RAN", 0), ("RSP", 0), ("RTY", 0)):
+    cpu_mem[LBL[nm]] = v
+said = bar_run(300)
+check("a lifepod gone past: PILOT LOST IN SPACE (after the line before it has had its time)",
+      "PILOT LOST IN SPACE" in said, f"{said[:4]}")
+cpu_mem[LIVES_A] = 5
+clear_rocks()
 
 # ---- what it costs -----------------------------------------------------------
 raw, cyc = raw_frame()

@@ -1405,7 +1405,9 @@ tun_rocks_frame:
         lda     RKIND,x
         cmp     #2
         bne     :+
-        inc     TPLOST                  ; a lifepod not caught (the speech comes later)
+        inc     TPLOST                  ; a lifepod not caught: the bar says so
+        lda     #IM_PILOT_LOST          ;   (tunnel_hud.s)
+        jsr     indicate_msg
 :       jmp     @next
 @alive: ldx     TRK
         lda     RZH,x                   ; TIER, and TZ = z >> TIER
@@ -3404,22 +3406,23 @@ tunnel_frame:
         jsr     tun_stars_frame         ;   it moves...
         jsr     tun_pod_arrows          ;   (a lifepod's arrows: last, over everything)
         jsr     tun_hud_frame           ; the rows under the window, the hull, the sparks
-        ldx     JOYPORT                 ; ...and FIRE ends it at once (testing)
-        lda     JOY1_PRESS,x
-        and     #JOY_FIRE
-.if TUNTEST
-        beq     @nof                    ; (make run-tunnel: FIRE skips to the rush instead)
+        ldx     JOYPORT                 ; ...and FIRE skips to the rush (testing; in both
+        lda     JOY1_PRESS,x            ;   images - it used to end the tunnel at once in
+        and     #JOY_FIRE               ;   cart.bin: the user, 2026-10-13)
+        beq     @nof
         lda     JOY1_PRESS,x
         and     #<~JOY_FIRE
         sta     JOY1_PRESS,x
+        lda     SC_PTRL                 ; (forward only: in the rush already, it does nothing)
+        cmp     #<(TUN_FRAMES - TUN_RUSHF - 60)
+        lda     SC_PTRH
+        sbc     #>(TUN_FRAMES - TUN_RUSHF - 60)
+        bcs     @nof
         lda     #<(TUN_FRAMES - TUN_RUSHF - 60)
         sta     SC_PTRL
         lda     #>(TUN_FRAMES - TUN_RUSHF - 60)
         sta     SC_PTRH
 @nof:
-.else
-        bne     @leave
-.endif
         inc     SC_PTRL
         bne     :+
         inc     SC_PTRH

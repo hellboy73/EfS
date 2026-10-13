@@ -170,6 +170,57 @@ IM_EMP_RDY_PH:
         .byte   SPK_LONG   | SPK_PH_L
         .byte   $00
 
+; IM_PILOT_OK (id 16) - "PILOT RESCUED": 19 phonemes, roughly 76 frames
+IM_PILOT_OK_PH:
+        .byte   SPK_NORM   | SPK_PH_CLS   ; PILOT   /paI-l@t/
+        .byte   SPK_NORM   | SPK_PH_P
+        .byte   SPK_STRESS | SPK_PH_AA   ;   /aI/
+        .byte   SPK_NORM   | SPK_PH_I
+        .byte   SPK_NORM   | SPK_PH_L
+        .byte   SPK_SHORT  | SPK_PH_AX
+        .byte   SPK_NORM   | SPK_PH_CLS
+        .byte   SPK_NORM   | SPK_PH_T
+        .byte   SPK_NORM   | SPK_PH_PAU
+        .byte   SPK_NORM   | SPK_PH_R   ; RESCUED   /rEs-kju:d/
+        .byte   SPK_STRESS | SPK_PH_EH
+        .byte   SPK_NORM   | SPK_PH_S
+        .byte   SPK_NORM   | SPK_PH_CLS
+        .byte   SPK_NORM   | SPK_PH_K
+        .byte   SPK_NORM   | SPK_PH_Y
+        .byte   SPK_STRESS | SPK_PH_UW
+        .byte   SPK_NORM   | SPK_PH_UW
+        .byte   SPK_NORM   | SPK_PH_CLZ
+        .byte   SPK_LONG   | SPK_PH_D
+        .byte   $00
+
+; IM_PILOT_LOST (id 17) - "PILOT LOST IN SPACE": 24 phonemes, roughly 96 frames
+IM_PILOT_LOST_PH:
+        .byte   SPK_NORM   | SPK_PH_CLS   ; PILOT   /paI-l@t/
+        .byte   SPK_NORM   | SPK_PH_P
+        .byte   SPK_STRESS | SPK_PH_AA   ;   /aI/
+        .byte   SPK_NORM   | SPK_PH_I
+        .byte   SPK_NORM   | SPK_PH_L
+        .byte   SPK_SHORT  | SPK_PH_AX
+        .byte   SPK_NORM   | SPK_PH_CLS
+        .byte   SPK_NORM   | SPK_PH_T
+        .byte   SPK_NORM   | SPK_PH_PAU
+        .byte   SPK_NORM   | SPK_PH_L   ; LOST
+        .byte   SPK_STRESS | SPK_PH_AO
+        .byte   SPK_NORM   | SPK_PH_S
+        .byte   SPK_NORM   | SPK_PH_CLS
+        .byte   SPK_NORM   | SPK_PH_T
+        .byte   SPK_NORM   | SPK_PH_PAU
+        .byte   SPK_SHORT  | SPK_PH_IH   ; IN
+        .byte   SPK_NORM   | SPK_PH_N
+        .byte   SPK_NORM   | SPK_PH_PAU
+        .byte   SPK_NORM   | SPK_PH_S   ; SPACE   /speIs/
+        .byte   SPK_NORM   | SPK_PH_CLS
+        .byte   SPK_NORM   | SPK_PH_P
+        .byte   SPK_STRESS | SPK_PH_EH   ;   /eI/
+        .byte   SPK_NORM   | SPK_PH_I
+        .byte   SPK_LONG   | SPK_PH_S
+        .byte   $00
+
 ; The pointer table: one entry per IM_* id, IN ID ORDER, $00 where the
 ; message is not spoken. Read INSIDE the message bank's window (speech.s).
 SPK_LO:
@@ -189,6 +240,8 @@ SPK_LO:
         .byte   <IM_EMP_RDY_PH  ; 13 EMP AVAILABLE
         .byte   $00             ; 14 BREAK BIGGEST ROCKS
         .byte   $00             ; 15 DEFEAT ALL ENEMIES
+        .byte   <IM_PILOT_OK_PH ; 16 PILOT RESCUED
+        .byte   <IM_PILOT_LOST_PH; 17 PILOT LOST IN SPACE
 SPK_HI:
         .byte   $00             ;  0 HULL BREACH
         .byte   >IM_CRITICAL_PH ;  1 WARNING! HULL CRITICAL
@@ -206,8 +259,10 @@ SPK_HI:
         .byte   >IM_EMP_RDY_PH  ; 13 EMP AVAILABLE
         .byte   $00             ; 14 BREAK BIGGEST ROCKS
         .byte   $00             ; 15 DEFEAT ALL ENEMIES
+        .byte   >IM_PILOT_OK_PH ; 16 PILOT RESCUED
+        .byte   >IM_PILOT_LOST_PH; 17 PILOT LOST IN SPACE
 
-SPK_IDS     = 16                 ; ...and how many, for speech.s's assert
+SPK_IDS     = 18                 ; ...and how many, for speech.s's assert
 
 ; The ending's lines (ENDING in mkspeech.py), spoken by gate.s sector_frame.
 ; "SECTOR CLEARED": 15 phonemes

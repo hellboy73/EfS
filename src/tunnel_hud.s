@@ -17,9 +17,9 @@
 ;
 ; THE PACING IS THE SECTOR'S (the user: never more often than every 2 frames, one line
 ; at a time): both rows go through hud_game.s's bgtext_claim, on hud_game.s's 8-frame
-; cycle (HUD_PHASE) - SHIPS on row 1's phase, SATURNIUM on row 2's. The tunnel steps
-; the cycle itself rather than calling hud_tick, so neither LEVEL + SCORE nor the
-; message bar nor the game-over banner is ever sent here.
+; cycle (HUD_PHASE) - SHIPS on row 1's phase, SATURNIUM on row 2's, the message bar on
+; its own. The tunnel steps the cycle itself rather than calling hud_tick, so neither
+; LEVEL + SCORE nor the game-over banner is ever sent here.
 ;
 ; WHAT THE TUNNEL GIVES BACK:
 ;   * the HULL grows by one point every TUN_HPP frames, from whatever the sector left,
@@ -29,7 +29,10 @@
 ;     takes TUN_SATHIT (to 0); at SATN_FULL and over SPARKS flash round the window, as
 ;     on the hull in the sector (TUN_SPK*);
 ;   * a SHIP for each lifepod caught (LIVES, never past TUN_LIVMAX), and as many pods
-;     fly as ships were lost in the sector (LVSTART - LIVES, tunnel_pod.s);
+;     fly as ships were lost in the sector (LVSTART - LIVES, tunnel_pod.s); the bar
+;     says PILOT RESCUED, or PILOT LOST IN SPACE for one gone past - on the sector's
+;     message bar (line 2, the band above the window: the user, 2026-10-13, to see
+;     whether it can stay there), spoken;
 ;   * SCORE: TUN_PODPTS hundred a pod, TUN_CLDPTS hundred a cloud (score_add).
 ; =============================================================================
 
@@ -64,6 +67,8 @@ SPKN:   .res    1                       ; dashes left in this burst
 
         .segment "MSGDATA"
 STR_SATN:   .byte   "SATURNIUM "        ; (10: the label and its space, cells 0..9)
+IM_PILOT_OK_S:   .byte   "PILOT RESCUED", 0        ; the message bar's lines (hud_game.s
+IM_PILOT_LOST_S: .byte   "PILOT LOST IN SPACE", 0  ;   IND_LO), spoken (mkspeech.py)
         .assert C_HPBAR = 10, error, "tunnel_hud.s: STR_SATN fills the cells before the bar"
         .popseg
 
@@ -98,6 +103,7 @@ tun_hud_init:
 ; and nothing else (step 0 cleared it), so every row repaints.
 ; -----------------------------------------------------------------------------
 tun_hud_start:
+        jsr     indicate_reset          ; (nothing the sector left queued: it is gone)
         jsr     hud_reset
         lda     #$FF
         sta     HCSAT
@@ -108,6 +114,7 @@ tun_hud_start:
 ; -----------------------------------------------------------------------------
 tun_hud_frame:
         jsr     bgtext_tick             ; the shared window ages first, as in the sector
+        jsr     ind_timer_tick          ; ...and the message bar's hold, every frame
         inc     HUD_PHASE               ; ...and hud_game.s's cycle steps, as hud_tick
         lda     HUD_PHASE               ;   does it
         cmp     #HUD_PERIOD
@@ -118,9 +125,13 @@ tun_hud_frame:
         bne     :+
         jsr     hud_row1
         bra     @hp
-:       cmp     #HUD_PH_ROW2            ; ...SATURNIUM on row 2's
-        bne     @hp
+:       cmp     #HUD_PH_ROW2            ; ...SATURNIUM on row 2's...
+        bne     :+
         jsr     tun_sat_row
+        bra     @hp
+:       cmp     #HUD_PH_IND             ; ...and the message bar on its own
+        bne     @hp
+        jsr     indicate_tick
 @hp:    dec     HPT                     ; the hull, a point every TUN_HPP frames
         bne     @spk
         lda     #TUN_HPP
@@ -295,6 +306,8 @@ tun_hud_hit:
 :       sta     TSATN
         rts
 tun_hud_pod:
+        lda     #IM_PILOT_OK
+        jsr     indicate_msg
         lda     LIVES
         cmp     #TUN_LIVMAX
         bcs     :+

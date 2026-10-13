@@ -172,7 +172,9 @@ IM_EMP_RDY   = 13               ; the hold has filled back up and the EMP can be
                                 ;   fired again (emp.s emp_ready)
 IM_GOAL1     = 14               ; the demo sector's two goals, queued after IM_LEVEL
 IM_GOAL2     = 15               ;   by level_begin (gameover.s)
-IM_COUNT     = 16               ; ...and HOW MANY, which is ABI: THREE tables
+IM_PILOT_OK  = 16               ; the tunnel: a lifepod caught (tunnel_hud.s)...
+IM_PILOT_LOST= 17               ; ...and one gone past
+IM_COUNT     = 18               ; ...and HOW MANY, which is ABI: THREE tables
                                 ;   are indexed by these ids - IND_LO/IND_HI
                                 ;   below and speech.s's SPK_LO/SPK_HI, which
                                 ;   is generated from its own list in
@@ -1045,16 +1047,18 @@ IM_GOAL2_S: .byte   "DEFEAT ALL ENEMIES", 0
         .segment "RODATA"
 
 ; IM_EMP_NA_S is in emp.s, the shield's two in shield.s, IM_GATE_S in gate.s
-; and IM_LASER_GOT_S/IM_EMP_GOT_S in pickup.s - all MSGDATA now, same as the
-; ones above
+; and IM_LASER_GOT_S/IM_EMP_GOT_S in pickup.s, IM_PILOT_OK_S/IM_PILOT_LOST_S in
+; tunnel_hud.s - all MSGDATA now, same as the ones above
 IND_LO:     .byte   <IM_HULL_S, <IM_CRIT_S, <IM_LEVEL_S, <IM_LIFE_S, <IM_ENEMY_S
             .byte   <IM_GUN_S, <IM_LASER_S, <IM_EMP_NA_S, <IM_SHIELD_ON_S
             .byte   <IM_SHIELD_OFF_S, <IM_GATE_S, <IM_LASER_GOT_S, <IM_EMP_GOT_S
-            .byte   <IM_EMP_RDY_S, <IM_GOAL1_S, <IM_GOAL2_S
+            .byte   <IM_EMP_RDY_S, <IM_GOAL1_S, <IM_GOAL2_S, <IM_PILOT_OK_S
+            .byte   <IM_PILOT_LOST_S
 IND_HI:     .byte   >IM_HULL_S, >IM_CRIT_S, >IM_LEVEL_S, >IM_LIFE_S, >IM_ENEMY_S
             .byte   >IM_GUN_S, >IM_LASER_S, >IM_EMP_NA_S, >IM_SHIELD_ON_S
             .byte   >IM_SHIELD_OFF_S, >IM_GATE_S, >IM_LASER_GOT_S, >IM_EMP_GOT_S
-            .byte   >IM_EMP_RDY_S, >IM_GOAL1_S, >IM_GOAL2_S
+            .byte   >IM_EMP_RDY_S, >IM_GOAL1_S, >IM_GOAL2_S, >IM_PILOT_OK_S
+            .byte   >IM_PILOT_LOST_S
         .assert (IND_HI - IND_LO) = IM_COUNT, error, "hud_game.s: IND_LO is not IM_COUNT bytes long"
         .assert (* - IND_HI) = IM_COUNT, error, "hud_game.s: IND_HI is not IM_COUNT bytes long"
 
