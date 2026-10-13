@@ -1503,13 +1503,16 @@ frame_body:
         ; about it is special - CODE and CODE2 run contiguously in RAM and
         ; every reference between them resolves after the copy - it is simply
         ; where the room is. See cart.cfg and bootstrap.s.
-        .segment "CODE2"
+        .segment "HUDCODE"              ; (its own segment, behind CODE2: the
+                                        ;   tunnel overwrites the run area's
+                                        ;   bottom and calls this - cart.cfg)
         .include "hud_game.s"           ; the SHIPPING HUD - two rows at the
                                         ; bottom, a message bar at the top, all
                                         ; three on the VRAM background where they
                                         ; cost the GPU nothing per frame. Not to
                                         ; be confused with hud.s above, which is
                                         ; the tuning readout and is off.
+        .segment "CODE2"
         .include "radar.s"              ; the HUD radar: a second, wider walk of
                                         ; the same sector grid, on high bytes
                                         ; only. See that file's header.

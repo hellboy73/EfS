@@ -1964,6 +1964,27 @@ These are settled and should not be re-opened without a reason:
     not built. Three pods fly at fixed times in the test tunnel; no rock is born in a pod's
     lane in the 90 frames before it.
 
+    **The instruments and what the tunnel gives back, built 2026-10-13 (`src/tunnel_hud.s`;
+    the user's design).** The bottom band under the window carries two rows: the SECTOR's
+    SHIPS + the hull bar (line 46, hud_game.s's own `hud_row1`) and, where the sector has
+    LEVEL + SCORE (dropped in the tunnel - the score still counts), **SATURNIUM** and a bar
+    as wide as the hull's and in the same cells (line 48), full at `SATN_FULL`. No radar, no
+    message bar. Both keep the sector's pacing (`bgtext_claim`: one line at a time, sends at
+    least two frames apart, on hud_game.s's 8-frame cycle, which the tunnel steps itself). For the tunnel to call it, **hud_game.s's code runs
+    in its own segment `HUDCODE`, last in bank 1, above the tunnel's footprint in the run
+    area** - `tunnel.s` asserts at link time that TUNCODE2/3 + TUNBSS end below it. What the
+    tunnel gives back: the **hull** grows a point a second (`TUN_HPP`), so it is full before
+    the rush whatever the sector left it at; the **Saturnium** is the sector's (read into
+    `TSATN` at the start, written back to `SATN` at the end), plus 50 a cloud and less 20 a
+    rock hit (to 0); at `SATN_FULL` and over **sparks** - 2 or 3 one-frame dashes every 6
+    frames, along a radius 60-70 half-res px from the centre, inside the window, as the
+    hull's sparks in the sector; **one lifepod for each ship lost in the sector**
+    (`LVSTART`, set by `level_begin`, less `LIVES`; 0 to 4, spread evenly), a catch giving
+    the ship back (to 5); and **score**: 300 a pod, 100 a cloud. **Planned, not drawn: an
+    animated picture of the ship being repaired where the radar stands in the sector** -
+    in the tunnel only the band's right side (cells 24+, lines 44-49, 100 x 50 px) is free
+    for it, the window being above (the user's art; `open_questions.md` H6).
+
 46. **Mining stations: one fixed, indestructible landmark in some sectors.**
     Decided 2026-09-18 (the user); **the figure and its wall are built as the
     human base, 48**; the rest is not, and the open parts are

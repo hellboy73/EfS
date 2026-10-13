@@ -54,6 +54,7 @@
 
         .import __CODE_LOAD__, __CODE_RUN__, __CODE_SIZE__
         .import __CODE2_LOAD__, __CODE2_RUN__, __CODE2_SIZE__
+        .import __HUDCODE_LOAD__, __HUDCODE_RUN__, __HUDCODE_SIZE__
         .import __RODATA_LOAD__, __RODATA_RUN__, __RODATA_SIZE__
         .import __HIDATA_LOAD__, __HIDATA_RUN__, __HIDATA_SIZE__
         .import __CODE3_LOAD__, __CODE3_RUN__, __CODE3_SIZE__
@@ -145,6 +146,8 @@ boot_segs:
         .word   __CODE_LOAD__, __CODE_RUN__, __CODE_SIZE__
         .byte   CODE2_BANK
         .word   __CODE2_LOAD__, __CODE2_RUN__, __CODE2_SIZE__
+        .byte   CODE2_BANK              ; HUDCODE: the rest of bank 1, behind CODE2
+        .word   __HUDCODE_LOAD__, __HUDCODE_RUN__, __HUDCODE_SIZE__
         .byte   RODATA_BANK
         .word   __RODATA_LOAD__, __RODATA_RUN__, __RODATA_SIZE__
         .byte   HIDATA_BANK

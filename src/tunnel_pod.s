@@ -3,10 +3,11 @@
 ; camera, spinning on its own axis, to be caught (included by tunnel.s)
 ; =============================================================================
 ; design_technical.md 11.45 and open_questions.md H6 say what a pod is for: one for
-; each ship lost in the sector, and a catch gives the ship back. For now the test
-; tunnel flies TUN_PODS of them at fixed times (the user, 2026-10-13: the count is
-; tied to the sector later) and a catch is only counted (TPOD; the ship, the speech
-; PILOT RESCUED and PILOT LOST IN SPACE come later).
+; each ship lost in the sector, and a catch gives the ship back. So the tunnel flies
+; as many as LVSTART - LIVES (the ships in hand when the sector began, less those
+; now: hud_game.s), 0 to TUN_PODS, spread evenly (PODT*), and a catch is a ship
+; back and the score (tunnel_hud.s tun_hud_pod). TUNTEST (make run-tunnel) flies three.
+; The speech PILOT RESCUED and PILOT LOST IN SPACE come later.
 ;
 ; THE SHAPE (the user, 2026-10-13). A cylinder whose radius is the 128 rock's (32
 ; half-res px at TUN_ZFULL, R = 8.5 world units) and whose length is four times its
@@ -43,7 +44,7 @@
 ; as byte offsets), the ones that cross the HUD's frame as LINE16s cut to it.
 ; =============================================================================
 
-TUN_PODS    = 3                 ; pods in the test tunnel (later: the ships lost in the sector)
+TUN_PODS    = 4                 ; the most pods a tunnel flies: the fifth ship lost is CONTINUE
 TUN_PODR    = 36                ; a catch: |rel x| and |rel y| both under this, world units
                                 ;   (a rock's hit is 15, a cloud's catch 36; the pod's was 18,
                                 ;   doubled to make it easy - the user, 2026-10-13)
@@ -80,7 +81,8 @@ TUN_PODQ    = 40                ; the point list's size
         .segment "TUNBSS"
 DSPT:   .res    1                       ; frames to the next rock outside the tube
 DTMP:   .res    1
-PODI:   .res    1                       ; the next pod (0..TUN_PODS: all flown)
+PODI:   .res    1                       ; the next pod: an index into PODTL/PODTH...
+PODE:   .res    1                       ; ...and where this tunnel's run of them ends
 PODLX:  .res    1                       ; ...and its lane, 0..2 per axis
 PODLY:  .res    1
 TPOD:   .res    1                       ; pods caught this passage
@@ -235,9 +237,13 @@ KTM:    KTAB    TUN_PODL / 2
 KTA:    KTAB    TUN_PODWA
 KTW:    KTAB    TUN_PODWB
 LANE3:  .byte   <(-TUN_AMP), 0, TUN_AMP
-PODTL:  .byte   <900, <1800, <2700      ; when each pod is born (frames flown) TBM
-PODTH:  .byte   >900, >1800, >2700
-        .assert TUN_PODS = 3, error, "tunnel_pod.s: PODTL/PODTH hold three times"
+; when each pod is born (frames flown), TBM: one run per count, spread evenly - 1: 1500;
+; 2: 1000, 2000; 3: 900, 1800, 2700; 4: 600, 1200, 1800, 2400. PODS0 is where count N's
+; run starts.
+PODTL:  .byte   <1500, <1000, <2000, <900, <1800, <2700, <600, <1200, <1800, <2400
+PODTH:  .byte   >1500, >1000, >2000, >900, >1800, >2700, >600, >1200, >1800, >2400
+PODS0:  .byte   0, 0, 1, 3, 6
+        .assert TUN_PODS = 4, error, "tunnel_pod.s: PODTL/PODTH hold runs for 1..4 pods"
         .assert 2700 < TUN_FRAMES - TUN_RUSHF - TUN_CLEAR, error, "tunnel_pod.s: the last pod must be born before the rocks stop"
 
 ; -----------------------------------------------------------------------------
@@ -247,7 +253,26 @@ PODTH:  .byte   >900, >1800, >2700
 tun_pod_init:
         lda     #20                     ; the first rock outside the tube a third of a second in
         sta     DSPT
-        stz     PODI
+.if TUNTEST
+        lda     #3                      ; (no sector behind it: three)
+.else
+        lda     LVSTART                 ; the ships lost in the sector...
+        sec
+        sbc     LIVES
+        bcs     :+
+        lda     #0                      ;   (more now than then: none)
+:       cmp     #TUN_PODS + 1
+        bcc     :+
+        lda     #TUN_PODS               ;   ...at most TUN_PODS
+:
+.endif
+        tax                             ; ...and their run in PODTL/PODTH
+        lda     PODS0,x
+        sta     PODI
+        clc
+        txa
+        adc     PODI
+        sta     PODE
         stz     TPOD
         stz     TPLOST
         ldx     #TUN_ROCKS
@@ -372,6 +397,70 @@ tun_deco:
 .endif
         rts
 
+; (tun_ring and tun_rmul are the roll's - tunnel.s - and live here because bank 10 is full)
+; tun_ring - thing X (TRK) in a CORNER lane (|x| and |y| both over 40: the lanes are
+; 0 or +-AMP, give or take 16) is pulled in to the roll's ring: x and y times 181/256
+; (1/sqrt 2), so (AMP, AMP) is AMP from the axis, like the side lanes.
+tun_ring:
+        lda     RXW,x
+        jsr     tun_abs
+        cmp     #41
+        bcc     @r
+        lda     RYW,x
+        jsr     tun_abs
+        cmp     #41
+        bcc     @r
+        lda     RXW,x
+        jsr     @s
+        sta     RXW,x
+        lda     RYW,x
+        jsr     @s
+        sta     RYW,x
+@r:     rts
+@s:     sta     TMV                     ; A * 181 >> 8, rounded, signed
+        jsr     tun_abs
+        tax
+        lda     #181
+        jsr     tun_rmul
+        lda     PL
+        asl     a
+        lda     PH
+        adc     #0
+        ldx     TMV
+        bpl     :+
+        eor     #$FF
+        clc
+        adc     #$01
+:       ldx     TRK
+        rts
+
+; tun_rmul - A (0..255) * X (0..127) -> PH:PL, exact: umul, or when A + X is past the
+; table, 2 * (A >> 1) * X (+ X if A was odd).
+tun_rmul:
+        sta     TA
+        stx     TB
+        clc
+        adc     TB
+        bcs     @big
+        jmp     umul                    ; tail
+@big:   lda     TA
+        sta     RMT
+        lsr     a
+        sta     TA
+        jsr     umul
+        asl     PL
+        rol     PH
+        lda     RMT
+        lsr     a
+        bcc     @r
+        clc
+        lda     PL
+        adc     TB
+        sta     PL
+        bcc     @r
+        inc     PH
+@r:     rts
+
 ; -----------------------------------------------------------------------------
 ; tun_pod_sched - once a frame, before the rocks: the ghost discs are cleared (the
 ; pod sets them again if it is in view) and the next pod is born when its time has
@@ -386,10 +475,10 @@ tun_pod_sched:
         lda     SC_PTRH                 ;   no pod is born late, in the run's end
         sbc     #>(TUN_FRAMES - TUN_RUSHF - TUN_CLEAR)
         bcc     :+
-        lda     #TUN_PODS
+        lda     PODE
         sta     PODI
 :       ldx     PODI
-        cpx     #TUN_PODS
+        cpx     PODE
         bcs     @r
         lda     SC_PTRL
         cmp     PODTL,x
@@ -425,6 +514,7 @@ tun_pod_sched:
         ldy     PODLY
         jsr     @jit
         sta     RYW,x
+        jsr     tun_ring                ; a corner lane pulled in to the roll's ring
         inc     PODI
         jmp     tun_pod_lane            ; (tail) the next one's
 @jit:   jsr     prng
@@ -443,7 +533,7 @@ tun_pod_sched:
 ; -----------------------------------------------------------------------------
 tun_pod_guard:
         ldx     PODI
-        cpx     #TUN_PODS
+        cpx     PODE
         bcs     @r
         lda     PODTL,x
         sec
@@ -489,6 +579,7 @@ tun_pod_catch:
         lda     #SE_TELEPORT
         jsr     sfx_fire
         inc     TPOD
+        jsr     tun_hud_pod             ; a ship back, and the score (tunnel_hud.s)
         ldx     TRK
         stz     RZL,x
         stz     RZH,x
@@ -1345,7 +1436,9 @@ tun_draw_pod:
         jsr     qmul
         sta     PRR
         ldx     TRK
-        lda     RAN,x
+        lda     RAN,x                   ; (its roll and the world's)
+        clc
+        adc     THH
         clc
         adc     #32
         sta     PT2
@@ -1396,7 +1489,9 @@ tun_pod_window:
         stz     PCLL
         stz     PCLR
         ldx     TRK
-        lda     RAN,x
+        lda     RAN,x                   ; (its roll and the world's)
+        clc
+        adc     THH
         sec
         sbc     #TUN_PODWH
         sec

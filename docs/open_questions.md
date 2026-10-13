@@ -1116,6 +1116,30 @@ the Saturnium collected in this passage, never a pod. Open:
 
 * The lean (it springs back to the centre, 11.45): its range, and how fast
   it leans and returns (TBM).
+* **CHOSEN 2026-10-13 (the user; merged from the branch `tunnel-roll`): LEFT/RIGHT ROLL THE WORLD** round the
+  tube's axis instead of leaning, eased (W += (T - W) >> 3, top rate 2 brad a frame);
+  UP/DOWN still lean along the screen's up-down, so the eight places become a ring.
+  Every point is seen at R(TH) (w - cam), cam = R(-TH) (0, LY); a rock's angle gets TH
+  too, a Saturnium cloud's pattern does not (the user: it may set it apart from the
+  stars); the far stars are a disc of radius 105 turned with the roll. A hit knocks the
+  roll. UP/DOWN inverted (UP leans down). The reach is a ring, so a corner lane is pulled
+  in to it at birth. Dust born in a disc of radius 190 (was 127), signed-16 places; dust
+  and far stars 24 each (were 32). Cost, measured: a calm frame 66.5 k (main 59.6 k), the
+  rush 77.5 k (main 72 k); two madsim dumps (8 rocks + a pod, rolling) that were at 91%
+  and 100.6% replay at 75% and 83.5%. Open: whether players find it too hard (play-testing).
+  **THE EIGHT-WAY LEAN IS KEPT ASIDE, NOT IN THE SOURCE** (the user: in case the roll proves
+  too hard): git tag **`tunnel-lean-8way`** is the last commit with it (`235d66f`), and the
+  whole roll is ONE commit on top, **`e510a3b`** ("Tunnel: LEFT/RIGHT roll the world").
+  To go back: `git revert e510a3b`. Expect conflicts only where later work hooks into the
+  same code - tunnel_hud.s's calls in `tun_catch`/`tun_hit`/`tunnel_frame` and the dust and
+  far-star counts (24/24 since the roll; the lean had 32/32 and ran at 59.6 k a calm frame).
+  What the revert takes away, so nothing has to be re-thought: `tun_lean_frame` back to two
+  springs (LEFT/RIGHT on x, UP/DOWN on y, not inverted), the dust back on the signed-byte
+  torus (born in a +-127 square, `tun_proj`/`tun_proj9`), the far stars back to a 150 x 150
+  wrap slid by CAM >> 3, `tun_rot`/`tun_trig`/`tun_ring` and the roll's TH added to rock and
+  pod angles gone, and the corner lanes back at (+-81, +-81). Keep, if going back: the
+  inverted UP/DOWN if wanted (one swap in `tun_lean_frame`), and tunnel_hud.s, which does
+  not depend on the controls.
 * The seeded generator (11.45): how it makes sure a pod is always reachable,
   and the density per level.
 * Whether "all the Saturnium" is too harsh once flown (first setting, 11.45).
@@ -1143,6 +1167,13 @@ the Saturnium collected in this passage, never a pod. Open:
      in THIS sector (needs a per-sector count the field does not keep), a catch returns a ship (LIVES), the
      speech PILOT RESCUED / PILOT LOST IN SPACE, and the cost (~73 k CPU near: the facing test and the point
      list could be cheaper).
+  1b. **BUILT 2026-10-13 (`tunnel_hud.s`, design_technical 11.45):** the bottom band carries SHIPS + hull (line
+     46, hud_game.s's code in HUDCODE) and SATURNIUM (line 48; no LEVEL + SCORE in the tunnel), the hull grows to full, the
+     Saturnium is the sector's +50 a cloud -20 a hit, sparks at SATN_FULL, one pod per ship lost (LVSTART -
+     LIVES), a catch = a ship + 300, a cloud + 100. **Still to do: the ANIMATED PICTURE OF THE SHIP BEING
+     REPAIRED where the radar stands in the sector** (the user's art, not drawn yet): in the tunnel only the
+     band's right side is free for it - cells 24+ of lines 44-49, ~100 x 50 px. Its look, its frames and
+     their cost (sprites or background) are open; it should read as the hull growing.
   2. **The stat bar (top 50 px) and the radio bar (bottom 50 px)**: Saturnium, ships, the sector's score /
      time / kills (the field would have to count time and kills), and the debrief / brief text typed out like
      a telegraph (H5). Also the window may move to the top later (the user): the HUD art and the 150 x 150
@@ -1150,8 +1181,8 @@ the Saturnium collected in this passage, never a pod. Open:
   3. **A per-level seeded generator** (the same stream every run, a density per level, the pod guarantee),
      replacing the free PRNG; plus the per-level variety (L1 clean ice, L2 a silhouette that flickers, L3 SRV
      wrecks, L4 shadows pacing the ship, L5 the tunnel folding back).
-  4. **The Saturnium rule to settle**: the design said any rock hit costs all of the passage's Saturnium;
-     the user made a hit a knock only. Decide whether the loss comes back (tally `TSAT` is the place).
+  4. **The Saturnium rule - settled 2026-10-13 (the user):** a rock hit takes 20 (to 0), a cloud adds 50,
+     on the hold carried from the sector (tunnel_hud.s).
   5. **The states round it**: the picture / summary / story between the tunnel and the next sector (the
      tunnel now exits straight to `set_state_field`); the 0.1 s reload hitch hidden under a blind.
   6. **Entry**: only the exit gate (and `run-tunnel`); the original idea was a test tunnel at the start of the

@@ -242,6 +242,9 @@ IND_CUR     = $70A2             ; what is on the bar (IQ_NONE = nothing)
 IND_QN      = $70A3             ; how many are queued
 IND_QD      = $70A4             ; ...and their ids, IND_QMAX of them
 HUD_N       = $70A8             ; scratch: a length or a carry, over one call
+LVSTART     = $70C6             ; LIVES when this sector began (level_begin): the
+                                ;   tunnel flies a lifepod for each ship lost since
+                                ;   (tunnel_pod.s). Past DBG_CLASSES' block
 
 ; -----------------------------------------------------------------------------
 ; DBG_CLASSES - a TEMPORARY class census, top left, one line per size class
@@ -1055,4 +1058,4 @@ IND_HI:     .byte   >IM_HULL_S, >IM_CRIT_S, >IM_LEVEL_S, >IM_LIFE_S, >IM_ENEMY_S
         .assert (IND_HI - IND_LO) = IM_COUNT, error, "hud_game.s: IND_LO is not IM_COUNT bytes long"
         .assert (* - IND_HI) = IM_COUNT, error, "hud_game.s: IND_HI is not IM_COUNT bytes long"
 
-        .segment "CODE2"
+        .segment "HUDCODE"
