@@ -1116,6 +1116,18 @@ the Saturnium collected in this passage, never a pod. Open:
 
 * The lean (it springs back to the centre, 11.45): its range, and how fast
   it leans and returns (TBM).
+* **On trial (branch `tunnel-roll`, 2026-10-13): LEFT/RIGHT ROLL THE WORLD** round the
+  tube's axis instead of leaning, eased (W += (T - W) >> 3, top rate 2 brad a frame);
+  UP/DOWN still lean along the screen's up-down, so the eight places become a ring.
+  Every point is seen at R(TH) (w - cam), cam = R(-TH) (0, LY); a rock's angle gets TH
+  too, a Saturnium cloud's pattern does not (the user: it may set it apart from the
+  stars); the far stars are a disc of radius 105 turned with the roll. A hit knocks the
+  roll. UP/DOWN inverted (UP leans down). The reach is a ring, so a corner lane is pulled
+  in to it at birth. Dust born in a disc of radius 190 (was 127), signed-16 places; dust
+  and far stars 24 each (were 32). Cost, measured: a calm frame 66.5 k (main 59.6 k), the
+  rush 77.5 k (main 72 k); two madsim dumps (8 rocks + a pod, rolling) that were at 91%
+  and 100.6% replay at 75% and 83.5%. The question is whether it plays better than the
+  eight-way lean.
 * The seeded generator (11.45): how it makes sure a pod is always reachable,
   and the density per level.
 * Whether "all the Saturnium" is too harsh once flown (first setting, 11.45).

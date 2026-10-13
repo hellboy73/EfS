@@ -45,17 +45,25 @@ TUN_FRAMES  = 3600              ; a minute of flying (design_technical 11.45), t
 ; Each is ONE PIXEL whatever its depth - the field's rule (37) - drawn by one
 ; DOT_PIXELS. A square hole of TUN_HOLE (in rel) is kept empty at birth: nothing
 ; is born on the line of flight, which is what makes it a tunnel and not a pin.
-TUN_STARS   = 32                ; TBM: the GPU is the tight side (11.49). Half of the
-                                ;   first 64 (the user, 2026-10-13: not more, rather fewer)
+; WITH THE ROLL (branch tunnel-roll) the torus is gone: a star's place is signed 16
+; (SX/SXH, SY/SYH), born in a DISC of radius TUN_DUSTR round the view's centre, turned
+; into the world (R(-TH)) - wider than the tube (the user, 2026-10-13: dust outside it
+; too, the same count, the density may fall). At ZMAX the window's edge is a rel of 255
+; (z is in units of 2), so the disc is not the whole window there: the dust spreads out
+; to it as it comes in. A star whose |rel| is past its depth is outside the window.
+TUN_STARS   = 24                ; TBM: the GPU is the tight side (11.49). 24 since the roll (the user,
+                                ;   2026-10-13: 32 cost too much CPU once turned); it was 32, half
+                                ;   of the first 64 (the user, 2026-10-13: not more, rather fewer)
 TUN_F       = 150               ; the focal length: o = rel * F / z
 TUN_ZMIN    = 6                 ; a star nearer than this is gone
 TUN_ZMAX    = 255                   ; A STAR'S DEPTH IS IN UNITS OF 2 (a rock's is true z): so
                                 ;   it is born 510 away, twice as far as it was, and
-                                ;   its offset is rel * F / (2 z) - tun_proj halves it
+                                ;   its offset is rel * F / (2 z) - tun_projwin halves it
 TUN_SPEED   = 2                 ; a star's z a frame (units of 2), and one more on every odd
                                 ;   frame: 2.5 on average = 5 true z, which is a rock's speed
                                 ;   (SPD2). 2x the 2.5 it was (the user, 2026-10-13)
 TUN_HOLE    = 24                ; the empty square round the axis, at birth
+TUN_DUSTR   = 190               ; the disc a star is born in (rel): 1.5 x the 127 it was
 
 ; --- THE HIT (design: the user, 2026-10-13) --------------------------------------
 ; A rock that reaches the ship (TUN_HITR) KNOCKS it: the lean's velocity gets a kick
@@ -132,7 +140,7 @@ TUN_CLEAR   = 200
 ; no perspective, no zoom. All they do is slide a little against the lean (the
 ; camera divided by 2^TUN_FSH, the other way), wrapping round the window like the
 ; torus the dust lives on. A rock hides them, like it hides dust.
-TUN_FAR     = 32
+TUN_FAR     = 24                ; 32 until the roll (the user, 2026-10-13)
 TUN_FSH     = 3                 ; they move CAM >> 3: at full lean (81) 10 px of 150
 
 ; --- THE ROCKS (design: the user, 2026-10-13) ---------------------------------
@@ -178,10 +186,32 @@ TUN_AMP     = 81                ; how far it leans, in x/y units: 3 x the first 
                                 ;   position (+-127): the star field wraps
 TUN_K1      = 6
 TUN_K2      = 2
+
+; --- THE ROLL (design: the user, 2026-10-13 - on trial, branch tunnel-roll) --------------
+; LEFT and RIGHT no longer lean: they TURN THE WORLD round the tube's axis. UP and DOWN
+; still lean (the spring above, the y axis only, and inverted: UP leans down, like a
+; pilot's stick), so the ship is at LY, its distance from
+; the axis along the screen's up-down, and the roll TH says which way "up" is: the camera
+; is at R(-TH) (0, LY) in the world, and every point is seen at R(TH) (w - cam) - the
+; nine places are a ring of them now, the same reach. TH is 8.8 brad, its rate W 8.8 brad
+; a frame, and W eases to its target (+-TUN_ROLLW held, 0 let go) by W += (T - W) >> K:
+; a short smooth start and stop (time constant 2^K frames, 90% in ~18 at K = 3). RIGHT
+; turns the world ANTICLOCKWISE (so at the top of the tube the ship goes right).
+; R(a): x' = x C - y S, y' = x S + y C (portrait: x right, y down), the same as the GPU's
+; polygon rotation in fb space (the TATE turn is a rotation, so the two agree), so a rock's
+; angle on the screen is its own plus TH. The reach is a RING of radius AMP now, not the
+; square +-AMP a side, so a thing born in a CORNER lane (+-AMP on both axes, 1.41 AMP out)
+; is pulled in to the ring (tun_ring: both times 181/256), where the ship can get to it.
+; A Saturnium cloud's centre turns with the world
+; but its pattern does NOT (the user: it may set it apart from the stars).
+TUN_ROLLW   = $0200             ; the roll's top rate, 8.8 brad a frame: a turn in 128 frames (TBM)
+TUN_ROLLK   = 3                 ; the ease (TBM)
+TUN_RKICK   = $0180             ; a hit's knock on the roll, 8.8 brad a frame (TBM)
 TUN_HALF    = 75                ; the window's half-extent, HALF-res px
 TUN_CX      = 100               ; the window's centre in half-res framebuffer
 TUN_CY      = 75                ;   coordinates: fb x = 100 + (portrait down),
                                 ;   fb y = 75 - (portrait right) - the TATE turn
+        .assert TUN_F = 2 * TUN_HALF, error, "tunnel.s: tun_projs culls |rel| >= z, which is the window's edge only when F = 2 * HALF"
         .assert TUN_F * 128 / TUN_ZMIN / 128 + 128 <= 255, error, "tunnel.s: |rel| (<= 128) + R's high byte must fit umul's table index"
         .assert TUN_AMP <= 127, error, "tunnel.s: the lean is a signed byte"
         .assert TUN_ZMIN > TUN_SPEED + 1, error, "tunnel.s: z would borrow"
@@ -190,8 +220,10 @@ TUN_CY      = 75                ;   coordinates: fb x = 100 + (portrait down),
 
         .pushseg
         .segment "TUNBSS"
-SX:     .res    TUN_STARS               ; the star's place on the torus, any byte
+SX:     .res    TUN_STARS               ; the star's place in the world, signed 16: low...
 SY:     .res    TUN_STARS
+SXH:    .res    TUN_STARS               ; ...and high (the roll's field is wider than a byte)
+SYH:    .res    TUN_STARS
 SZ:     .res    TUN_STARS               ; ZMIN..ZMAX
 DOTB:   .res    1 + 2 * (TUN_STARS + TUN_FAR)   ; the DOT_PIXELS payload: N, x, y, ...
 RVX:    .res    TUN_ROCKS               ; a thrown rock's world velocity, signed, units a frame
@@ -207,12 +239,42 @@ ACCF:   .res    1                       ; the rush's speed-up, the fraction not 
 TMV:    .res    1
 KSX:    .res    1                       ; the side the knock is from, per axis ($80 = left/above)
 KSY:    .res    1
-FARX:   .res    TUN_FAR                 ; a far star's place in the window, 0..149 each way
-FARY:   .res    TUN_FAR
-FSX:    .res    1                       ; the lean >> TUN_FSH, signed, per axis
-FSY:    .res    1
-CAMX:   .res    1                       ; the lean (signed), zero for now
+FARR:   .res    TUN_FAR                 ; a far star's place round the window's centre: radius
+FARA:   .res    TUN_FAR                 ;   (0..105, half-res px) and angle (brad)
+FSY:    .res    1                       ; the lean >> TUN_FSH, signed
+CAMX:   .res    1                       ; the camera in the world (signed): R(-TH) (0, LY)
 CAMY:   .res    1
+CXH:    .res    1                       ; ...sign-extended, for the rocks' 9-bit rel
+CYH:    .res    1
+LY:     .res    1                       ; the lean (signed): the spring's y, rounded
+WLO:    .res    1                       ; the roll's rate, 8.8 brad a frame, signed
+WHI:    .res    1
+THL:    .res    1                       ; ...and the roll, 8.8 brad
+THH:    .res    1
+ACM:    .res    1                       ; |cos TH| and |sin TH| (Q0.7)...
+ACS:    .res    1
+SGC:    .res    1                       ; ...and their signs (bit 7)
+SGS:    .res    1
+RXL:    .res    1                       ; tun_rot's input, two signed 16 (|v| <= 255)...
+RXH:    .res    1
+RYL:    .res    1
+RYH:    .res    1
+RQXL:    .res    1                       ; ...and its output
+RQXH:    .res    1
+RQYL:    .res    1
+RQYH:    .res    1
+MXR:    .res    1                       ; its magnitudes and signs
+MYR:    .res    1
+SXR:    .res    1
+SYR:    .res    1
+ACL:    .res    1                       ; ...and its sum
+ACH:    .res    1
+RHV:    .res    1                       ; 1 = both halved, the result doubled
+SG1:    .res    1                       ; the four products' signs
+SG2:    .res    1
+SG3:    .res    1
+SG4:    .res    1
+RMT:    .res    1
 TI:     .res    1                       ; the star being worked on (the multiply
                                         ;   clobbers X and Y, so it lives here)
 TZ:     .res    1
@@ -493,18 +555,11 @@ tun_pcore:
 :       rts
 
 ; -----------------------------------------------------------------------------
-; tun_proj - A = rel, a signed byte: x - cam, the wrap being the torus. TZ = the
-; depth. C CLEAR: A = its offset on the window, signed, |A| < TUN_HALF. C SET: it
-; is outside the window, and the star is done.
+; tun_projwin - after tun_pcore on a star (TS its sign): C CLEAR: A = its offset on
+; the window, signed, |A| < TUN_HALF. C SET: it is outside the window, and the star
+; is done.
 ; -----------------------------------------------------------------------------
-tun_proj:
-        sta     TS
-        bpl     :+
-        eor     #$FF
-        clc
-        adc     #$01
-:       sta     TA                      ; |rel|, 0..128
-        jsr     tun_pcore
+tun_projwin:
         lsr     OH                      ; (a star's z is in units of 2: half the offset)
         ror     OL
         lda     OH
@@ -526,32 +581,256 @@ tun_proj:
         rts
 
 ; -----------------------------------------------------------------------------
-; tun_proj9 - A = the LOW BYTE of rel = (x - cam), straight from the SBC: |rel|
-; reaches 177 for a rock (+-97 less the lean +-81), which a signed byte cannot
-; hold, so the sign is N xor V and the magnitude the byte read as unsigned, or
-; its negation. -> TS, MG = |rel|, OH:OL = |offset| (16 bit, not windowed).
+; tun_projw - A = the low byte, X = the high byte of a signed 16 rel (turned: tun_rot's
+; output). -> TS, MG = |rel|, OH:OL = |offset| (16 bit, not windowed). |rel| is held to 240,
+; which keeps TA + R's high byte a table index (a rock's TZ >= 14: RH <= 10) and is far
+; outside the window for anything that near (only a thrown rock gets so far off).
+; tun_projs - the same for a star, windowed: C and A as tun_projwin.
 ; -----------------------------------------------------------------------------
-tun_proj9:
-        sta     TA                      ; (STA leaves N and V as the SBC made them)
-        bvs     @ov
-        bmi     @neg
-@sp:    stz     TS
-        bra     @go
-@ov:    bmi     @sp                     ; overflowed with the byte negative: positive
-@neg:   lda     #$80                    ; negative: |rel| = 0 - the byte
-        sta     TS
-        lda     #$00
-        sec
-        sbc     TA
+tun_projs:
+        jsr     tun_pmag
+        cpx     #0                      ; |rel| >= z: its offset |rel| F / 2z is past
+        bne     @out                    ;   the window's half (F = 2 * TUN_HALF) - and
+        cmp     TZ                      ;   TA + R's high byte stays a table index
+        bcs     @out
         sta     TA
-@go:    jmp     tun_pcore               ; tail
+        jsr     tun_pcore
+        jmp     tun_projwin             ; tail
+@out:   sec
+        rts
+tun_projw:
+        jsr     tun_pmag
+        cpx     #0
+        bne     @cl
+        cmp     #241
+        bcc     @ok
+@cl:    lda     #240
+@ok:    sta     TA
+        jmp     tun_pcore               ; tail
 
-; tun_abs - A = |A| (128 for -128).
-tun_abs:
-        bpl     :+
+; tun_pmag - A = low, X = high of a signed 16 -> TS its sign ($80 = negative), A low
+; and X high of its magnitude.
+tun_pmag:
+        stz     TS
+        cpx     #$80
+        bcc     @p
+        pha
+        lda     #$80
+        sta     TS
+        pla
         eor     #$FF
         clc
         adc     #$01
+        pha
+        txa
+        eor     #$FF
+        adc     #$00
+        tax
+        pla
+@p:     rts
+
+; -----------------------------------------------------------------------------
+; tun_trig - ACM/SGC and ACS/SGS: |cos TH|, |sin TH| and their signs, for tun_rot.
+; -----------------------------------------------------------------------------
+tun_trig:
+        lda     THH
+        jsr     API_COS
+        sta     SGC
+        jsr     tun_abs
+        sta     ACM
+        lda     THH
+        jsr     API_SIN
+        sta     SGS
+        jsr     tun_abs
+        sta     ACS
+        rts
+
+; -----------------------------------------------------------------------------
+; tun_rot - QX, QY = R(TH) (RX, RY): x' = x C - y S, y' = x S + y C, signed 16 in
+; and out. FAST (it runs ~45 times a frame - the first version, through umul and a
+; 24-bit sum, cost ~870 cycles a call and put a dump at 100% of a frame): each side's
+; magnitude is held to 255 (only a thrown rock or a star far off to the side is ever
+; past it, and it is outside the window), and when either is 128 or more BOTH are
+; halved and the result doubled - such a point is so far off that it is seen only
+; when far, where a unit is under a pixel. Then every product is |a| * |c| with both
+; <= 127, straight from the quarter squares (QSL/QSH), and each sum fits 16 bits.
+; tun_roti - the same by R(-TH) (S negated). Clobbers A X Y.
+; -----------------------------------------------------------------------------
+; QPROD m, c - PL = low, A = high of m * c (both <= 127): f(m + c) - f(|m - c|).
+.macro QPROD m, c
+        clc
+        lda     m
+        adc     c
+        tax
+        sec
+        lda     m
+        sbc     c
+        bcs     :+
+        eor     #$FF                    ; (carry clear: + 1 negates)
+        adc     #$01
+:       tay
+        sec
+        lda     QSL,x
+        sbc     QSL,y
+        sta     PL
+        lda     QSH,x
+        sbc     QSH,y
+.endmacro
+; QSIGN sg - ACH:ACL = +-(A:PL), negative when bit 7 of sg (memory) is set.
+.macro QFIRST sg
+        sta     ACH
+        lda     PL
+        sta     ACL
+        bit     sg
+        bpl     :+
+        sec
+        lda     #0
+        sbc     ACL
+        sta     ACL
+        lda     #0
+        sbc     ACH
+        sta     ACH
+:
+.endmacro
+; QNEXT sg - ACH:ACL += (A:PL), or -= when bit 7 of sg is set.
+.macro QNEXT sg
+        sta     PH
+        bit     sg
+        bmi     :+
+        clc
+        lda     ACL
+        adc     PL
+        sta     ACL
+        lda     ACH
+        adc     PH
+        sta     ACH
+        bra     :++
+:       sec
+        lda     ACL
+        sbc     PL
+        sta     ACL
+        lda     ACH
+        sbc     PH
+        sta     ACH
+:
+.endmacro
+; QROUND - A (low), X (high) = (ACH:ACL + 64) >> 7, doubled when RHV.
+.macro QROUND
+        clc
+        lda     ACL
+        adc     #64
+        sta     ACL
+        lda     ACH
+        adc     #0
+        asl     ACL                     ; bit 7 of the low byte into the bottom...
+        rol     a                       ; ...and the sign out into carry
+        ldx     #0
+        bcc     :+
+        dex
+:       ldy     RHV
+        beq     :+
+        asl     a                       ; (doubled, 16 bit)
+        tay
+        txa
+        rol     a
+        tax
+        tya
+:
+.endmacro
+
+tun_roti:
+        lda     SGS
+        eor     #$80
+        sta     SGS
+        jsr     tun_rot
+        lda     SGS
+        eor     #$80
+        sta     SGS
+        rts
+tun_rot:
+        lda     RXH                     ; |x|, held to 255, and its sign
+        sta     SXR
+        bpl     @xp
+        sec
+        lda     #0
+        sbc     RXL
+        tax
+        lda     #0
+        sbc     RXH
+        bne     @xc
+        txa
+        bra     @xs
+@xp:    bne     @xc                     ; (the Z of the LDA RXH)
+        lda     RXL
+        bra     @xs
+@xc:    lda     #255
+@xs:    sta     MXR
+        lda     RYH                     ; |y|, the same
+        sta     SYR
+        bpl     @yp
+        sec
+        lda     #0
+        sbc     RYL
+        tax
+        lda     #0
+        sbc     RYH
+        bne     @yc
+        txa
+        bra     @ys
+@yp:    bne     @yc
+        lda     RYL
+        bra     @ys
+@yc:    lda     #255
+@ys:    sta     MYR
+        stz     RHV                     ; either past 127: both halved
+        ora     MXR
+        bpl     :+
+        lsr     MXR
+        lsr     MYR
+        inc     RHV
+:       lda     SXR                     ; the four products' signs
+        eor     SGC
+        sta     SG1                     ; x C
+        lda     SYR
+        eor     SGS
+        eor     #$80
+        sta     SG2                     ; - y S
+        lda     SXR
+        eor     SGS
+        sta     SG3                     ; x S
+        lda     SYR
+        eor     SGC
+        sta     SG4                     ; y C
+        QPROD   MXR, ACM                ; x' = x C - y S
+        QFIRST  SG1
+        QPROD   MYR, ACS
+        QNEXT   SG2
+        QROUND
+        sta     RQXL
+        stx     RQXH
+        QPROD   MXR, ACS                ; y' = x S + y C
+        QFIRST  SG3
+        QPROD   MYR, ACM
+        QNEXT   SG4
+        QROUND
+        sta     RQYL
+        stx     RQYH
+        rts
+
+; tun_sx - A = a signed byte -> A = its high byte, sign-extended ($00 or $FF).
+tun_sx:
+        cmp     #$80
+        lda     #$00
+        bcc     :+
+        lda     #$FF
+:       rts
+
+; tun_abs - A = |A| (128 for -128).
+tun_abs:
+        cmp     #$80                    ; (the sign from A itself, not the flags: a caller
+        bcc     :+                      ;   may come straight from a STA)
+        eor     #$FF
+        adc     #$00                    ; (carry set: + 1)
 :       rts
 
 ; -----------------------------------------------------------------------------
@@ -559,27 +838,75 @@ tun_abs:
 ; hole. rel is picked and x = rel + cam stored, so the torus does the rest.
 ; -----------------------------------------------------------------------------
 tun_born:
-@try:   jsr     prng
+@try:   jsr     prng                    ; |x|, |y| < TUN_DUSTR...
+        cmp     #TUN_DUSTR
+        bcs     @try
         sta     SVX
-        jsr     prng
+@ty:    jsr     prng
+        cmp     #TUN_DUSTR
+        bcs     @ty
         sta     SVY
-        lda     SVX
-        jsr     tun_abs
-        cmp     #TUN_HOLE
+        cmp     #TUN_HOLE               ; ...not both inside the hole...
         bcs     @ok
-        lda     SVY
-        jsr     tun_abs
-        cmp     #TUN_HOLE
-        bcc     @try                    ; both inside the hole: again
-@ok:    ldx     TI
         lda     SVX
+        cmp     #TUN_HOLE
+        bcc     @try
+@ok:    lda     SVY                     ; ...and inside the disc (the octagon
+        cmp     SVX                     ;   max + min/2 < DUSTR)
+        bcs     :+
+        lda     SVX
+        ldx     SVY
+        bra     :++
+:       ldx     SVX
+:       stx     TMP
+        lsr     TMP
         clc
+        adc     TMP
+        bcs     @try
+        cmp     #TUN_DUSTR
+        bcs     @try
+        jsr     prng                    ; the signs: bit 0 x, bit 1 y
+        sta     TMP2
+        lda     SVX
+        stz     RXH
+        lsr     TMP2
+        bcc     :+
+        eor     #$FF                    ; (negated, 16 bit)
+        clc
+        adc     #$01
+        dec     RXH
+:       sta     RXL
+        lda     SVY
+        stz     RYH
+        lsr     TMP2
+        bcc     :+
+        eor     #$FF
+        clc
+        adc     #$01
+        dec     RYH
+:       sta     RYL
+        ldx     RXL                     ; (a negation of 0 is 0: no borrow into the high byte)
+        bne     :+
+        stz     RXH
+:       ldx     RYL
+        bne     :+
+        stz     RYH
+:       jsr     tun_roti                ; rel = R(-TH) (the place in view), x = rel + cam
+        ldx     TI
+        clc
+        lda     RQXL
         adc     CAMX
         sta     SX,x
-        lda     SVY
+        lda     RQXH
+        adc     CXH
+        sta     SXH,x
         clc
+        lda     RQYL
         adc     CAMY
         sta     SY,x
+        lda     RQYH
+        adc     CYH
+        sta     SYH,x
         jsr     prng                    ; ZMAX less a little, so a reborn star
         and     #$07                    ;   does not come in with all the others
         sta     TMP
@@ -666,50 +993,90 @@ tun_lean:
         rts
 
 ; -----------------------------------------------------------------------------
-; tun_lean_frame - the stick to a target on each axis, one spring step each, and
-; the camera = the position rounded (P + 1/2, whole part).
+; tun_lean_frame - LEFT/RIGHT: the roll's rate eased to its target, the roll turned
+; by it, and its cos and sin (tun_trig). UP/DOWN: the lean's spring, the y axis only
+; (LY = its position rounded). The camera = R(-TH) (0, LY) in the world, shaken.
 ; -----------------------------------------------------------------------------
 tun_lean_frame:
         ldx     JOYPORT
         lda     JOY1,x
         sta     TJ
-        stz     TT                      ; x: RIGHT leans right, LEFT left
+        stz     AL                      ; the roll's target rate, 8.8: RIGHT turns the
+        stz     AH                      ;   world anticlockwise (TH falling)
         lda     TJ
         and     #JOY_RIGHT
         beq     :+
-        lda     #TUN_AMP
-        sta     TT
+        lda     #<(-TUN_ROLLW)
+        sta     AL
+        lda     #>(-TUN_ROLLW)
+        sta     AH
 :       lda     TJ
         and     #JOY_LEFT
         beq     :+
-        lda     #<(-TUN_AMP)
-        sta     TT
-:       lda     TT
-        ldx     #0
-        jsr     tun_lean
-        stz     TT                      ; y: DOWN leans down (portrait), UP up
-        lda     TJ
-        and     #JOY_DOWN
+        lda     #<TUN_ROLLW
+        sta     AL
+        lda     #>TUN_ROLLW
+        sta     AH
+:       sec                             ; E = (T - W) >> K
+        lda     AL
+        sbc     WLO
+        sta     EL
+        lda     AH
+        sbc     WHI
+        sta     EH
+        ldy     #TUN_ROLLK
+        jsr     tun_asr
+        lda     EL
+        ora     EH
+        bne     @acc
+        lda     AL                      ; less than a step from it: there (or a
+        sta     WLO                     ;   rate of a few 1/256 would creep on)
+        lda     AH
+        sta     WHI
+        bra     @turn
+@acc:   clc
+        lda     WLO
+        adc     EL
+        sta     WLO
+        lda     WHI
+        adc     EH
+        sta     WHI
+@turn:  clc                             ; TH += W
+        lda     THL
+        adc     WLO
+        sta     THL
+        lda     THH
+        adc     WHI
+        sta     THH
+        jsr     tun_trig
+        stz     TT                      ; y: UP leans DOWN (portrait), DOWN up - a pilot's
+        lda     TJ                      ;   stick (the user, 2026-10-13, with the roll)
+        and     #JOY_UP
         beq     :+
         lda     #TUN_AMP
         sta     TT
 :       lda     TJ
-        and     #JOY_UP
+        and     #JOY_DOWN
         beq     :+
         lda     #<(-TUN_AMP)
         sta     TT
 :       lda     TT
         ldx     #1
         jsr     tun_lean
-        lda     PLO+0                   ; round: add 1 when the fraction is >= 1/2
-        cmp     #$80
-        lda     PHI+0
-        adc     #0
-        sta     CAMX
-        lda     PLO+1
+        lda     PLO+1                   ; round: add 1 when the fraction is >= 1/2
         cmp     #$80
         lda     PHI+1
         adc     #0
+        sta     LY
+        stz     RXL                     ; the camera: R(-TH) (0, LY)
+        stz     RXH
+        sta     RYL
+        jsr     tun_sx
+        sta     RYH
+        jsr     tun_roti
+        lda     RQXL
+        sta     CAMX
+        lda     RQYL
         sta     CAMY
         lda     SHK                     ; the shake: a jitter on the camera, fading
         beq     @ns
@@ -727,7 +1094,13 @@ tun_lean_frame:
         clc
         adc     CAMY
         sta     CAMY
-@ns:    rts
+@ns:    lda     CAMX                    ; ...sign-extended, for the rocks
+        jsr     tun_sx
+        sta     CXH
+        lda     CAMY
+        jsr     tun_sx
+        sta     CYH
+        rts
 
 ; -----------------------------------------------------------------------------
 ; tun_occ - C SET when the star at offsets OXS/OYS (depth TZ) is behind a rock's
@@ -931,6 +1304,8 @@ tun_spawn:
         ldx     TRK
         sta     RYW,x
         jsr     tun_pod_guard           ; not in the lane of a pod about to come
+        ldx     TRK
+        jsr     tun_ring                ; a corner lane pulled in to the ring
         jsr     prng
         ldx     TRK
         sta     RAN,x
@@ -1065,10 +1440,30 @@ tun_rocks_frame:
         clc
         adc     RSP,x
         sta     RAN,x
-        lda     RXW,x                   ; x - cam: the SBC's flags go to tun_proj9
+        lda     RXW,x                   ; rel = w - cam, 16 bit (|rel| reaches 177 a
+        jsr     tun_sx                  ;   side: +-97 less the lean +-81)...
+        tay
+        lda     RXW,x
         sec
         sbc     CAMX
-        jsr     tun_proj9
+        sta     RXL
+        tya
+        sbc     CXH
+        sta     RXH
+        lda     RYW,x
+        jsr     tun_sx
+        tay
+        lda     RYW,x
+        sec
+        sbc     CAMY
+        sta     RYL
+        tya
+        sbc     CYH
+        sta     RYH
+        jsr     tun_rot                 ; ...turned with the world
+        lda     RQXL
+        ldx     RQXH
+        jsr     tun_projw
         jsr     tun_shr                 ; (it was projected with z >> RTIER)
         lda     MG
         sta     HXM
@@ -1078,11 +1473,9 @@ tun_rocks_frame:
         sta     XML
         lda     OH
         sta     XMH
-        ldx     TRK
-        lda     RYW,x
-        sec
-        sbc     CAMY
-        jsr     tun_proj9
+        lda     RQYL
+        ldx     RQYH
+        jsr     tun_projw
         jsr     tun_shr
         lda     MG
         sta     HYM
@@ -1393,7 +1786,9 @@ tun_hdr:
         sta     RBUF+2
         lda     RCYH,x
         sta     RBUF+3
-@rest:  lda     RAN,x
+@rest:  lda     RAN,x                   ; its angle on the screen: its own and the roll's
+        clc
+        adc     THH
         sta     RBUF+4
         lda     RSCA,x
         sta     RBUF+5
@@ -1774,11 +2169,15 @@ tun_verts:
         sta     VOFF
         lda     TSHN,y
         sta     NV
-        lda     RAN,x                   ; C and S: cos and sin of the angle times the
-        jsr     API_COS                 ;   scale (128 read as 127: a byte of Q0.7)
+        lda     RAN,x                   ; C and S: cos and sin of the angle (its own and
+        clc                             ;   the roll's) times the scale (128 read as 127:
+        adc     THH                     ;   a byte of Q0.7)
+        jsr     API_COS
         sta     CCV
         ldx     TRK
         lda     RAN,x
+        clc
+        adc     THH
         jsr     API_SIN
         sta     SSV
         ldx     TRK
@@ -2323,31 +2722,48 @@ tun_hit:
 :       ldx     TRK
         lda     #1
         sta     RDF,x
-        lda     #TUN_DEFL               ; the rock goes AWAY from the ship: the side it is on
-        ldy     KSX
+        lda     #TUN_DEFL               ; the rock goes AWAY from the ship: the side it is
+        ldy     KSX                     ;   on, in view, turned into the world (R(-TH))
         bpl     :+
         lda     #<(-TUN_DEFL)
-:       sta     RVX,x
+:       sta     RXL
+        asl     a                       ; spinning faster the way it was thrown
+        sta     RSP,x
+        lda     RXL
+        jsr     tun_sx
+        sta     RXH
         lda     #TUN_DEFL
         ldy     KSY
         bpl     :+
         lda     #<(-TUN_DEFL)
-:       sta     RVY,x
-        lda     RVX,x                   ; spinning faster the way it was thrown
-        asl     a
-        sta     RSP,x
-        lda     KSX                     ; the ship is knocked the OPPOSITE way: the
-        bmi     @kl                     ;   rock on its right (KSX clear) pushes it left
-        lda     VHI+0
-        sec
-        sbc     #TUN_KICK
-        sta     VHI+0
+:       sta     RYL
+        jsr     tun_sx
+        sta     RYH
+        jsr     tun_roti
+        ldx     TRK
+        lda     RQXL
+        sta     RVX,x
+        lda     RQYL
+        sta     RVY,x
+        lda     KSX                     ; the ship is knocked the OPPOSITE way: across, by
+        eor     LY                      ;   the roll. A turn dTH moves a thing near the ship
+        bmi     @kl                     ;   by -LY dTH in view x, so a rock on the right
+        sec                             ;   (KSX clear) with LY >= 0 goes away when TH
+        lda     WLO                     ;   falls - the rate is knocked down - and each of
+        sbc     #<TUN_RKICK             ;   the two signs flips it
+        sta     WLO
+        lda     WHI
+        sbc     #>TUN_RKICK
+        sta     WHI
         bra     @ky
-@kl:    lda     VHI+0
-        clc
-        adc     #TUN_KICK
-        sta     VHI+0
-@ky:    lda     KSY
+@kl:    clc
+        lda     WLO
+        adc     #<TUN_RKICK
+        sta     WLO
+        lda     WHI
+        adc     #>TUN_RKICK
+        sta     WHI
+@ky:    lda     KSY                     ; ...and along, by the lean's spring
         bmi     @kd
         lda     VHI+1
         sec
@@ -2670,111 +3086,112 @@ tun_streak:
         jmp     API_GPU_LINE            ; tail
 
 ; -----------------------------------------------------------------------------
-; tun_far_init - TUN_FAR random places in the window.
+; tun_far_init - TUN_FAR random places in the disc round the window's centre that
+; covers it (radius 105, half-res px), so that the roll turning them leaves no corner
+; empty: an angle at random, and a radius max(u, v) * 105 - the larger of two uniform
+; picks has twice the density at twice the radius, which is what a disc wants. About
+; half of them are in the window at a time (the square is half the disc's... less: 64%).
 ; -----------------------------------------------------------------------------
 tun_far_init:
         ldx     #TUN_FAR - 1
 @i:     stx     TI
         jsr     prng
-        cmp     #150
-        bcs     @i2
         ldx     TI
-        sta     FARX,x
+        sta     FARA,x
         jsr     prng
-        cmp     #150
-        bcs     @i3
+        sta     TMP
+        jsr     prng
+        cmp     TMP
+        bcs     :+
+        lda     TMP
+:       lsr     a                       ; (0..127) * 106 >> 7
+        sta     TA
+        lda     #106
+        sta     TB
+        jsr     umul
+        lda     PL
+        asl     a
+        lda     PH
+        rol     a
         ldx     TI
-        sta     FARY,x
-        dex
-        bpl     @i
-        rts
-@i2:    ldx     TI
-        bra     @i
-@i3:    jsr     prng
-        cmp     #150
-        bcs     @i3
-        ldx     TI
-        sta     FARY,x
+        sta     FARR,x
         dex
         bpl     @i
         rts
 
-; tun_asr_cam - A = a signed byte >> TUN_FSH, arithmetic.
-tun_asr_cam:
-        ldy     #TUN_FSH
-@l:     cmp     #$80
-        ror     a
-        dey
-        bne     @l
-        rts
-
-; tun_wrap - A = a place 0..149, SMA = a signed shift (|s| <= 12): (A - s) mod 150.
-tun_wrap:
-        sta     TMPV
-        lda     SMA
-        bmi     @neg
-        lda     TMPV
-        sec
-        sbc     SMA
-        bcs     @ok
-        adc     #150                    ; (carry clear after the borrow)
-@ok:    rts
-@neg:   eor     #$FF                    ; A - s = A + |s|
+; tun_fmul - A = a signed Q0.7, X = TI: FARR * A >> 7, rounded, signed.
+tun_fmul:
+        sta     TMV
+        jsr     tun_abs
+        sta     TB
+        lda     FARR,x
+        sta     TA
+        jsr     umul
+        lda     PL
+        clc
+        adc     #64
+        sta     PL
+        lda     PH
+        adc     #0
+        asl     PL                      ; (P + 64) >> 7: bit 7 of the sum's low byte...
+        rol     a                       ; ...in at the bottom
+        ldx     TMV
+        bpl     :+
+        eor     #$FF
         clc
         adc     #$01
-        clc
-        adc     TMPV
-        cmp     #150
-        bcc     @ok2
-        sbc     #150
-@ok2:   rts
+:       rts
 
 ; -----------------------------------------------------------------------------
-; tun_far_frame - the far stars into the DOT_PIXELS payload (DI, DN), shifted by the
-; lean and hidden by any rock in front.
+; tun_far_frame - the far stars into the DOT_PIXELS payload (DI, DN): turned with the
+; roll (at infinity a turn is all that moves them, and the lean a little: LY >> FSH),
+; the ones in the window kept, and hidden by any rock in front.
 ; -----------------------------------------------------------------------------
 tun_far_frame:
-        lda     CAMX
-        jsr     tun_asr_cam
-        sta     FSX
-        lda     CAMY
-        jsr     tun_asr_cam
+        lda     LY
+        ldy     #TUN_FSH
+@sh:    cmp     #$80
+        ror     a
+        dey
+        bne     @sh
         sta     FSY
         lda     #$FF                    ; at infinity: behind every rock
         sta     T3L
         sta     T3H
         stz     TI
 @f:     ldx     TI
-        lda     FSX                     ; moving the camera right moves them left: the
-        sta     SMA                     ;   place is A - shift (x: portrait right = ox)
-        lda     FARX,x
-        jsr     tun_wrap
-        sta     TMP2                    ; vx 0..149: ox = vx - 75, fb y = 149 - vx
+        lda     FARA,x                  ; ox = r cos(a + TH), oy = r sin(a + TH) - FSY
+        clc
+        adc     THH
+        sta     TMP2
+        jsr     API_COS
         ldx     TI
-        lda     FSY
-        sta     SMA
-        lda     FARY,x
-        jsr     tun_wrap
-        sta     TMP                     ; vy 0..149: oy = vy - 75, fb x = 25 + vy
-        lda     TMP2
-        sec
-        sbc     #75
+        jsr     tun_fmul
         sta     OXS
-        lda     TMP
+        jsr     tun_abs
+        cmp     #TUN_HALF
+        bcs     @n
+        lda     TMP2
+        jsr     API_SIN
+        ldx     TI
+        jsr     tun_fmul
         sec
-        sbc     #75
+        sbc     FSY                     ; (moving the camera down moves them up)
         sta     OYS
+        jsr     tun_abs
+        cmp     #TUN_HALF
+        bcs     @n
         jsr     tun_occ0
         bcs     @n
         ldy     DI
-        lda     TMP
+        lda     #TUN_CX                 ; fb x = centre + (portrait down)
         clc
-        adc     #25                     ; fb x = 100 + oy = 25 + vy
+        adc     OYS
         sta     DOTB,y
         iny
-        lda     #149
+        lda     #TUN_CY                 ; fb y = centre - (portrait right)
         sec
-        sbc     TMP2                    ; fb y = 75 - ox = 149 - vx
+        sbc     OXS
         sta     DOTB,y
         iny
         sty     DI
@@ -2792,6 +3209,14 @@ tun_far_frame:
 tun_stars_init:
         stz     CAMX
         stz     CAMY
+        stz     CXH
+        stz     CYH
+        stz     LY
+        stz     WLO                     ; the roll at rest, upright
+        stz     WHI
+        stz     THL
+        stz     THH
+        jsr     tun_trig
         ldx     #1                      ; the lean at rest, in the middle
 @z:     stz     PLO,x
         stz     PHI,x
@@ -2832,17 +3257,29 @@ tun_stars_frame:
         cmp     #TUN_ZMIN
         bcc     @dead
         sta     TZ
-        lda     SX,x
+        lda     SX,x                    ; rel = x - cam, 16 bit...
         sec
         sbc     CAMX
-        jsr     tun_proj
-        bcs     @dead
-        sta     OXS
-        ldx     TI
+        sta     RXL
+        lda     SXH,x
+        sbc     CXH
+        sta     RXH
         lda     SY,x
         sec
         sbc     CAMY
-        jsr     tun_proj
+        sta     RYL
+        lda     SYH,x
+        sbc     CYH
+        sta     RYH
+        jsr     tun_rot                 ; ...turned with the world
+        lda     RQXL
+        ldx     RQXH
+        jsr     tun_projs
+        bcs     @dead
+        sta     OXS
+        lda     RQYL
+        ldx     RQYH
+        jsr     tun_projs
         bcs     @dead
         sta     OYS
         jsr     tun_occ                 ; behind a rock: not drawn, still alive
@@ -2869,8 +3306,9 @@ tun_stars_frame:
 @next:  inc     TI
         lda     TI
         cmp     #TUN_STARS
-        bne     @star
-        jsr     tun_far_frame           ; the far stars join the same DOT_PIXELS
+        beq     :+
+        jmp     @star
+:       jsr     tun_far_frame           ; the far stars join the same DOT_PIXELS
         lda     DN
         beq     @ret
         sta     DOTB

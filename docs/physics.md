@@ -618,10 +618,11 @@ the window 150 x 150 of them (300 x 300 full-res).
 
 | what | constant | now | notes |
 |---|---|---|---|
-| the lean | `TUN_AMP`, `TUN_K1`, `TUN_K2` | 81, 6, 2 | a critically damped spring: 90% of the way in 31 frames, 98% in 47, no overshoot; `K1` = 7 is ~1 s |
+| the lean | `TUN_AMP`, `TUN_K1`, `TUN_K2` | 81, 6, 2 | a critically damped spring: 90% of the way in 31 frames, 98% in 47, no overshoot; `K1` = 7 is ~1 s. On the `tunnel-roll` branch: the y axis only, and inverted (UP leans down) |
+| the roll (branch `tunnel-roll`, on trial) | `TUN_ROLLW`, `TUN_ROLLK`, `TUN_RKICK` | $0200, 3, $0180 | LEFT/RIGHT turn the world round the tube's axis: rate 8.8 brad a frame eased by (T - W) >> K (90% in ~18 frames); a hit knocks the rate. The sector turns at $0180 with K = 2 (design_technical 11.15-16). The reach is a ring of radius AMP: a corner lane is pulled in to it (x 181/256) |
 | speed | `TUN_SPEED` | 2 (+1 on odd frames) | dust units of 2, so 5 true z a frame; a rock subtracts twice that |
-| dust | `TUN_STARS`, `TUN_F`, `TUN_ZMIN`, `TUN_ZMAX`, `TUN_HOLE` | 32, 150, 6, 255, 24 | a torus 256 x 256 round the ship: x - cam is a wrapping signed byte; offset = rel * F / (2 z) |
-| far stars | `TUN_FAR`, `TUN_FSH` | 32, 3 | pixels at infinity, sliding CAM >> 3 against the lean, wrapping round the window |
+| dust | `TUN_STARS`, `TUN_F`, `TUN_ZMIN`, `TUN_ZMAX`, `TUN_HOLE`, `TUN_DUSTR` | 24, 150, 6, 255, 24, 190 | offset = rel * F / (2 z). On `main`: 32, a torus 256 x 256 round the ship (x - cam a wrapping signed byte). With the roll: places signed 16, born in a disc of radius 190 in view, turned into the world |
+| far stars | `TUN_FAR`, `TUN_FSH` | 24, 3 | pixels at infinity, sliding against the lean >> 3. On `main`: 32, wrapping round the window; with the roll a disc of radius 105 (radius, angle) turned by it |
 | rocks | `TUN_ROCKS`, `TUN_SPAWN`, `TUN_RZMAX`, `TUN_ZFULL`, `TUN_ZHIT`, `TUN_RZMIN` | 16, 25 + 0..15, 1020, 40, 36, 14 | the sector's 192 outlines; a rock is drawn 1:1 at z 40 and no bigger; tested against the ship once, at z 36 |
 | rock detail | `TUN_ZLOD`, `TUN_ZDOT` | 220, 500 | beyond 220 the reduced outline; beyond 500 also dotted (`DOTPOLYGON`) |
 | the hit | `TUN_HITR`, `TUN_KICK`, `TUN_DEFL`, `TUN_SHAKE`, `TUN_RUMBLE` | 15, 3, 3, 24, 20 | the camera is kicked away (units a frame, then the spring), the rock thrown aside at its depth, the view shaken, the pad rumbles, SE_KLANG + SE_KLANG_N |

@@ -372,6 +372,70 @@ tun_deco:
 .endif
         rts
 
+; (tun_ring and tun_rmul are the roll's - tunnel.s - and live here because bank 10 is full)
+; tun_ring - thing X (TRK) in a CORNER lane (|x| and |y| both over 40: the lanes are
+; 0 or +-AMP, give or take 16) is pulled in to the roll's ring: x and y times 181/256
+; (1/sqrt 2), so (AMP, AMP) is AMP from the axis, like the side lanes.
+tun_ring:
+        lda     RXW,x
+        jsr     tun_abs
+        cmp     #41
+        bcc     @r
+        lda     RYW,x
+        jsr     tun_abs
+        cmp     #41
+        bcc     @r
+        lda     RXW,x
+        jsr     @s
+        sta     RXW,x
+        lda     RYW,x
+        jsr     @s
+        sta     RYW,x
+@r:     rts
+@s:     sta     TMV                     ; A * 181 >> 8, rounded, signed
+        jsr     tun_abs
+        tax
+        lda     #181
+        jsr     tun_rmul
+        lda     PL
+        asl     a
+        lda     PH
+        adc     #0
+        ldx     TMV
+        bpl     :+
+        eor     #$FF
+        clc
+        adc     #$01
+:       ldx     TRK
+        rts
+
+; tun_rmul - A (0..255) * X (0..127) -> PH:PL, exact: umul, or when A + X is past the
+; table, 2 * (A >> 1) * X (+ X if A was odd).
+tun_rmul:
+        sta     TA
+        stx     TB
+        clc
+        adc     TB
+        bcs     @big
+        jmp     umul                    ; tail
+@big:   lda     TA
+        sta     RMT
+        lsr     a
+        sta     TA
+        jsr     umul
+        asl     PL
+        rol     PH
+        lda     RMT
+        lsr     a
+        bcc     @r
+        clc
+        lda     PL
+        adc     TB
+        sta     PL
+        bcc     @r
+        inc     PH
+@r:     rts
+
 ; -----------------------------------------------------------------------------
 ; tun_pod_sched - once a frame, before the rocks: the ghost discs are cleared (the
 ; pod sets them again if it is in view) and the next pod is born when its time has
@@ -425,6 +489,7 @@ tun_pod_sched:
         ldy     PODLY
         jsr     @jit
         sta     RYW,x
+        jsr     tun_ring                ; a corner lane pulled in to the roll's ring
         inc     PODI
         jmp     tun_pod_lane            ; (tail) the next one's
 @jit:   jsr     prng
@@ -1345,7 +1410,9 @@ tun_draw_pod:
         jsr     qmul
         sta     PRR
         ldx     TRK
-        lda     RAN,x
+        lda     RAN,x                   ; (its roll and the world's)
+        clc
+        adc     THH
         clc
         adc     #32
         sta     PT2
@@ -1396,7 +1463,9 @@ tun_pod_window:
         stz     PCLL
         stz     PCLR
         ldx     TRK
-        lda     RAN,x
+        lda     RAN,x                   ; (its roll and the world's)
+        clc
+        adc     THH
         sec
         sbc     #TUN_PODWH
         sec

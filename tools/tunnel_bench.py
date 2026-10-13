@@ -9,8 +9,9 @@ straight into the tunnel - no gate to fly into, no sector, no title.
     python tools/tunnel_bench.py            (or: make tunnel-test)
 
 What it checks: the cockpit's 20 bands, the stars (one DOT_PIXELS a frame, inside the
-window, streaming out, everywhere at full lean), the lean (a critically damped
-spring to nine places), and the rocks (growth with the perspective, one hit,
+window, streaming out, everywhere at full lean), the controls (UP/DOWN: a critically
+damped spring along the screen's up-down; LEFT/RIGHT: the world rolled round the tube's
+axis, eased), and the rocks (growth with the perspective, one hit,
 dodging, the occlusion of stars, the occlusion of rocks by rocks, the HUD frame).
 """
 
@@ -162,6 +163,8 @@ if "--stress" in sys.argv:
             v = rng.randint(-AMP, AMP)
             cpu_mem[LBL["PLO"] + ax], cpu_mem[LBL["PHI"] + ax] = 0, v & 0xFF
             cpu_mem[LBL["VLO"] + ax] = cpu_mem[LBL["VHI"] + ax] = 0
+        cpu_mem[LBL["THH"]] = rng.randint(0, 255)              # ...and the roll
+        cpu_mem[LBL["WLO"]] = cpu_mem[LBL["WHI"]] = 0
         cmds = flying_frame()
         info = [(cpu_mem[A["RXW"] + k], cpu_mem[A["RYW"] + k], cpu_mem[A["RZL"] + k] | cpu_mem[A["RZH"] + k] << 8) for k in range(3)]
         for kind, x, y in geometry(cmds):
@@ -196,6 +199,9 @@ def clear_rocks():
     for k in range(NR):
         cpu_mem[A["RZL"] + k] = cpu_mem[A["RZH"] + k] = 0
     cpu_mem[A["SPT"]] = 250                                    # no new ones for a while
+    for n_ in ("THL", "THH", "WLO", "WHI"):                    # ...and the world upright, still (a knock
+        cpu_mem[LBL[n_]] = 0                                   #   rolls it, and a case set up near an edge
+                                                               #   of the octagon test is not rotation-proof)
 
 
 clear_rocks()
@@ -219,46 +225,114 @@ for l0, l1 in zip(lists, lists[1:]):                         # each star against
 check("and they stream OUTWARD from the centre", tot_n > 100 and out_n >= 0.9 * tot_n,
       f"{out_n} of {tot_n} moved out")
 
-# ---- the lean ----------------------------------------------------------------
+# ---- the controls: UP/DOWN lean, LEFT/RIGHT roll the world ---------------------
+import math
+ROLLW, ROLLK, RKICK = TK["TUN_ROLLW"], TK["TUN_ROLLK"], TK["TUN_RKICK"]
+LEAN_P, LEAN_N = JOY_UP, JOY_DOWN                           # inverted, a pilot's stick: UP leans down (+y)
+
+
+def s16(v):
+    return v - 65536 if v > 32767 else v
+
+
+def rate():
+    return s16(cpu_mem[LBL["WLO"]] | cpu_mem[LBL["WHI"]] << 8)
+
+
+def theta():
+    return cpu_mem[LBL["THL"]] | cpu_mem[LBL["THH"]] << 8
+
+
+def set_roll(thh):
+    cpu_mem[LBL["THL"]], cpu_mem[LBL["THH"]] = 0, thh & 0xFF
+    cpu_mem[LBL["WLO"]] = cpu_mem[LBL["WHI"]] = 0
 
 
 def lean_run(joy, n):
     tr = []
     for _ in range(n):
+        cpu_mem[A["SPT"]] = 250                              # (no rock spawned to knock it)
         flying_frame(joy=joy)
         tr.append(camera())
     return tr
 
 
+def roll_run(joy, n):
+    tr = []
+    for _ in range(n):
+        cpu_mem[A["SPT"]] = 250
+        flying_frame(joy=joy)
+        tr.append((rate(), theta()))
+    return tr
+
+
+def q07(f):
+    return int(round(127 * f))
+
+
+clear_rocks()
 lean_run(0, 100)
-r = lean_run(JOY_RIGHT, 100)
-xs = [p[0] for p in r]
-reach = next((i for i, v in enumerate(xs) if v >= 0.9 * AMP), None)
-check("RIGHT leans the camera to +AMP: reached, never past it, and without a step",
-      xs[-1] == AMP and max(xs) == AMP and all(b >= a for a, b in zip(xs, xs[1:]))
-      and max(b - a for a, b in zip(xs, xs[1:])) <= AMP // 15 + 1 and all(p[1] == 0 for p in r),
-      f"end {xs[-1]}, max {max(xs)}, biggest step {max(b - a for a, b in zip(xs, xs[1:]))}")
+set_roll(0)
+LYC = (AMP * 127 + 64) >> 7                                   # the camera at TH = 0: AMP * cos 0 (127/128)
+r = lean_run(LEAN_P, 100)
+ys = [p[1] for p in r]
+reach = next((i for i, v in enumerate(ys) if v >= 0.9 * AMP), None)
+check("UP leans the camera DOWN, to +AMP (AMP cos 0 = 127/128 of it): reached, never past it, and without a step",
+      ys[-1] == LYC and max(ys) == LYC and all(b >= a for a, b in zip(ys, ys[1:]))
+      and max(b - a for a, b in zip(ys, ys[1:])) <= AMP // 15 + 1 and all(p[0] == 0 for p in r),
+      f"end {ys[-1]}, max {max(ys)}, biggest step {max(b - a for a, b in zip(ys, ys[1:]))}")
 check("90% of the way in 25-45 frames (K1 = 6: ~0.5 s; K1 = 7 is ~1 s)",
       reach is not None and 25 <= reach <= 45, f"90% at frame {reach}")
 r = lean_run(0, 120)
-xs = [p[0] for p in r]
+ys = [p[1] for p in r]
 check("LET GO springs it back to the centre, without overshooting",
-      xs[-1] == 0 and min(xs) >= 0 and all(b <= a for a, b in zip(xs, xs[1:])), f"end {xs[-1]}, min {min(xs)}")
-r = lean_run(JOY_UP | JOY_LEFT, 110)
-check("a diagonal (UP+LEFT) leans both axes to -AMP", r[-1] == (-AMP, -AMP), f"{r[-1]}")
-r = lean_run(JOY_DOWN | JOY_RIGHT, 160)
-check("and the opposite diagonal (DOWN+RIGHT) to +AMP on both", r[-1] == (AMP, AMP), f"{r[-1]}")
+      ys[-1] == 0 and min(ys) >= 0 and all(b <= a for a, b in zip(ys, ys[1:])), f"end {ys[-1]}, min {min(ys)}")
+r = lean_run(LEAN_N, 110)
+check("DOWN leans it up, to -AMP", r[-1] == (0, -LYC), f"{r[-1]}")
+lean_run(0, 120)
+th0 = theta()
+r = roll_run(JOY_RIGHT, 60)
+ws = [w for w, _ in r]
+reach = next((i for i, w in enumerate(ws) if w <= -0.9 * ROLLW), None)
+check("RIGHT rolls the world: the rate eases to -TUN_ROLLW (TH falling), smoothly, never past it",
+      ws[-1] == -ROLLW and min(ws) == -ROLLW and all(b <= a for a, b in zip(ws, ws[1:]))
+      and -ws[0] <= ROLLW // (1 << ROLLK) + 1 and s16((r[-1][1] - th0) & 0xFFFF) < 0,
+      f"end {ws[-1]}, first {ws[0]}, TH moved {s16((r[-1][1] - th0) & 0xFFFF)}")
+check("...a SHORT start: 90% of the rate in 12-25 frames", reach is not None and 12 <= reach <= 25, f"90% at frame {reach}")
+r = roll_run(0, 60)
+ws = [w for w, _ in r]
+reach = next((i for i, w in enumerate(ws) if w >= -0.1 * ROLLW), None)
+th1 = theta()
+roll_run(0, 60)
+check("LET GO eases it to a stop just as short (12-25 frames to 10%), and it stays put: no creep",
+      ws[-1] == 0 and all(b >= a for a, b in zip(ws, ws[1:])) and reach is not None and 12 <= reach <= 25
+      and theta() == th1, f"end {ws[-1]}, 10% at {reach}, TH {th1} -> {theta()}")
+r = roll_run(JOY_LEFT, 60)
+check("LEFT rolls it the other way (+TUN_ROLLW)", r[-1][0] == ROLLW, f"{r[-1][0]}")
+roll_run(0, 60)
+for thh in (40, 100, 200):                                    # the camera turns with the world
+    set_roll(thh)
+    lean_run(LEAN_P, 100)
+    a = 2 * math.pi * thh / 256
+    ex = (AMP * q07(math.sin(a)) / 128, AMP * q07(math.cos(a)) / 128)
+    cam = camera()
+    check(f"leaning (UP) with the world rolled {thh} brad puts the camera at R(-TH) (0, AMP) in it",
+          abs(cam[0] - ex[0]) <= 1 and abs(cam[1] - ex[1]) <= 1, f"cam {cam}, expected {ex}")
+    lean_run(0, 120)
+set_roll(0)
 quad = [0, 0, 0, 0]
 for _ in range(40):
-    for x, y in (dots(flying_frame(joy=JOY_DOWN | JOY_RIGHT)) or [[]])[-1]:            # (the last DOT_PIXELS: a cloud may come first)
+    for x, y in (dots(flying_frame(joy=LEAN_P | JOY_RIGHT)) or [[]])[-1]:            # (the last DOT_PIXELS: a cloud may come first)
         quad[(x >= 100) * 2 + (y >= 75)] += 1
-check("at full lean the stars still fill all four quarters of the window",
+check("leaning and rolling the stars still fill all four quarters of the window",
       min(quad) >= 0.08 * sum(quad), f"quarters {quad}")
 lean_run(0, 120)
+roll_run(0, 60)
 
-# ---- the far stars: pixels at infinity, still but for a slide against the lean ----------
+# ---- the far stars: pixels at infinity, turned by the roll, slid a little by the lean ----------
 NFAR = TK["TUN_FAR"]
-SHIFT = AMP >> TK["TUN_FSH"]
+FR = [cpu_mem[LBL["FARR"] + i] for i in range(NFAR)]
+FA = [cpu_mem[LBL["FARA"] + i] for i in range(NFAR)]
 
 
 def still_points(n=3, joy=0):
@@ -270,29 +344,62 @@ def still_points(n=3, joy=0):
     return set.intersection(*sets)
 
 
-FX = [cpu_mem[LBL["FARX"] + i] for i in range(NFAR)]
-FY = [cpu_mem[LBL["FARY"] + i] for i in range(NFAR)]
+def far_expected():
+    """Where the far stars must be: o = r (cos, sin)(a + TH), oy less LY >> FSH; those in the window."""
+    thh, ly = cpu_mem[LBL["THH"]], sb8(cpu_mem[LBL["LY"]])
+    out = set()
+    for r_, a_ in zip(FR, FA):
+        a = 2 * math.pi * ((a_ + thh) & 255) / 256
+        ox = round(r_ * q07(math.cos(a)) / 128)
+        oy = round(r_ * q07(math.sin(a)) / 128) - (ly >> TK["TUN_FSH"])
+        if abs(ox) < 75 and abs(oy) < 75:
+            out.add((100 + oy, 75 - ox))
+    return out
 
 
-def far_expected(cam):
-    """Where the far stars must be for this camera: (25 + vy, 149 - vx), v = (base - cam >> 3) mod 150."""
-    cx, cy = cam
-    return {(25 + (FY[i] - (cy >> TK["TUN_FSH"])) % 150, 149 - (FX[i] - (cx >> TK["TUN_FSH"])) % 150) for i in range(NFAR)}
+def near(exp, got):
+    return sum(1 for (x, y) in exp if any(abs(x - u) <= 1 and abs(y - v) <= 1 for u, v in got))
 
 
 clear_rocks()                                             # (a rock would hide some)
+check("the far stars fill a disc round the window's centre that covers it (radius 105)",
+      max(FR) <= 105 and max(FR) >= 90 and sum(r_ > 75 for r_ in FR) >= 4, f"radii {sorted(FR)}")
 far0 = still_points()
-check("the far stars: pixels that do not move (>= 3/4 of TUN_FAR still, the rest hidden or dust)",
-      len(far0) >= 0.75 * NFAR, f"{len(far0)} still points of {NFAR}")
-exp0 = far_expected(camera())
-check("...and they are where the TUN_FAR places say (>= 90% of them on the screen)",
-      len(exp0 & far0) >= 0.9 * len(exp0), f"{len(exp0 & far0)} of {len(exp0)}")
-lean_run(JOY_RIGHT, 100)
-far1 = still_points(joy=JOY_RIGHT)
-exp1 = far_expected(camera())
-check(f"...and leaning right slides them by CAM >> TUN_FSH = {SHIFT} px against it (wrapping round the window)",
-      len(exp1 & far1) >= 0.9 * len(exp1) and camera()[0] == AMP, f"{len(exp1 & far1)} of {len(exp1)}, cam {camera()}")
+exp0 = far_expected()
+check("the far stars: pixels that do not move, where their places say (>= 90% of those in the window)",
+      len(exp0) >= 0.4 * NFAR and near(exp0, far0) >= 0.9 * len(exp0), f"{near(exp0, far0)} of {len(exp0)}")
+set_roll(77)
+lean_run(LEAN_P, 100)
+far1 = still_points(joy=LEAN_P)
+exp1 = far_expected()
+check("...and rolled and leaning they turn with the roll and slide against the lean",
+      len(exp1) >= 0.4 * NFAR and near(exp1, far1) >= 0.9 * len(exp1) and exp1 != exp0,
+      f"{near(exp1, far1)} of {len(exp1)}, cam {camera()}")
 lean_run(0, 120)
+set_roll(0)
+
+# ---- a rock turns with the world ---------------------------------------------
+clear_rocks()
+for thh, side in ((64, 1), (192, -1)):
+    set_roll(thh)
+    for k in range(NR):
+        cpu_mem[A["RZL"] + k] = cpu_mem[A["RZH"] + k] = 0
+    cpu_mem[A["SPT"]] = 250
+    cpu_mem[A["RZL"]], cpu_mem[A["RZH"]] = 250, 0
+    cpu_mem[A["RXW"]], cpu_mem[A["RYW"]] = AMP, 0
+    cpu_mem[A["RHI"]] = 1
+    cpu_mem[LBL["RDF"]] = cpu_mem[LBL["RKIND"]] = 0
+    cpu_mem[A["RAN"]], cpu_mem[A["RSP"]], cpu_mem[A["RTY"]] = 10, 0, 0
+    cmds = flying_frame()
+    pls = [pl for op, pl in cmds if op == 0x4E]
+    cx = pls[0][0] | pls[0][1] << 8 if pls else None
+    cy = pls[0][2] | pls[0][3] << 8 if pls else None
+    check(f"a rock a lane to the right, the world rolled {thh} brad: drawn turned with it "
+          f"({'below' if side > 0 else 'above'} the centre, its angle its own + TH)",
+          len(pls) == 1 and abs(cy - 150) <= 2 and (cx - 200) * side > 40 and pls[0][4] == (10 + thh) & 255,
+          f"{len(pls)} polygons, centre {(cx, cy)}, angle {pls[0][4] if pls else None}")
+set_roll(0)
+clear_rocks()
 
 # ---- the rocks ---------------------------------------------------------------
 
@@ -351,20 +458,23 @@ check("a rock on the ship at TUN_ZHIT is ONE hit, one a lane away is none, and b
 # the knock: the ship is kicked away, the view shakes, the pad rumbles, the sound is the ram's,
 # and the rock - frozen in depth - is thrown off sideways and goes
 clear_rocks()
-lean_run(0, 100)
-put_rock(0, 6, 0, 45)                                 # a little to the right of the ship
+lean_run(LEAN_P, 150)                               # the ship below the axis...
+set_roll(0)
+th0 = theta()
+put_rock(0, 6, AMP, 45)                               # ...and a rock a little to its right
 h0 = cpu_mem[A["HITS"]]
-minx, shk_seen, rz_after, rx_seq, vl_ship, vl_noise = 0, 0, [], [], 0, 0
+minw, shk_seen, rz_after, rx_seq, vl_ship, vl_noise = 0, 0, [], [], 0, 0
 for _ in range(14):
-    flying_frame()
-    minx = min(minx, camera()[0])
+    flying_frame(joy=LEAN_P)
+    minw = min(minw, rate())
     shk_seen = max(shk_seen, cpu_mem[LBL["SHK"]])
     vl_ship, vl_noise = max(vl_ship, cpu_mem[VLEN_A + 2]), max(vl_noise, cpu_mem[VLEN_A + 3])
     if cpu_mem[LBL["RDF"]]:
         rz_after.append(cpu_mem[A["RZL"]] | cpu_mem[A["RZH"]] << 8)
         rx_seq.append(sb8(cpu_mem[A["RXW"]]))
-check("a hit KNOCKS the ship away from the rock (a rock on the right: the camera goes left)",
-      cpu_mem[A["HITS"]] == h0 + 1 and minx <= -3, f"hits {cpu_mem[A['HITS']] - h0}, min cam x {minx}")
+check("a hit KNOCKS the ship away from the rock: across, by the roll (on the right, the ship below: TH falls)",
+      cpu_mem[A["HITS"]] == h0 + 1 and minw <= -RKICK // 2 and s16((theta() - th0) & 0xFFFF) < -256,
+      f"hits {cpu_mem[A['HITS']] - h0}, min rate {minw}, TH moved {s16((theta() - th0) & 0xFFFF)}")
 check("...the view SHAKES (SHK set) and the pad RUMBLES",
       shk_seen >= TK["TUN_SHAKE"] - 2 and cpu_mem[RUMBLE_A] > 0, f"SHK max {shk_seen}, RUMBLE {cpu_mem[RUMBLE_A]}")
 check("...the sound is the ram: both halves of SE_KLANG hold their voices (the ship's tone voice and the noise one)",
@@ -373,9 +483,12 @@ check("...and the rock stops approaching (its depth frozen) and is thrown AWAY, 
       len(rz_after) >= 3 and len(set(rz_after)) == 1 and all(b - a == TK["TUN_DEFL"] for a, b in zip(rx_seq, rx_seq[1:])),
       f"depths {sorted(set(rz_after))}, x {rx_seq[:6]}")
 for _ in range(30):
-    flying_frame()
+    flying_frame(joy=LEAN_P)
 check("...until it has left the window, and then it is gone", cpu_mem[A["RZL"]] == 0 and cpu_mem[A["RZH"]] == 0)
 clear_rocks()
+lean_run(0, 120)
+roll_run(0, 60)
+set_roll(0)
 # the engine: an audible noise rumble (mode 6), its rate stepping up and swelling in the rush
 cpu_mem[SCR["SC_PTRL"]] = cpu_mem[SCR["SC_PTRH"]] = 0
 for _ in range(20):
@@ -526,6 +639,38 @@ for _ in range(20):
     flying_frame()
 check("a cloud a lane away is not caught", cpu_mem[LBL["TSAT"]] == 0)
 clear_rocks()
+# the reach: a ring of radius AMP, so the spawner pulls a corner lane in to it, and every lane is caught
+rmax, ncorner, rcorner = 0, 0, 0
+for _ in range(400):
+    clear_rocks()
+    call(cpu, LBL["tun_spawn"])
+    k = next(k for k in range(NR) if cpu_mem[A["RZL"] + k] | cpu_mem[A["RZH"] + k])
+    x, y = sb8(cpu_mem[A["RXW"] + k]), sb8(cpu_mem[A["RYW"] + k])
+    rr = (x * x + y * y) ** 0.5
+    rmax = max(rmax, rr)
+    if abs(x) > 30 and abs(y) > 30:
+        ncorner += 1
+        rcorner = max(rcorner, rr)
+check("the spawner keeps everything within the ring's reach (AMP + 16 of jitter), corner lanes pulled in",
+      rmax <= AMP + 16 * 1.42 + 1 and ncorner > 40 and rcorner <= AMP + 16 * 1.42 + 1,
+      f"farthest {rmax:.0f}, {ncorner} in corners, farthest of those {rcorner:.0f}")
+for thh in (32, 96, 160, 224):                              # a corner cloud, the world rolled to face it
+    clear_rocks()
+    cpu_mem[LBL["TSAT"]] = 0
+    lean_run(0, 120)
+    set_roll(thh)
+    lean_run(LEAN_P, 100)
+    cx, cy = camera()
+    sx, sy = (1 if cx > 0 else -1), (1 if cy > 0 else -1)
+    put_cloud(0, sx * 57, sy * 57, 60)                      # (AMP, AMP) on the ring: times 181/256
+    for _ in range(20):
+        cpu_mem[A["SPT"]] = 250
+        flying_frame(joy=LEAN_P)
+    check(f"a cloud in a corner lane ({sx * 57}, {sy * 57}) is caught with the world rolled to it ({thh} brad)",
+          cpu_mem[LBL["TSAT"]] == 1, f"cam {(cx, cy)}, TSAT {cpu_mem[LBL['TSAT']]}")
+cpu_mem[LBL["TSAT"]] = 0
+lean_run(0, 120)
+clear_rocks()
 put_cloud(0, 0, 0, 200)
 put_rock(1, 0, 0, 90)
 cl_pts = cloud_list(flying_frame())
@@ -562,11 +707,11 @@ put_rock(1, 50, 50, 130)
 pls = polys(flying_frame())
 check("two apart are both drawn whole", len(pls) == 2 and all(not pl[6] & 0x80 for pl in pls), f"{len(pls)} polygons")
 clear_rocks()
-lean_run(JOY_RIGHT, 100)
+lean_run(LEAN_P, 100)
 put_rock(0, 0, 0, 60)
 h0 = cpu_mem[A["HITS"]]
 for _ in range(30):
-    flying_frame(joy=JOY_RIGHT)
+    flying_frame(joy=LEAN_P)
 check("leaning a lane clear of a rock dodges it", cpu_mem[A["HITS"]] == h0, f"{cpu_mem[A['HITS']] - h0} hits")
 lean_run(0, 120)
 cpu_mem[A["SPT"]] = 5
