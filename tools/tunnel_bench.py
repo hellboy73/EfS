@@ -750,6 +750,109 @@ check("a rock at the window's edge is cut to it: every line inside fb x 50..349,
       nlines > 0 and not bad, f"{nlines} lines, outside: {bad[:4]}")
 clear_rocks()
 
+# ---- the instruments under the window and what the tunnel gives back (tunnel_hud.s) ----
+SHIPHP_A, LIVES_A, SCORE_A = asm_consts("main.s")["SHIPHP"], asm_consts("hud_game.s")["LIVES"], asm_consts("hud_game.s")["SCORE"]
+HK = asm_consts("hud_game.s")
+TH = asm_consts("main.s", "hud_game.s", "tunnel_hud.s")
+HPMAX = asm_consts("main.s")["HP_MAX"]
+
+
+def score():
+    return int(bytes(cpu_mem[SCORE_A + i] for i in range(HK["SCORE_DIGITS"])).decode())
+
+
+clear_rocks()
+cpu_mem[0x7095] = HK["HUD_PERIOD"] - 1                    # (hud_reset, by hand: every row stale)
+for a in (HK["HC_HP"], HK["HC_LEV"], HK["HC_LIVES"]):
+    cpu_mem[a] = 0xFF
+cpu_mem[LBL["HCSAT"]] = 0xFF
+texts, per = [], {}
+for f in range(40):
+    cpu_mem[A["SPT"]] = 250
+    for op, pl in flying_frame():
+        if op == 0x63:
+            texts.append((f, pl[1], bytes(pl[3:-1]).decode("latin-1")))
+            per[f] = per.get(f, 0) + 1
+lines_ = {l for _, l, _ in texts}
+check("under the window: SHIPS + hull (line 46) and SATURNIUM (48, where the sector has LEVEL + SCORE) - nothing else",
+      lines_ == {HK["HUD_ROW1"], HK["HUD_ROW2"]} and TH["TUN_HUDROW0"] == HK["HUD_ROW2"]
+      and all(t.startswith("SATURNIUM |") for _, l, t in texts if l == HK["HUD_ROW2"])
+      and all(t.startswith("SHIPS: ") for _, l, t in texts if l == HK["HUD_ROW1"]) and len(texts) >= 4,
+      f"lines {sorted(lines_)}, {texts[:4]}")
+# each line is sent and replayed on the next frame: fold the pairs, then the sends must be >= 2 frames apart
+sends = sorted({f for f, _, _ in texts if (f - 1) not in {g for g, _, _ in texts}})
+check("...one line at a time, never two in a frame, sends at least 2 frames apart (the sector's pacing)",
+      all(n == 1 for n in per.values()) and all(b - a >= 2 for a, b in zip(sends, sends[1:])),
+      f"per frame {per}, sends {sends}")
+cpu_mem[SHIPHP_A] = 10
+hp = []
+for f in range(3 * TH["TUN_HPP"]):
+    cpu_mem[A["SPT"]] = 250
+    flying_frame()
+    hp.append(cpu_mem[SHIPHP_A])
+check(f"the hull grows a point every TUN_HPP ({TH['TUN_HPP']}) frames, and never past HP_MAX",
+      hp[-1] == 13 and all(0 <= b - a <= 1 for a, b in zip(hp, hp[1:])), f"10 -> {hp[-1]}")
+cpu_mem[SHIPHP_A] = HPMAX
+for f in range(2 * TH["TUN_HPP"]):
+    flying_frame()
+check("...full stays full", cpu_mem[SHIPHP_A] == HPMAX, f"{cpu_mem[SHIPHP_A]}")
+clear_rocks()
+cpu_mem[LBL["TSATN"]] = 100
+s0 = score()
+put_cloud(0, 0, 0, 60)
+for _ in range(20):
+    flying_frame()
+check(f"a cloud adds TUN_SATCLD ({TH['TUN_SATCLD']}) Saturnium and {TH['TUN_CLDPTS']}00 points",
+      cpu_mem[LBL["TSATN"]] == 100 + TH["TUN_SATCLD"] and score() == s0 + 100 * TH["TUN_CLDPTS"],
+      f"TSATN {cpu_mem[LBL['TSATN']]}, score {s0} -> {score()}")
+cpu_mem[LBL["TSATN"]] = 250
+put_cloud(0, 0, 0, 60)
+for _ in range(20):
+    flying_frame()
+check("...and the hold stops at 255", cpu_mem[LBL["TSATN"]] == 255, f"{cpu_mem[LBL['TSATN']]}")
+clear_rocks()
+cpu_mem[LBL["TSATN"]] = 30
+put_rock(0, 0, 0, 60)
+for _ in range(20):
+    flying_frame()
+check(f"a rock hit takes TUN_SATHIT ({TH['TUN_SATHIT']})", cpu_mem[LBL["TSATN"]] == 30 - TH["TUN_SATHIT"], f"{cpu_mem[LBL['TSATN']]}")
+clear_rocks()
+cpu_mem[LBL["TSATN"]] = 5
+put_rock(0, 0, 0, 60)
+for _ in range(20):
+    flying_frame()
+check("...and stops at 0", cpu_mem[LBL["TSATN"]] == 0, f"{cpu_mem[LBL['TSATN']]}")
+clear_rocks()
+lean_run(0, 120)
+cpu_mem[LBL["TSATN"]] = 210
+dashes, frames_with = [], 0
+for _ in range(60):
+    cpu_mem[A["SPT"]] = 250
+    d = [tuple(pl[:4]) for op, pl in flying_frame() if op == 0x42]
+    dashes += d
+    frames_with += bool(d)
+rad = [((x - 100) ** 2 + (y - 75) ** 2) ** 0.5 for a, b, c, e in dashes for x, y in ((a, b), (c, e))]
+check("at SATN_FULL and over, SPARKS: 2-3 dashes every TUN_SPKP frames, along a radius, inside the window",
+      frames_with == 60 // TH["TUN_SPKP"] and len(dashes) >= 2 * frames_with and len(dashes) <= 3 * frames_with
+      and min(rad) >= TH["TUN_SPKR0"] - 2 and max(rad) <= TH["TUN_SPKR1"] + 1,
+      f"{len(dashes)} dashes on {frames_with} frames, radii {min(rad):.0f}..{max(rad):.0f}")
+cpu_mem[LBL["TSATN"]] = 199
+check("...and none under it", not any(op == 0x42 for _ in range(12) for op, _ in flying_frame()))
+check("TUNTEST flies three lifepods (a sector would: the ships lost in it, LVSTART - LIVES)",
+      cpu_mem[LBL["PODE"]] - cpu_mem[LBL["PODI"]] <= 3 and cpu_mem[LBL["PODE"]] == 6,
+      f"PODI {cpu_mem[LBL['PODI']]} PODE {cpu_mem[LBL['PODE']]}")
+lv, s0 = 3, score()
+cpu_mem[LIVES_A] = lv
+call(cpu, LBL["tun_hud_pod"])
+check(f"a lifepod caught: a ship back and {TH['TUN_PODPTS']}00 points",
+      cpu_mem[LIVES_A] == lv + 1 and score() == s0 + 100 * TH["TUN_PODPTS"], f"LIVES {cpu_mem[LIVES_A]}, score {s0} -> {score()}")
+cpu_mem[LIVES_A] = TH["TUN_LIVMAX"]
+call(cpu, LBL["tun_hud_pod"])
+check("...never past TUN_LIVMAX", cpu_mem[LIVES_A] == TH["TUN_LIVMAX"])
+cpu_mem[LIVES_A] = 5
+cpu_mem[LBL["TSATN"]] = 0
+clear_rocks()
+
 # ---- what it costs -----------------------------------------------------------
 raw, cyc = raw_frame()
 g0 = gpu.processorCycles

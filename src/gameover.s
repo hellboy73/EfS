@@ -348,6 +348,8 @@ level_begin:
         stz     ZEASL
         stz     ZSHEAD
 
+        lda     LIVES                   ; the ships in hand as the sector begins:
+        sta     LVSTART                 ;   the tunnel after it returns those lost
         lda     #HP_MAX                 ; the ship's hit points - see SHIPHP,
         sta     SHIPHP                  ;   and HP_MAX for why the number is
         stz     KNBXL                   ;   not here

@@ -10,8 +10,11 @@
 ;
 ; MEMORY RULES (open_questions.md H1, the tunnel memory audit): this code may
 ; write only its own segments, KEEP from $DF8D, the stack, and the zero page it
-; saves and restores. It never writes $6000-$97FF: the state a sector carries
-; (SCORE, LIVES, CURLEV, SATN, LSRHAVE, EMPHAVE...) lives there. Its variables
+; saves and restores. In $6000-$97FF, the state a sector carries (SCORE, LIVES,
+; CURLEV, SATN, LSRHAVE, EMPHAVE...), it writes ONLY what it gives back on purpose
+; (tunnel_hud.s): SHIPHP (the hull grows), LIVES (a pod caught), SCORE, SATN (once,
+; at the end) - and the sector HUD's own buffers and caches, through hud_game.s's
+; code, which it calls. Its variables
 ; are TUNBSS (below), absolute - it borrows no zero page at all so far.
 ;
 ; STATE so far - the stars and the HUD. SCR_PH is the step:
@@ -45,7 +48,7 @@ TUN_FRAMES  = 3600              ; a minute of flying (design_technical 11.45), t
 ; Each is ONE PIXEL whatever its depth - the field's rule (37) - drawn by one
 ; DOT_PIXELS. A square hole of TUN_HOLE (in rel) is kept empty at birth: nothing
 ; is born on the line of flight, which is what makes it a tunnel and not a pin.
-; WITH THE ROLL (branch tunnel-roll) the torus is gone: a star's place is signed 16
+; WITH THE ROLL the torus is gone: a star's place is signed 16
 ; (SX/SXH, SY/SYH), born in a DISC of radius TUN_DUSTR round the view's centre, turned
 ; into the world (R(-TH)) - wider than the tube (the user, 2026-10-13: dust outside it
 ; too, the same count, the density may fall). At ZMAX the window's edge is a rel of 255
@@ -84,14 +87,14 @@ TUN_RUMBLE  = 20                ; frames of pad rumble
 ; at the camera, scattered through a disc by a fixed pattern (CLDP) that drifts along
 ; so it shimmers. It hides nothing, and a rock in front of it hides its pixels. Reaching
 ; the ship within TUN_CATCHR CATCHES it: the sector's own Saturnium sound (SE_SATN), the
-; cloud gone, TUN_SATPAY added to a tally (TSAT) that is paid into the hold (SATN, under the
-; window) when the scene ends. One spawn in TUN_CLOUDP is a cloud.
+; cloud gone, TUN_SATCLD (tunnel_hud.s) added to the hold the tunnel keeps (TSATN), which is
+; written back to SATN when the scene ends; TSAT counts the catches. One spawn in TUN_CLOUDP
+; is a cloud.
 TUN_CLOUDMIN = 8                ; pixels at the farthest
 TUN_CLOUDMAX = 32               ; ...and at the camera (scale 128: the formula is 8 + 3/16 s)
 TUN_CATCHR  = 36                ; a catch: |rel x| and |rel y| both under this (a rock's is 15;
                                 ;   it was 22, made easier - the user, 2026-10-13: a pod's is 36
                                 ;   too, and more would reach a cloud from the next lane, 81 off)
-TUN_SATPAY  = 16                ; Saturnium a cloud pays (a kill in the sector pays 8)
 TUN_CLOUDP  = 7                 ; a spawn is a cloud when (random AND this) = 0: 1 in 8
 
 ; --- THE ENGINE (design: the user, 2026-10-13) --------------------------------------
@@ -187,7 +190,8 @@ TUN_AMP     = 81                ; how far it leans, in x/y units: 3 x the first 
 TUN_K1      = 6
 TUN_K2      = 2
 
-; --- THE ROLL (design: the user, 2026-10-13 - on trial, branch tunnel-roll) --------------
+; --- THE ROLL (design: the user, 2026-10-13; the eight-way lean it replaced is git tag ----
+; tunnel-lean-8way, and how to go back is open_questions.md H6) ----------------------------
 ; LEFT and RIGHT no longer lean: they TURN THE WORLD round the tube's axis. UP and DOWN
 ; still lean (the spring above, the y axis only, and inverted: UP leans down, like a
 ; pilot's stick), so the ship is at LY, its distance from
@@ -215,7 +219,6 @@ TUN_CY      = 75                ;   coordinates: fb x = 100 + (portrait down),
         .assert TUN_F * 128 / TUN_ZMIN / 128 + 128 <= 255, error, "tunnel.s: |rel| (<= 128) + R's high byte must fit umul's table index"
         .assert TUN_AMP <= 127, error, "tunnel.s: the lean is a signed byte"
         .assert TUN_ZMIN > TUN_SPEED + 1, error, "tunnel.s: z would borrow"
-        .assert TUN_SATPAY = 16, error, "tunnel.s: tun_pay pays TSAT * 16 by shifting"
         .assert TUN_ROCKS <= 32, error, "tunnel.s: the near list is indexed by a byte and the arrays are 32 apart in cost"
 
         .pushseg
@@ -2547,6 +2550,8 @@ tun_run:
         jmp     tun_go
 
         .include "tunnel_pod.s"         ; the lifepods: TUNCODE3 (bank 11, run behind the rocks) and TUNBSS
+        .segment "TUNCODE3"
+        .include "tunnel_hud.s"         ; the instruments and what the tunnel gives back: TUNCODE3
 
         .segment "TUNCODE"
 ; -----------------------------------------------------------------------------
@@ -2556,11 +2561,9 @@ tun_run:
 tun_catch:
         lda     #SE_SATN
         jsr     sfx_fire
-        lda     TSAT
-        cmp     #15                     ; (the tally pays 16 a cloud into a byte)
-        bcs     :+
-        inc     TSAT
-:       ldx     TRK
+        inc     TSAT                    ; (a count, for the bench)
+        jsr     tun_hud_cloud           ; the hold and the score (tunnel_hud.s)
+        ldx     TRK
         stz     RZL,x
         stz     RZH,x
         rts
@@ -2695,6 +2698,7 @@ tun_draw_cloud:
 ; -----------------------------------------------------------------------------
 tun_hit:
         inc     HITS
+        jsr     tun_hud_hit             ; a hit costs Saturnium (tunnel_hud.s)
         lda     #SE_KLANG               ; the sector's own ram: metal on stone, both halves
         jsr     sfx_fire
         lda     #SE_KLANG_N
@@ -2777,28 +2781,14 @@ tun_hit:
         rts
 
 ; -----------------------------------------------------------------------------
-; tun_pay - the clouds caught are paid into the hold: SATN (satn.s, under the window) +
-; TSAT * TUN_SATPAY, clamped at SATN_MAX. The window is borrowed for the one write.
+; tun_pay - the hold the tunnel kept (TSATN: the sector's, plus the clouds, less the hits)
+; back into SATN (satn.s, under the window). The window is borrowed for the one write.
 ; -----------------------------------------------------------------------------
 tun_pay:
-        lda     TSAT
-        beq     @r
-        stz     TMP                     ; TSAT * 16 as a count: the cloud pays 16 (a shift)
-        asl     a
-        asl     a
-        asl     a
-        asl     a
-        sta     TMP
         jsr     win_off
-        lda     SATN
-        clc
-        adc     TMP
-        bcc     :+
-        lda     #SATN_MAX
-:       sta     SATN
-        jsr     win_on
-        stz     TSAT
-@r:     rts
+        lda     TSATN
+        sta     SATN
+        jmp     win_on                  ; tail
 
 ; -----------------------------------------------------------------------------
 ; tun_jit - A = amplitude (0-6) -> A = a random signed jitter within +-amplitude.
@@ -3333,6 +3323,7 @@ tunnel_frame:
         jsr     API_GPU_CLEARBG
         jsr     API_VGM_STOP            ; no music in the tunnel (the title theme plays from
                                         ;   power-on until something stops it)
+        jsr     tun_hud_init            ; (before the stars: the pods count the ships lost)
         jsr     tun_stars_init
         stz     SHK
         stz     ACCF
@@ -3368,6 +3359,7 @@ tunnel_frame:
         rts
 :       lda     #VR_BLIND_OFF
         jsr     API_GPU_VREG
+        jsr     tun_hud_start           ; the rows under the window paint from now on
         jmp     @next
 
 @fly:   stz     RUSHR                   ; step 5: the rush's clock, in units of 2 frames:
@@ -3411,6 +3403,7 @@ tunnel_frame:
         jsr     tun_rocks_frame         ;   (the rocks first: their discs hide stars)
         jsr     tun_stars_frame         ;   it moves...
         jsr     tun_pod_arrows          ;   (a lifepod's arrows: last, over everything)
+        jsr     tun_hud_frame           ; the rows under the window, the hull, the sparks
         ldx     JOYPORT                 ; ...and FIRE ends it at once (testing)
         lda     JOY1_PRESS,x
         and     #JOY_FIRE
@@ -3469,7 +3462,8 @@ tunnel_frame:
 
 ; The tunnel's run-area tenants (TUNCODE2, TUNBSS) must end below the kernel (CODE8): the
 ; kernel stays resident across the overlay, and CODE8 moves whenever the engine grows.
-        .import __TUNBSS_RUN__, __TUNBSS_SIZE__, __CODE8_RUN__
+        .import __TUNBSS_RUN__, __TUNBSS_SIZE__, __CODE8_RUN__, __HUDCODE_RUN__
+        .assert __TUNBSS_RUN__ + __TUNBSS_SIZE__ <= __HUDCODE_RUN__, lderror, "tunnel.s: TUNCODE2/3 + TUNBSS run into the HUD (HUDCODE), which the tunnel calls - cart.cfg"
         .assert __TUNBSS_RUN__ + __TUNBSS_SIZE__ <= __CODE8_RUN__, lderror, "tunnel.s: TUNCODE2 + TUNBSS run into the kernel (CODE8) - cart.cfg's TUNRUN"
 
         .popseg
