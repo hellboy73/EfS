@@ -19,8 +19,8 @@
 ; THE REPAIR round it (tun_repair): the user's 44 frames (assets/png/ship/ship_anim*.png),
 ; each cut by tools/repairgen.py down to what it ADDS to the ship already on the
 ; background - one byte-wide no-overlay sprite a frame, OR-ed over the picture. A new one
-; every TUN_RPD frames, looping, the whole time the tunnel flies (the user, 2026-10-14: to see how it
-; looks; at full hull it is to stop).
+; every TUN_RPD frames, looping, while the hull grows; at HP_MAX it stops (the user,
+; 2026-10-14).
 ;
 ; THE PACING IS THE SECTOR'S (the user: never more often than every 2 frames, one line
 ; at a time): both rows go through hud_game.s's bgtext_claim, on hud_game.s's 8-frame
@@ -176,10 +176,14 @@ tun_hud_frame:
 
 ; tun_repair - one SPRITE: frame RPF of the repair effect at its own place (repair_art.s:
 ; RP_XL/RP_YL, high bytes RP_XH/RP_YH), drawn every frame; the next one every TUN_RPD.
+; Only while the hull is still growing: at HP_MAX it stops, and the ship stands bare.
 ; TUNCODE3, with its tables: bank 10 (TUNCODE, TUNCODE2) had no 24 bytes left for them.
         .pushseg
         .segment "TUNCODE3"
 tun_repair:
+        lda     SHIPHP                  ; repaired: nothing to show
+        cmp     #HP_MAX
+        bcs     @ret
         ldx     RPF
         txa
         clc
@@ -203,6 +207,7 @@ tun_repair:
         ldx     #0
 :       stx     RPF
 @draw:  jmp     API_GPU_SPRITE          ; tail
+@ret:   rts
         .popseg
 
 ; tun_spark - one dash at a random angle, TUN_SPKR0..TUN_SPKR1 from the centre, along
