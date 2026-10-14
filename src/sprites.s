@@ -9,6 +9,8 @@
 ;   page $12       the enemy arrows, four sprites in one page     (cam.s)
 ;   page $13       the pickup, PK_FRAMES frames                    (pickup.s)
 ;   page $14-$15   the ejected capsule, CAP_FRAMES frames          (capsule.s)
+;   page $16 on    the tunnel's repair effect, RP_FRAMES frames,  (tunnel_hud.s)
+;                  RP_PAGES pages (repair_art.s, included below)
 ;
 ;   slot 0         the GPU ROM's test sprite - left alone, so a stray id draws
 ;                  something recognisable. (The definition pages here hold a
@@ -17,10 +19,11 @@
 ;   slot 2-28      the flames     (FLAME_SLOT0, FLAME_N)
 ;   slot 29-32     the arrows     (ARW_SLOT0)
 ;   slot 33-36     the pickup     (PK_SLOT0, PK_FRAMES of them)
-;   slot 37 on     the capsule    (CAP_SLOT0, CAP_FRAMES of them)
+;   slot 37-40     the capsule    (CAP_SLOT0, CAP_FRAMES of them)
+;   slot 41 on     the repair     (RP_SLOT0, RP_FRAMES of them)
 ;
-; NONE OF IT LIVES IN CPU RAM. The art (the four GENERATED files, included
-; where their code is, into SPRART) and the four definition pages below are ROM
+; NONE OF IT LIVES IN CPU RAM. The art (the five GENERATED files, included
+; where their code is - the repair's here - into SPRART) and the four definition pages below are ROM
 ; in bank SPR_BANK, page aligned, in the order they land in GPU RAM - so the OS
 ; can stream them straight from the cartridge into LOAD commands
 ; (gpu_load_cart_begin / gpu_load_cart_n, MAD65_CPU_OS.md), with no cart -> RAM
@@ -42,14 +45,16 @@ SPR_BANK    = 7                 ; cart.cfg: SPRART's bank. CODE7 (base.s) rides
                                 ;   behind it; MSGDATA used to as well and has
                                 ;   its own bank now, so the two numbers are
                                 ;   independent and nothing asserts them equal.
-SPR_ART_PAGES = CAP_PAGE + CAP_PAGES - FLAME_PAGE ; $11 flames, $12 arrows,
+RP_PAGE     = CAP_PAGE + CAP_PAGES ; the repair effect's art, behind the capsule's
+RP_SLOT0    = CAP_SLOT0 + CAP_FRAMES ;   ...and its slots
+SPR_ART_PAGES = RP_PAGE + RP_PAGES - FLAME_PAGE ; $11 flames, $12 arrows,
                                         ;   $13 the pickup's frame, $14-$15 the
-                                        ;   capsule's
+                                        ;   capsule's, $16 on the repair's
 SPR_DEF_PAGES = 4               ; $03-$06
 
         .assert FLAME_PAGE = $11 && ARW_PAGE = FLAME_PAGE + 1 && PK_PAGE = ARW_PAGE + 1 && CAP_PAGE = PK_PAGE + PK_PAGES, error, "sprites.s: the art pages are not contiguous"
         .assert ARW_SLOT0 = FLAME_SLOT0 + FLAME_N && PK_SLOT0 = ARW_SLOT0 + 4 && CAP_SLOT0 = PK_SLOT0 + PK_FRAMES, error, "sprites.s: the slot ranges are not adjacent"
-        .assert CAP_SLOT0 + CAP_FRAMES <= 256, error, "sprites.s: slots past 255"
+        .assert RP_SLOT0 + RP_FRAMES <= 256, error, "sprites.s: slots past 255"
 
         .pushseg
         .segment "CODE"                 ; bank 0: the flight engine's neighbour -
@@ -118,6 +123,10 @@ spr_pump:
 ; up1-3/dn1-3, small up1-4/dn1-4, xl dn1-3 - E's own art, slots 22-24 - then xs
 ; up1-2/dn1-2, the small bracket's own grow/shrink tier, slots 25-28).
 ; -----------------------------------------------------------------------------
+        .include "repair_art.s"         ; GENERATED (tools/repairgen.py): the tunnel's
+                                        ;   repair effect - its art into SPRART here,
+                                        ;   behind the capsule's, and the frames' screen
+                                        ;   places into TUNCODE (tunnel_hud.s draws it)
         .pushseg
         .segment "SPRART"
         .align  256
@@ -142,7 +151,10 @@ spr_defs:
         .repeat CAP_FRAMES
         .byte   CAP_TYPE
         .endrepeat
-        .res    256 - CAP_SLOT0 - CAP_FRAMES, 0
+        .repeat RP_FRAMES, I
+        .byte   .ident(.sprintf("RP_T%d", I))
+        .endrepeat
+        .res    256 - RP_SLOT0 - RP_FRAMES, 0
         .assert * - spr_defs = 256, error, "sprites.s: the TYPE page is not 256 bytes"
 
 ; --- page $04, SPR_PTR_LSB (each sprite's byte offset within its page) --------
@@ -163,7 +175,10 @@ spr_defs:
         .repeat CAP_FRAMES, I
         .byte   <(I * CAP_BYTES)
         .endrepeat
-        .res    256 - CAP_SLOT0 - CAP_FRAMES, 0
+        .repeat RP_FRAMES, I
+        .byte   <.ident(.sprintf("RP_O%d", I))
+        .endrepeat
+        .res    256 - RP_SLOT0 - RP_FRAMES, 0
         .assert * - spr_defs = 512, error, "sprites.s: the PTR_LSB page is not 256 bytes"
 
 ; --- page $05, SPR_PTR_MSB (the GPU page - the flames share one blob) --------
@@ -178,7 +193,10 @@ spr_defs:
         .repeat CAP_FRAMES, I
         .byte   CAP_PAGE + >(I * CAP_BYTES)
         .endrepeat
-        .res    256 - CAP_SLOT0 - CAP_FRAMES, 0
+        .repeat RP_FRAMES, I
+        .byte   RP_PAGE + >.ident(.sprintf("RP_O%d", I))
+        .endrepeat
+        .res    256 - RP_SLOT0 - RP_FRAMES, 0
         .assert * - spr_defs = 768, error, "sprites.s: the PTR_MSB page is not 256 bytes"
 
 ; --- page $06, SPR_HEIGHT ----------------------------------------------------
@@ -199,13 +217,16 @@ spr_defs:
         .repeat CAP_FRAMES
         .byte   CAP_HEIGHT
         .endrepeat
-        .res    256 - CAP_SLOT0 - CAP_FRAMES, 0
+        .repeat RP_FRAMES, I
+        .byte   .ident(.sprintf("RP_H%d", I))
+        .endrepeat
+        .res    256 - RP_SLOT0 - RP_FRAMES, 0
         .assert * - spr_defs = 1024, error, "sprites.s: the HEIGHT page is not 256 bytes"
         .popseg
 
-; The art is four files' worth, included where their code is - flames in
-; thrust.s, arrows in cam.s, pickups in pickup.s, the capsule in capsule.s -
-; and lands in SPRART in that order, each page aligned. This is the sentence
+; The art is five files' worth, included where their code is - flames in
+; thrust.s, arrows in cam.s, pickups in pickup.s, the capsule in capsule.s, and
+; the repair here (tunnel.s comes before cam.s's neighbours, so it cannot) - and lands in SPRART in that order, each page aligned. This is the sentence
 ; that says so.
-        .assert arrows_data = flames_data + $100 && pickups_data = flames_data + $200 && capsule_data = flames_data + $300, error, "sprites.s: the art is not in page order at the start of SPRART"
+        .assert arrows_data = flames_data + $100 && pickups_data = flames_data + $200 && capsule_data = flames_data + $300 && repair_data = capsule_data + CAP_PAGES * $100, error, "sprites.s: the art is not in page order at the start of SPRART"
         .assert spr_defs = spr_art + SPR_ART_PAGES * $100, error, "sprites.s: the definition pages do not follow the art"

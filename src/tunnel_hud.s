@@ -14,8 +14,13 @@
 ; it stands in the sector there is a PICTURE OF THE SHIP (assets/png/ship_rest_h44_1x.png,
 ; the user's, 2026-10-14), part of the cockpit's background art (tunnel.s, the Makefile's
 ; tunnel_art.s rule) - only the band's right side, cells 24+ of lines 44..49, is free for
-; it in the tunnel, the window being above. It is still: the repair's animation round it
-; is to come, on small sprites (open_questions.md H6).
+; it in the tunnel, the window being above.
+;
+; THE REPAIR round it (tun_repair): the user's 44 frames (assets/png/ship/ship_anim*.png),
+; each cut by tools/repairgen.py down to what it ADDS to the ship already on the
+; background - one byte-wide no-overlay sprite a frame, OR-ed over the picture. A new one
+; every TUN_RPD frames, looping, the whole time the tunnel flies (the user, 2026-10-14: to see how it
+; looks; at full hull it is to stop).
 ;
 ; THE PACING IS THE SECTOR'S (the user: never more often than every 2 frames, one line
 ; at a time): both rows go through hud_game.s's bgtext_claim, on hud_game.s's 8-frame
@@ -46,6 +51,8 @@ TUN_SATHIT  = 20                ; ...and a rock hit takes
 TUN_PODPTS  = 3                 ; score, in hundreds: a lifepod...
 TUN_CLDPTS  = 1                 ; ...and a cloud
 TUN_LIVMAX  = 5                 ; ships in hand never go past this (design_technical 11.45)
+TUN_RPD     = 3                 ; frames each frame of the repair effect stays (the user,
+                                ;   2026-10-14): 44 of them, a lap in ~2.2 s
 TUN_SPKP    = 6                 ; SPARKS (at SATN_FULL and over): a burst every this many
 TUN_SPKR0   = 60                ;   frames, 2 or 3 dashes, each one frame, from this radius
 TUN_SPKR1   = 70                ;   to this (half-res px, about the window's centre: the
@@ -66,6 +73,8 @@ SPKT:   .res    1                       ; frames to the next burst of sparks
 TL0:    .res    HUD_L1_LEN + 1          ; the SATURNIUM row's own buffer (the OS replays
                                         ;   the pointer, so it is never shared)
 SPKN:   .res    1                       ; dashes left in this burst
+RPF:    .res    1                       ; the repair effect's frame, 0..RP_FRAMES-1
+RPT:    .res    1                       ; ...and frames left before the next one
 
         .segment "MSGDATA"
 STR_SATN:   .byte   "SATURNIUM "        ; (10: the label and its space, cells 0..9)
@@ -98,6 +107,9 @@ tun_hud_init:
         stz     SPKN
         lda     #$FF
         sta     HCSAT
+        stz     RPF
+        lda     #TUN_RPD
+        sta     RPT
         rts
 
 ; -----------------------------------------------------------------------------
@@ -115,6 +127,7 @@ tun_hud_start:
 ; tun_hud_frame - once a frame while flying: the rows (paced), the hull, the sparks.
 ; -----------------------------------------------------------------------------
 tun_hud_frame:
+        jsr     tun_repair              ; the repair round the ship's picture
         jsr     bgtext_tick             ; the shared window ages first, as in the sector
         jsr     ind_timer_tick          ; ...and the message bar's hold, every frame
         inc     HUD_PHASE               ; ...and hud_game.s's cycle steps, as hud_tick
@@ -160,6 +173,37 @@ tun_hud_frame:
         dec     SPKN                    ;   each dash lives one frame)
         bne     @dash
 @r:     rts
+
+; tun_repair - one SPRITE: frame RPF of the repair effect at its own place (repair_art.s:
+; RP_XL/RP_YL, high bytes RP_XH/RP_YH), drawn every frame; the next one every TUN_RPD.
+; TUNCODE3, with its tables: bank 10 (TUNCODE, TUNCODE2) had no 24 bytes left for them.
+        .pushseg
+        .segment "TUNCODE3"
+tun_repair:
+        ldx     RPF
+        txa
+        clc
+        adc     #RP_SLOT0
+        sta     OS_ARG+0
+        lda     RP_XL,x
+        sta     OS_ARG+1
+        lda     #RP_XH
+        sta     OS_ARG+2
+        lda     RP_YL,x
+        sta     OS_ARG+3
+        lda     #RP_YH
+        sta     OS_ARG+4
+        dec     RPT                     ; this one held long enough?
+        bne     @draw
+        lda     #TUN_RPD
+        sta     RPT
+        inx
+        cpx     #RP_FRAMES
+        bcc     :+
+        ldx     #0
+:       stx     RPF
+@draw:  jmp     API_GPU_SPRITE          ; tail
+        .popseg
 
 ; tun_spark - one dash at a random angle, TUN_SPKR0..TUN_SPKR1 from the centre, along
 ; the radius: fb x = TUN_CX + (portrait down), fb y = TUN_CY - (portrait right).
