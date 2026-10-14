@@ -31,6 +31,15 @@
 ; (0,50) - centred on the 300 x 400 screen (the Makefile's tunnel_art.s rule). It
 ; is thin white lines, so the flight, drawn on the layer above it, simply overdraws
 ; where they cross: nothing here "covers" the flight yet.
+;
+; The picture its bands write is the WHOLE 300 x 400 screen, not just the window
+; (the Makefile composes it: a blank canvas, the cockpit, and the ship's picture where
+; the sector's radar stands). That is on purpose: CLEAR_BG has to reach BOTH background
+; buffers, and when one pass is starved the sector bleeds through - the radar corner and
+; the message bar's top band were what showed. Bands that rewrite every byte leave
+; nothing of the sector whatever CLEAR_BG managed, and the ship, being background,
+; costs no frame a cycle (the user, 2026-10-14: too big to draw every frame; effects
+; round it will be small sprites).
 ; =============================================================================
 
 TUN_FRAMES  = 3600              ; a minute of flying (design_technical 11.45), the last TUN_RUSH of

@@ -32,6 +32,19 @@ WHAT IT EMITS (one .s, included by src/screens.s):
   the blobs    in segments ART5 / ART6, which cart.cfg keeps in the window.
 ART_GEO and ART_TAB go to UICODE, which runs in RAM (DEMO_RAM).
 
+LAYERS. A picture may be COMPOSED from several, joined by '+':
+
+    HUD=300x400@0,0+assets/png/tunnel_hud.png@0,50+assets/png/ship.png@224,348/15
+
+Each layer is a PNG at portrait (X, Y), or WxH@X,Y - a blank of that size, which
+puts nothing on but is the CANVAS: with one, the picture is exactly its rectangle,
+and a PNG's black margin may hang over the edge (a LIT pixel there is an error);
+without one, the picture is the bounding box of the layers. A pixel is lit if any
+layer lights it (OR - black is never painted over anything). That is how the tunnel's cockpit becomes a whole screen:
+its bands then rewrite every byte of the background, so nothing the sector left
+there - the radar, the message bar - survives into the tunnel whatever CLEAR_BG
+managed, and the ship's picture in the corner costs no frame anything.
+
 OPTIONS (before the pictures), for a second set that lives with another tenant of
 DEMO_RAM - the tunnel's HUD (src/tunnel_art.s), whose blobs are in bank 10:
   --banks 10:TUNART     the bank(s) and segment(s) the blobs go in (N:SEG[,N:SEG])
@@ -53,20 +66,51 @@ BANK_SIZE = 0x2000
 FB_W, FB_H, ROW_BYTES = 400, 300, 50
 
 
-def raster(path, x0, y0):
-    """bggen.py's conversion: the PNG turned into framebuffer rows of bytes."""
+def lit_png(path):
+    """bggen.py's pixel convention: not black and not transparent is a set bit."""
     im = Image.open(path).convert("RGBA")
     w, h = im.size
     px = im.load()
+    return w, h, {(ix, iy) for iy in range(h) for ix in range(w)
+                  if px[ix, iy][3] > 127 and any(px[ix, iy][:3])}
+
+
+def compose(spec):
+    """'layer+layer+...' -> (w, h, lit set, x0, y0): the layers ORed together in
+    their bounding box. A layer is png@X,Y or WxH@X,Y (a blank)."""
+    layers = []
+    for layer in spec.split("+"):
+        what, at = layer.rsplit("@", 1)
+        x, y = (int(v) for v in at.split(","))
+        if not pathlib.Path(what).suffix and "x" in what:
+            w, h = (int(v) for v in what.split("x"))
+            layers.append((x, y, w, h, set()))
+        else:
+            w, h, on = lit_png(what)
+            layers.append((x, y, w, h, on))
+    box = [L for L in layers if not L[4] and L[2] * L[3]] or layers  # the blanks are the canvas
+    x0 = min(L[0] for L in box)
+    y0 = min(L[1] for L in box)
+    w = max(L[0] + L[2] for L in box) - x0
+    h = max(L[1] + L[3] for L in box) - y0
+    on = {(lx - x0 + ix, ly - y0 + iy) for lx, ly, _, _, s in layers for ix, iy in s}
+    off = [(x + x0, y + y0) for x, y in on if not (0 <= x < w and 0 <= y < h)]
+    if off:
+        sys.exit(f"{spec}: {len(off)} lit pixel(s) outside the canvas, e.g. portrait {off[0]}")
+    return w, h, on, x0, y0
+
+
+def raster(spec):
+    """bggen.py's conversion: the picture turned into framebuffer rows of bytes."""
+    w, h, on, x0, y0 = compose(spec)
 
     def lit(ix, iy):
-        r, g, b, a = px[ix, iy]
-        return a > 127 and (r or g or b)
+        return (ix, iy) in on
 
     fbx0, fbx1 = y0, y0 + h - 1
     fby0, fby1 = 299 - x0 - (w - 1), 299 - x0
     if not (0 <= fbx0 and fbx1 < FB_W and 0 <= fby0 and fby1 < FB_H):
-        sys.exit(f"{path} at portrait ({x0},{y0}) falls off the framebuffer")
+        sys.exit(f"{spec} at portrait ({x0},{y0}) falls off the framebuffer")
     col0 = fbx0 // 8
     ncol = fbx1 // 8 - col0 + 1
     raw = bytearray()
@@ -87,11 +131,9 @@ def main(dst, specs, banks=ART_BANKS, code_seg="UICODE", prefix=""):
     pics = []
     for spec in specs:
         name, rest = spec.split("=", 1)
-        path, rest = rest.split("@", 1)
-        at, band = rest.split("/")
-        x0, y0 = (int(v) for v in at.split(","))
+        path, band = rest.rsplit("/", 1)
         band = int(band)
-        raw, xb, wb, rows, fby0 = raster(path, x0, y0)
+        raw, xb, wb, rows, fby0 = raster(path)
         pad = (-rows) % band
         if fby0 + rows + pad > FB_H:
             sys.exit(f"{name}: {rows} rows do not divide into bands of {band}, and "

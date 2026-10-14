@@ -11,9 +11,11 @@
 ;   line 48   SATURNIUM |xxxxxxxxxxxx|      the hold, proportional, full at SATN_FULL
 ;
 ; The SATURNIUM bar is as wide as the hull bar and in the same cells. No radar: where
-; it stands in the sector there will be an ANIMATED PICTURE OF THE SHIP being repaired
-; (the user's art, not drawn yet; open_questions.md H6) - only the band's right side,
-; cells 24+ of lines 44..49, is free for it in the tunnel, the window being above.
+; it stands in the sector there is a PICTURE OF THE SHIP (assets/png/ship_rest_h44_1x.png,
+; the user's, 2026-10-14), part of the cockpit's background art (tunnel.s, the Makefile's
+; tunnel_art.s rule) - only the band's right side, cells 24+ of lines 44..49, is free for
+; it in the tunnel, the window being above. It is still: the repair's animation round it
+; is to come, on small sprites (open_questions.md H6).
 ;
 ; THE PACING IS THE SECTOR'S (the user: never more often than every 2 frames, one line
 ; at a time): both rows go through hud_game.s's bgtext_claim, on hud_game.s's 8-frame

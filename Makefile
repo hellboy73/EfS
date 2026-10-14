@@ -97,9 +97,17 @@ src/screens_art.s: $(LOGO_PNG) $(TITLE_PNG) tools/artgen.py tools/bggen.py
 # The tunnel's HUD: the same tool, a second set - its bands in bank 8 (TUNART, behind LEVELS),
 # its tables in TUNCODE, TUN_ART_* names. The 300 x 300 cockpit is centred: portrait
 # (0,50), the screen being 300 x 400. Tracked, like screens_art.s.
-TUNHUD_PNG = assets/png/tunnel_hud.png
-src/tunnel_art.s: $(TUNHUD_PNG) tools/artgen.py tools/bggen.py
-	python tools/artgen.py $@ --banks 8:TUNART --code-seg TUNCODE --prefix TUN_ HUD=$(TUNHUD_PNG)@0,50/15
+# The picture is the WHOLE screen (the 300x400 blank layer), so its bands rewrite the
+# sector's top band and radar corner too, and the ship stands where the radar was:
+# TUNSHIP_PNG's top-left at portrait (223,352) - with the 6 px black margin the PNG has,
+# the 40 x 35 hull (nose to the right) is at (229,358), centred where the radar was
+# (x 249) and inside the free cells 24+ of lines 44..49 (y 352..399, tunnel_hud.s).
+# Edit the PNG and run make; a lit pixel off the screen stops the build.
+TUNHUD_PNG  = assets/png/tunnel_hud.png
+TUNSHIP_PNG = assets/png/ship_rest_h44_1x.png
+src/tunnel_art.s: $(TUNHUD_PNG) $(TUNSHIP_PNG) tools/artgen.py tools/bggen.py
+	python tools/artgen.py $@ --banks 8:TUNART --code-seg TUNCODE --prefix TUN_ \
+	    HUD=300x400@0,0+$(TUNHUD_PNG)@0,50+$(TUNSHIP_PNG)@223,352/15
 
 # The pickup's sprite, every animation frame (pickup.s). Tracked, like arrows.s.
 # PICKUP_SET picks the set: assets/png/<set>1.png, <set>2.png, ... as far as they go.
