@@ -871,14 +871,16 @@ ship_die:
                                         ;   ship lost, not only the last one,
                                         ;   unlike the wreck below
 
+        jsr     ind_drop_hull           ; HULL BREACH / CRITICAL are stale now:
+                                        ;   out of the queue (hud_game.s)
         dec     LIVES
         beq     @last
         lda     #HP_MAX                 ; a ship in hand: back on its feet where
         sta     SHIPHP                  ;   it stood, and untouchable while it
         lda     #SHIP_INVULN            ;   blinks
         sta     SHIPINV
-        lda     #IM_LIFE
-        jmp     indicate_msg            ; tail
+        lda     #IM_LIFE                ; ...so SHIP LOST is next, not behind
+        jmp     indicate_msg            ;   them (tail; the user, 2026-10-15)
 @last:
         stz     SHIPHP
         lda     #1

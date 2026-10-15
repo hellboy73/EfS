@@ -157,6 +157,9 @@ HUD_PH_OVER  = 6                ; ...and the game-over banner, which is an
 ; --- the message bar ---------------------------------------------------------
 IND_TICKS    = 120              ; frames a message is held (~2 s at 60.317 Hz)
 IND_TICKS_Q  = 70               ; ...shortened while others are waiting
+IND_TICKS_SPK= 25               ; ...and a SPOKEN line, after its voice ends: the
+                                ;   text was on the bar all the time it was said
+                                ;   (the user, 2026-10-15: lines came seconds late)
 IND_QMAX     = 4                ; queued messages; a fifth is dropped
 IQ_NONE      = $FF              ; nothing on the bar (IND_CUR only)
 
@@ -814,6 +817,28 @@ score_ship:
         lda     #IM_EXTRA
         jmp     indicate_msg            ; tail
 @r:     rts
+
+; -----------------------------------------------------------------------------
+; ind_drop_hull - ship.s ship_die: the ship is gone, so HULL BREACH and HULL
+; CRITICAL are stale (the user, 2026-10-15: CRITICAL was heard after the death
+; and SHIP LOST seconds later). Both are taken out of the QUEUE; the line on the
+; bar is left to finish - a spoken line is never cut (the user) - and SHIP LOST,
+; which ship_die queues next, follows it straight away. Clobbers A/X.
+; -----------------------------------------------------------------------------
+ind_drop_hull:
+        ldx     #$00
+@scan:  cpx     IND_QN
+        bcs     @r
+        lda     IND_QD,x
+        cmp     #IM_CRITICAL + 1        ; IM_HULL or IM_CRITICAL
+        bcs     @nx
+        jsr     ind_qdrop               ; (X stays: the shift moved one into it)
+        bra     @scan
+@nx:    inx
+        bra     @scan
+@r:     rts
+        .assert IM_HULL = 0 && IM_CRITICAL = 1, error, "hud_game.s: ind_drop_hull takes the ids below IM_CRITICAL + 1"
+
         .import __CODE4_RUN__, __TUNBSS_RUN__, __TUNBSS_SIZE__
         .assert __TUNBSS_RUN__ + __TUNBSS_SIZE__ <= __CODE4_RUN__, lderror, "hud_game.s: the tunnel would overwrite CODE4 (score_ship, speech), which it calls"
 
@@ -906,8 +931,11 @@ ind_timer_tick:
         cmp     #2
         bcc     @ret                    ; 0 = idle, 1 = expired and waiting
         lda     SPK_BUSY                ; ...and it does not age AT ALL while the
-        bne     @ret                    ;   synthesiser is still reading it out
-        dec     IND_TIMER
+        beq     @dec                    ;   synthesiser is still reading it out:
+        lda     #IND_TICKS_SPK          ;   it stands at IND_TICKS_SPK, and that
+        sta     IND_TIMER               ;   much is left once the voice stops
+        rts
+@dec:   dec     IND_TIMER
 @ret:   rts
 
 ; -----------------------------------------------------------------------------
