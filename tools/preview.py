@@ -5231,6 +5231,7 @@ def gate_bench():
           f"({100 * near / 237000:.2f}% of a frame at most)")
 
     score = ram_block(SCORE_A, 6)
+    score_n = int(bytes(ram_block(SCORE_A, 7)).decode())
     lives = ram(LIVES_A)
     cpu_mem[SATN_A] = 123
     put_ship(gx, (gy + 10 * 16) & 0xFFFF)               # into its middle
@@ -5245,25 +5246,34 @@ def gate_bench():
     game = any(op in (0x4C, 0x4E) for c in seen for op, _ in c)
     check("...a CLEAR_BG, then the cockpit's 20 bands, each sent and replayed (RECT_BG_RLE), and nothing of the field",
           cleared and rects == 40 and not game, f"{rects} bands")
-    check("...and it stays the tunnel until its time (or FIRE, which skips to the rush) ends it",
+    check("...and it stays the tunnel until its time ends it",
           cpu_mem[SCR_STATE_A] == SC_TUNNEL)
+    TK = asm_consts("tunnel.s", "tunnel_hud.s")
+    def tclock():
+        return cpu_mem[SCR["SC_PTRL"]] | cpu_mem[SCR["SC_PTRH"]] << 8
+    t0 = tclock()
+    frame(fire=True)
+    check("...where FIRE does nothing (it skips to the rush only in make run-tunnel)",
+          tclock() == t0 + 1 and cpu_mem[SCR_STATE_A] == SC_TUNNEL, f"clock {t0} -> {tclock()}")
     # (the stars, the lean and the rocks are checked by tools/tunnel_bench.py - make tunnel-test)
     cur0 = cpu_mem[CURLEV_A]
     nlev = asm_consts("levels.s")["NLEVELS"]
     for k in range(asm_consts("tunnel.s")["TUN_ROCKS"] + 2):   # nothing flying, so nothing caught or hit:
         cpu_mem[_LBL["RZL"] + k] = cpu_mem[_LBL["RZH"] + k] = 0   #   the hold and the score stay as they are
-    frame(fire=True)                                   # FIRE skips to the rush...
+    skip = TK["TUN_FRAMES"] - TK["TUN_RUSHF"] - 60     # the clock moved on to a second before the rush...
+    cpu_mem[SCR["SC_PTRL"]], cpu_mem[SCR["SC_PTRH"]] = skip & 0xFF, skip >> 8
     n_rush = 0
     while cpu_mem[SCR_STATE_A] == SC_TUNNEL and n_rush < 600:
         frame()                                        # ...which ends it
         n_rush += 1
     cmds = frame()
-    check("...FIRE skips to the rush, and at its end the next sector: flying, the gate closed, and the level advanced (round to the first after the last)",
+    check("...the rush, and at its end the next sector: flying, the gate closed, and the level advanced (round to the first after the last)",
           cpu_mem[SCR_STATE_A] == 0 and ram(GTON_A) == 0 and cpu_mem[CURLEV_A] == (cur0 + 1) % nlev and 300 < n_rush < 600,
           f"SCR_STATE {cpu_mem[SCR_STATE_A]} GTON {ram(GTON_A)} CURLEV {cpu_mem[CURLEV_A]} (was {cur0}, {nlev} levels), {n_rush} frames")
-    check("...keeping the score, the ships and the Saturnium in the hold",
-          ram_block(SCORE_A, 6) == score and ram(LIVES_A) == lives and ram(SATN_A) == 123,
-          f"score {ram_block(SCORE_A, 6)} vs {score}, lives {ram(LIVES_A)}, SATN {ram(SATN_A)}")
+    score_e = score_n + 100 * TK["TUN_CLNPTS"]
+    check(f"...keeping the ships and the Saturnium in the hold, and the score plus the clean-run bonus ({100 * TK['TUN_CLNPTS']}: no rock hit)",
+          int(bytes(ram_block(SCORE_A, 7)).decode()) == score_e and ram(LIVES_A) == lives and ram(SATN_A) == 123,
+          f"score {bytes(ram_block(SCORE_A, 7)).decode()} vs {score_e}, lives {ram(LIVES_A)}, SATN {ram(SATN_A)}")
     cpu_mem[SATN_A] = 0
 
 

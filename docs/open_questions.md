@@ -1140,13 +1140,20 @@ the Saturnium collected in this passage, never a pod. Open:
   pod angles gone, and the corner lanes back at (+-81, +-81). Keep, if going back: the
   inverted UP/DOWN if wanted (one swap in `tun_lean_frame`), and tunnel_hud.s, which does
   not depend on the controls.
-* The seeded generator (11.45): how it makes sure a pod is always reachable,
-  and the density per level.
-* Whether "all the Saturnium" is too harsh once flown (first setting, 11.45).
-* Per-level variety as foreshadowing (candidate): L1 clean ice, L2 a
-  silhouette that flickers and is gone, L3 wrecks of SRVs, L4 shadows pacing
-  the ship, L5 the tunnel folding back on itself.
-* Its music.
+* **CONCLUDED 2026-10-15 (the user): the tunnel is a game element, the numbers and rules are
+  design_technical 11.45's "THE TUNNEL CONCLUDED"** - a minute, it heals and does not punish
+  (a hit stops the repair 5 s and takes 25 Saturnium, never below what the ship came in with;
+  the rush finishes the hull), a cloud +25 and 50 points, a pod 300, +500 CLEAN RUN BONUS,
+  pods at random moments, no FIRE, the four orders on the bar at the start. Settled with it:
+  the pod is always reachable as built (no seeded generator for that); "all the Saturnium"
+  is gone. What stays open:
+* The seeded generator (11.45) and the density per level - wanted with the per-level variety,
+  not before.
+* Per-level variety as foreshadowing (candidate, deferred - the user: "its time will come"):
+  L1 clean ice, L2 a silhouette that flickers and is gone, L3 wrecks of SRVs, L4 shadows
+  pacing the ship, L5 the tunnel folding back on itself.
+* Its music (none now; the effects stay as they are).
+* ~~The ship for points~~ - settled 2026-10-15: every 20,000 points, up to 9 ships (11.45).
 * **Built 2026-10-13: the tunnel flies (`src/tunnel.s`, TUNCODE bank 10 -> TUNRAM, the third DEMO_RAM tenant).**
   Entered by flying into the exit gate (DEMO=0), `make run-tunnel` / `run_tunnel.bat` boots straight into it
   (TUNTEST=1, FIRE skips to the rush), `make tunnel-test` = `tools/tunnel_bench.py` is its own bench (minutes
@@ -1174,21 +1181,21 @@ the Saturnium collected in this passage, never a pod. Open:
      REPAIRED where the radar stands in the sector** (the user's art, not drawn yet): in the tunnel only the
      band's right side is free for it - cells 24+ of lines 44-49, ~100 x 50 px. Its look, its frames and
      their cost (sprites or background) are open; it should read as the hull growing.
-  2. **The stat bar (top 50 px) and the radio bar (bottom 50 px)**: Saturnium, ships, the sector's score /
-     time / kills (the field would have to count time and kills), and the debrief / brief text typed out like
-     a telegraph (H5). Also the window may move to the top later (the user): the HUD art and the 150 x 150
-     half-res box (`TUN_CX`, `TUN_CY`, the 50 px offset in `tools` / Makefile) are the only places that know.
+  2. ~~The stat bar and the radio bar~~ - **settled 2026-10-15**: the bar above the window carries the
+     ORDERS at the start (BUILT, 11.45) and the tunnel's own lines; the sector's summary (score / time /
+     kills - the field would have to count time and kills) goes on a SUMMARY SCREEN after the tunnel and
+     the debrief / brief telegraph (H5) on the information screen after that. Both screens are to do.
   3. **A per-level seeded generator** (the same stream every run, a density per level, the pod guarantee),
      replacing the free PRNG; plus the per-level variety (L1 clean ice, L2 a silhouette that flickers, L3 SRV
      wrecks, L4 shadows pacing the ship, L5 the tunnel folding back).
-  4. **The Saturnium rule - settled 2026-10-13 (the user):** a rock hit takes 20 (to 0), a cloud adds 50,
-     on the hold carried from the sector (tunnel_hud.s).
+  4. **The Saturnium rule - settled 2026-10-15 (the user; was -20 / +50):** a rock hit takes 25 but never
+     below the hold the ship came in with, a cloud adds 25 (tunnel_hud.s).
   5. **The states round it**: the picture / summary / story between the tunnel and the next sector (the
      tunnel now exits straight to `set_state_field`); the 0.1 s reload hitch hidden under a blind.
   6. **Entry**: only the exit gate (and `run-tunnel`); the original idea was a test tunnel at the start of the
      test level, straight ahead of the ship. DEMO=1 (the expo build) still skips the tunnel.
-  7. **Sound**: the engine and the whine are by ear and the user said they are not right yet; the tunnel's own
-     music (H6) is not decided (the title theme is stopped on entry).
+  7. **Sound**: the effects stay as they are for now (the user, 2026-10-15); the tunnel's own music comes
+     later (the title theme is stopped on entry).
   8. **Budget**: 16 rocks at once have been measured only for CPU and for a typical frame; the GPU worst case
      (several near rocks, all drawn solid, clipped edge by edge) is TBM, and the difficulty (rock density, the
      lean's 1 s, the speed) is for play-testing.

@@ -82,6 +82,11 @@ LIVES_START  = 5 - 2 * DEMO                ; ships in hand at the start of a gam
                                 ;   hard-coding a digit and going red every time
                                 ;   it is changed. LIVES is one digit, so 9 is as
                                 ;   high as the readout goes.
+LIVES_MAX    = 9                ; ...and so the most ships in hand: an EXTRA SHIP
+                                ;   (score_add) takes a good game past the five it
+                                ;   starts with (the user, 2026-10-15)
+SCORE_SHIP_D = SCORE_DIGITS - 5 ; an extra ship every 20,000 points: whenever the
+                                ;   ten-thousands digit turns over to an EVEN one
 HUD_ROW1     = 46               ; LIVES and the hull bar
 HUD_ROW2     = 48               ; LEVEL and SCORE
 IND_ROW      = 2                ; the message bar - third text row from the top,
@@ -174,7 +179,16 @@ IM_GOAL1     = 14               ; the demo sector's two goals, queued after IM_L
 IM_GOAL2     = 15               ;   by level_begin (gameover.s)
 IM_PILOT_OK  = 16               ; the tunnel: a lifepod caught (tunnel_hud.s)...
 IM_PILOT_LOST= 17               ; ...and one gone past
-IM_COUNT     = 18               ; ...and HOW MANY, which is ABI: THREE tables
+IM_TUN_GUN   = 18               ; THE TUNNEL'S ORDERS, queued as the blinder comes
+IM_TUN_POD1  = 19               ;   off (tunnel_hud.s tun_hud_start): no gun here,
+IM_TUN_POD2  = 20               ;   the lifepods to rescue (one id per count, so
+IM_TUN_POD3  = 21               ;   the voice says the number; none when no ship
+IM_TUN_POD4  = 22               ;   was lost), the rocks to avoid, the dust to
+IM_TUN_ROCKS = 23               ;   collect...
+IM_TUN_DUST  = 24
+IM_TUN_CLEAN = 25               ; ...and, in the rush, the bonus for no rock hit
+IM_EXTRA     = 26               ; an extra ship for 20,000 points (score_add)
+IM_COUNT     = 27               ; ...and HOW MANY, which is ABI: THREE tables
                                 ;   are indexed by these ids - IND_LO/IND_HI
                                 ;   below and speech.s's SPK_LO/SPK_HI, which
                                 ;   is generated from its own list in
@@ -782,6 +796,28 @@ indicate_msg:
                                         ;  cold - one call per weapon change)
 
 ; -----------------------------------------------------------------------------
+; score_ship - score_add saw the ten-thousands digit turn over: an extra ship,
+; while LIVES has a digit for it, and EXTRA SHIP BONUS. LVSTART goes up with it:
+; a new ship and pilot, so the tunnel's pods still count only the ships lost.
+; CODE4 runs above the tunnel's footprint in the run area, so the tunnel's own
+; score_add calls reach it too. Clobbers A/X/Y (score_add restores them).
+; -----------------------------------------------------------------------------
+score_ship:
+        lda     SCORE + SCORE_SHIP_D    ; only on 20,000s: the new digit even
+        lsr     a
+        bcs     @r
+        lda     LIVES
+        cmp     #LIVES_MAX
+        bcs     @r
+        inc     LIVES
+        inc     LVSTART
+        lda     #IM_EXTRA
+        jmp     indicate_msg            ; tail
+@r:     rts
+        .import __CODE4_RUN__, __TUNBSS_RUN__, __TUNBSS_SIZE__
+        .assert __TUNBSS_RUN__ + __TUNBSS_SIZE__ <= __CODE4_RUN__, lderror, "hud_game.s: the tunnel would overwrite CODE4 (score_ship, speech), which it calls"
+
+; -----------------------------------------------------------------------------
 ; indicate_urgent - A = IM_* id. The bar's ONE queue-jumper: the id goes to the
 ; FRONT of the queue and whatever is showing has its hold cut short, so the next
 ; paint phase draws this one. Clobbers A/X/Y.
@@ -919,12 +955,12 @@ ind_next:
         bra     @set
 :       lda     #IND_TICKS
 @set:   sta     IND_TIMER
+        jsr     msg_open                ; (the id tables are in the bank too)
         ldx     IND_CUR                 ; its text, out of the id tables
         lda     IND_LO,x
         sta     HUD_PTR
         lda     IND_HI,x
         sta     HUD_PTR+1
-        jsr     msg_open
         jsr     ind_build               ; centred into IND_BUF
         jsr     spk_speak               ; ...and SAY it, in the same bracket: the
                                         ;   phonemes are in the message bank too
@@ -979,11 +1015,21 @@ ind_build:
 ;
 ; Past 999,999 the score wraps. Six digits is what row 3 has room for beside the
 ; radar, and at 10 a hit and 50 a break that is a very long game.
+;
+; AN EXTRA SHIP every 20,000 points (the user, 2026-10-15; 10,000 was too many):
+; when an add turns the ten-thousands digit over (one add is at most 255, so at
+; most once) to an even digit (score_ship: '0' is $30, so the ASCII's bit 0 is the
+; digit's), LIVES goes up
+; to LIVES_MAX with EXTRA SHIP BONUS on the bar. LVSTART goes up with it, so the
+; tunnel still flies a lifepod for every ship LOST in the sector - the extra ship
+; is a new ship and a new pilot, not a rescue.
 ; =============================================================================
 score_add:
         phx
         phy
         sta     HUD_N                   ; HUD_N = the carry into this digit
+        lda     SCORE + SCORE_SHIP_D    ; (the ten-thousands digit, before)
+        pha
         ldx     #SCORE_DIGITS-1
 @dig:   lda     SCORE,x
         sec
@@ -1013,7 +1059,11 @@ score_add:
         sta     SCORE,x
         dex
         bpl     @dig
-        ply
+        pla                             ; the ten-thousands digit turned over?
+        cmp     SCORE + SCORE_SHIP_D
+        beq     @ret
+        jsr     score_ship              ; (CODE4: bank 1 is full)
+@ret:   ply
         plx
         rts
 
@@ -1024,9 +1074,9 @@ score_add:
 ; NUL-terminated messages (ind_build measures them). All of it lives in MSGDATA
 ; (cart.cfg, bank MSG_BANK) now, not RAM: read straight out of the window by
 ; msg_open/msg_close, bracketing every place that touches one of these labels.
-; IND_LO/IND_HI stay here in RODATA - they are only ever read BEFORE the window
-; is borrowed (ind_next builds HUD_PTR from them first), and at 22 bytes for
-; the pair, moving them would not have bought anything back.
+; IND_LO/IND_HI are here in MSGDATA too (2026-10-15, when the tunnel's orders
+; took the list past 20): ind_next reads them inside its msg_open bracket, so a
+; new message costs no RAM at all.
 ; =============================================================================
         .segment "MSGDATA"
 
@@ -1043,22 +1093,26 @@ IM_GUN_S:   .byte   "BLASTER ARMED", 0
 IM_LASER_S: .byte   "LASER ARMED", 0
 IM_GOAL1_S: .byte   "BREAK BIGGEST ROCKS", 0
 IM_GOAL2_S: .byte   "DEFEAT ALL ENEMIES", 0
-
-        .segment "RODATA"
+IM_EXTRA_S: .byte   "EXTRA SHIP BONUS", 0
 
 ; IM_EMP_NA_S is in emp.s, the shield's two in shield.s, IM_GATE_S in gate.s
-; and IM_LASER_GOT_S/IM_EMP_GOT_S in pickup.s, IM_PILOT_OK_S/IM_PILOT_LOST_S in
-; tunnel_hud.s - all MSGDATA now, same as the ones above
+; and IM_LASER_GOT_S/IM_EMP_GOT_S in pickup.s, IM_PILOT_OK_S/IM_PILOT_LOST_S and
+; the tunnel's orders (IM_TUN_*) in tunnel_hud.s - all MSGDATA, as the ones above
+; and the two tables below
 IND_LO:     .byte   <IM_HULL_S, <IM_CRIT_S, <IM_LEVEL_S, <IM_LIFE_S, <IM_ENEMY_S
             .byte   <IM_GUN_S, <IM_LASER_S, <IM_EMP_NA_S, <IM_SHIELD_ON_S
             .byte   <IM_SHIELD_OFF_S, <IM_GATE_S, <IM_LASER_GOT_S, <IM_EMP_GOT_S
             .byte   <IM_EMP_RDY_S, <IM_GOAL1_S, <IM_GOAL2_S, <IM_PILOT_OK_S
-            .byte   <IM_PILOT_LOST_S
+            .byte   <IM_PILOT_LOST_S, <IM_TUN_GUN_S, <IM_TUN_POD1_S, <IM_TUN_POD2_S
+            .byte   <IM_TUN_POD3_S, <IM_TUN_POD4_S, <IM_TUN_ROCKS_S, <IM_TUN_DUST_S
+            .byte   <IM_TUN_CLEAN_S, <IM_EXTRA_S
 IND_HI:     .byte   >IM_HULL_S, >IM_CRIT_S, >IM_LEVEL_S, >IM_LIFE_S, >IM_ENEMY_S
             .byte   >IM_GUN_S, >IM_LASER_S, >IM_EMP_NA_S, >IM_SHIELD_ON_S
             .byte   >IM_SHIELD_OFF_S, >IM_GATE_S, >IM_LASER_GOT_S, >IM_EMP_GOT_S
             .byte   >IM_EMP_RDY_S, >IM_GOAL1_S, >IM_GOAL2_S, >IM_PILOT_OK_S
-            .byte   >IM_PILOT_LOST_S
+            .byte   >IM_PILOT_LOST_S, >IM_TUN_GUN_S, >IM_TUN_POD1_S, >IM_TUN_POD2_S
+            .byte   >IM_TUN_POD3_S, >IM_TUN_POD4_S, >IM_TUN_ROCKS_S, >IM_TUN_DUST_S
+            .byte   >IM_TUN_CLEAN_S, >IM_EXTRA_S
         .assert (IND_HI - IND_LO) = IM_COUNT, error, "hud_game.s: IND_LO is not IM_COUNT bytes long"
         .assert (* - IND_HI) = IM_COUNT, error, "hud_game.s: IND_HI is not IM_COUNT bytes long"
 

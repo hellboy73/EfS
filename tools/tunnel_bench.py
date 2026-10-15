@@ -785,6 +785,7 @@ check("...one line at a time, never two in a frame, sends at least 2 frames apar
       all(n == 1 for n in per.values()) and all(b - a >= 2 for a, b in zip(sends, sends[1:])),
       f"per frame {per}, sends {sends}")
 cpu_mem[SHIPHP_A] = 10
+cpu_mem[LBL["HPW"]] = 0                                # (no hit's pause left over from the benches above)
 hp = []
 for f in range(3 * TH["TUN_HPP"]):
     cpu_mem[A["SPT"]] = 250
@@ -802,8 +803,8 @@ s0 = score()
 put_cloud(0, 0, 0, 60)
 for _ in range(20):
     flying_frame()
-check(f"a cloud adds TUN_SATCLD ({TH['TUN_SATCLD']}) Saturnium and {TH['TUN_CLDPTS']}00 points",
-      cpu_mem[LBL["TSATN"]] == 100 + TH["TUN_SATCLD"] and score() == s0 + 100 * TH["TUN_CLDPTS"],
+check(f"a cloud adds TUN_SATCLD ({TH['TUN_SATCLD']}) Saturnium and {TH['TUN_CLDPTS']} points",
+      cpu_mem[LBL["TSATN"]] == 100 + TH["TUN_SATCLD"] and score() == s0 + TH["TUN_CLDPTS"],
       f"TSATN {cpu_mem[LBL['TSATN']]}, score {s0} -> {score()}")
 cpu_mem[LBL["TSATN"]] = 250
 put_cloud(0, 0, 0, 60)
@@ -811,18 +812,34 @@ for _ in range(20):
     flying_frame()
 check("...and the hold stops at 255", cpu_mem[LBL["TSATN"]] == 255, f"{cpu_mem[LBL['TSATN']]}")
 clear_rocks()
-cpu_mem[LBL["TSATN"]] = 30
+cpu_mem[LBL["TSATN"]], cpu_mem[LBL["TSAT0"]] = 30, 0
+cpu_mem[SHIPHP_A] = 10
 put_rock(0, 0, 0, 60)
 for _ in range(20):
     flying_frame()
 check(f"a rock hit takes TUN_SATHIT ({TH['TUN_SATHIT']})", cpu_mem[LBL["TSATN"]] == 30 - TH["TUN_SATHIT"], f"{cpu_mem[LBL['TSATN']]}")
 clear_rocks()
-cpu_mem[LBL["TSATN"]] = 5
+hp = []
+for f in range(TH["TUN_HSTOP"] * TH["TUN_HPP"] + 10):
+    cpu_mem[A["SPT"]] = 250
+    flying_frame()
+    hp.append(cpu_mem[SHIPHP_A])
+check(f"...and stops the hull's repair for TUN_HSTOP ({TH['TUN_HSTOP']}) s, then it grows again",
+      hp[TH["TUN_HSTOP"] * TH["TUN_HPP"] - 30] == 10 and hp[-1] == 11, f"{hp[0]} .. {hp[-1]}")
+cpu_mem[LBL["TSATN"]], cpu_mem[LBL["TSAT0"]] = 5, 0
 put_rock(0, 0, 0, 60)
 for _ in range(20):
     flying_frame()
 check("...and stops at 0", cpu_mem[LBL["TSATN"]] == 0, f"{cpu_mem[LBL['TSATN']]}")
 clear_rocks()
+cpu_mem[LBL["TSATN"]], cpu_mem[LBL["TSAT0"]] = 40, 30
+put_rock(0, 0, 0, 60)
+for _ in range(20):
+    flying_frame()
+check("...and never below the hold the ship came in with (TSAT0): the tunnel does not punish",
+      cpu_mem[LBL["TSATN"]] == 30, f"{cpu_mem[LBL['TSATN']]}")
+clear_rocks()
+cpu_mem[LBL["HPW"]] = 0
 lean_run(0, 120)
 cpu_mem[LBL["TSATN"]] = 210
 dashes, frames_with = [], 0
@@ -838,9 +855,11 @@ check("at SATN_FULL and over, SPARKS: 2-3 dashes every TUN_SPKP frames, along a 
       f"{len(dashes)} dashes on {frames_with} frames, radii {min(rad):.0f}..{max(rad):.0f}")
 cpu_mem[LBL["TSATN"]] = 199
 check("...and none under it", not any(op == 0x42 for _ in range(12) for op, _ in flying_frame()))
-check("TUNTEST flies three lifepods (a sector would: the ships lost in it, LVSTART - LIVES)",
-      cpu_mem[LBL["PODE"]] - cpu_mem[LBL["PODI"]] <= 3 and cpu_mem[LBL["PODE"]] == 6,
-      f"PODI {cpu_mem[LBL['PODI']]} PODE {cpu_mem[LBL['PODE']]}")
+pt = [cpu_mem[LBL["PODTL"] + i] | cpu_mem[LBL["PODTH"] + i] << 8 for i in range(3)]
+check("TUNTEST flies three lifepods (a sector would: the ships lost in it, LVSTART - LIVES), each born near "
+      "its even place (900, 1800, 2700) moved by at most +-256 frames",
+      cpu_mem[LBL["PODE"]] == 3 and all(abs(t - b) <= 256 for t, b in zip(pt, (900, 1800, 2700))),
+      f"PODI {cpu_mem[LBL['PODI']]} PODE {cpu_mem[LBL['PODE']]}, born at {pt}")
 lv, s0 = 3, score()
 cpu_mem[LIVES_A] = lv
 call(cpu, LBL["tun_hud_pod"])
@@ -878,6 +897,42 @@ check("a lifepod gone past: PILOT LOST IN SPACE (after the line before it has ha
       "PILOT LOST IN SPACE" in said, f"{said[:4]}")
 cpu_mem[LIVES_A] = 5
 clear_rocks()
+# the orders as the blinder comes off, in order; one RESCUE line per pod count, none for no pod
+ORD = ["BLASTER DISABLED", "RESCUE 3 LIFEPODS", "AVOID THE ROCKS", "COLLECT SATURNIUM DUST"]
+def orders(pods):
+    clear_rocks()
+    call(cpu, LBL["indicate_reset"])
+    cpu_mem[LBL["PODE"]] = pods
+    call(cpu, LBL["tun_hud_start"])
+    seq = []
+    for t in bar_run(500):
+        if t and (not seq or seq[-1] != t):
+            seq.append(t)
+    return seq
+seq3, seq0, seq1 = orders(3), orders(0), orders(1)
+check("the orders on the bar as the tunnel starts: " + " / ".join(ORD) + " (RESCUE THE LIFEPOD for one, none for none)",
+      seq3 == ORD and seq0 == [ORD[0]] + ORD[2:] and seq1 == [ORD[0], "RESCUE THE LIFEPOD"] + ORD[2:],
+      f"{seq3} | {seq0} | {seq1}")
+# an EXTRA SHIP at 10,000 points (hud_game.s score_add): a ship and LVSTART up, past 5, never past 9
+LVSTART_A = asm_consts("hud_game.s")["LVSTART"]
+def set_score(n):
+    for i, c in enumerate(f"{n:0{HK['SCORE_DIGITS']}d}"):
+        cpu_mem[SCORE_A + i] = ord(c)
+call(cpu, LBL["indicate_reset"])
+set_score(19900)
+cpu_mem[LIVES_A], cpu_mem[LVSTART_A] = 5, 6
+call(cpu, LBL["tun_hud_pod"])
+said = bar_run(300)
+check("20,000 points: an EXTRA SHIP (past 5: a pod back and the extra one, 5 -> 7), LVSTART up with it, EXTRA SHIP BONUS on the bar",
+      score() == 20200 and cpu_mem[LIVES_A] == 7 and cpu_mem[LVSTART_A] == 7 and "EXTRA SHIP BONUS" in said,
+      f"score {score()} LIVES {cpu_mem[LIVES_A]} LVSTART {cpu_mem[LVSTART_A]} {said[:3]}")
+set_score(39950)
+cpu_mem[LIVES_A] = 9
+call(cpu, LBL["tun_hud_cloud"])
+check("...and never past 9 (LIVES is one digit)", score() == 40000 and cpu_mem[LIVES_A] == 9,
+      f"score {score()} LIVES {cpu_mem[LIVES_A]}")
+set_score(0)
+cpu_mem[LIVES_A] = 5
 
 # ---- what it costs -----------------------------------------------------------
 raw, cyc = raw_frame()

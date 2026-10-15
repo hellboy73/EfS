@@ -1854,8 +1854,14 @@ These are settled and should not be re-opened without a reason:
     picks it up in the debrief). A ship lost in a
     sector can be won back in the tunnel that follows it, and only there.
     Ships lost in earlier sectors come back only as **a ship for points** (an
-    extra life at score thresholds; the thresholds are TBD). The count never
-    goes above five.
+    extra life at score thresholds). ~~The count never goes above five~~ -
+    superseded 2026-10-15 (the user): **an EXTRA SHIP every 20,000 points**
+    (`score_add`, hud_game.s), with `EXTRA SHIP BONUS` on the bar, spoken, and it
+    takes a good game PAST five, up to 9 (`LIVES_MAX`: LIVES is one digit). The
+    extra ship is a new ship AND a new pilot: `LVSTART` goes up with it, so the
+    tunnel still flies a pod only for the ships lost in the sector. More than four
+    lost in one sector (possible with more than five in hand) still means four pods
+    at most (`TUN_PODS`); the rest are gone.
 
     **The TUNNEL follows every sector** and replaces `SC_SECTOR`'s frame. It
     is about a minute long and nobody dies in it. A 300 x 300 window at the
@@ -1878,9 +1884,9 @@ These are settled and should not be re-opened without a reason:
       returns that ship. A rock hit never takes a caught pod back.
     * **Saturnium**, carried into the next sector (EMP, and later the laser
       and teleport).
-    **Any rock hit costs all the Saturnium collected in this passage**,
-    never the ship and never a pod. This is the first setting, to be re-tuned
-    once it is flown. What is left open is `open_questions.md` H6.
+    ~~Any rock hit costs all the Saturnium collected in this passage~~ -
+    superseded: what a rock hit costs is the CONCLUSION below (2026-10-15).
+    Never the ship and never a pod. What is left open is `open_questions.md` H6.
 
     **The window splits three bands top to bottom, 50/300/50 px: a stats
     bar, the cockpit, a radio bar.** Decided 2026-09-23 (the user). The top
@@ -1984,6 +1990,42 @@ These are settled and should not be re-opened without a reason:
     animated picture of the ship being repaired where the radar stands in the sector** -
     in the tunnel only the band's right side (cells 24+, lines 44-49, 100 x 50 px) is free
     for it, the window being above (the user's art; `open_questions.md` H6).
+
+    **THE TUNNEL CONCLUDED as the game's own element (the user, 2026-10-15).** Where
+    anything above differs, this is what holds. **The tunnel heals and does not punish:**
+    a run flown with the stick let go still leaves with the hull full and the hold as it
+    came in, and the player is not to be stressed. The numbers are `physics.md` 12.
+    * **Length: a minute** (3,600 frames, the last 6 s the rush) - settled.
+    * **The hull** grows a point a second, as built. **A rock hit stops it for 5 s**
+      (`TUN_HSTOP`), and the repair effect round the ship's picture with it; **in the rush
+      whatever is left comes back a point every 6 frames** (`TUN_HPPR`), so the hull is
+      full at the end whatever was hit.
+    * **Saturnium: a cloud +25** (was 50: ~12 clouds a run filled the hold too easily),
+      **a rock hit -25, but never below what the ship came in with** (`TSAT0`): a hit
+      costs only what this passage gave.
+    * **Score: a pod 300, a cloud 50** (was 100), and **+500 for a run with no rock hit**,
+      paid 0.5 s into the rush (when no rock is left to strike) with **CLEAN RUN BONUS**
+      on the bar, spoken. A pod gives a ship back up to 9, as the extra ship does (above).
+    * **Lifepods: as many as ships lost in the sector** (0-4), as built, and **each born
+      at a different moment every tunnel**: the even spread (`PODB*`) moved by a random
+      +-8.5 s for one pod, +-4.2 s for two or three, +-2.1 s for four, never under 5.7 s
+      apart. A pod is always reachable (the rocks leave its lane for 1.5 s, `TUN_PODG`)
+      - enough, no seeded generator is needed for that.
+    * **No button does anything**: FIRE no longer skips to the rush in the game, only in
+      `make run-tunnel` (TUNTEST).
+    * **THE ORDERS on the bar above the window**, shown and spoken as the blinder comes off,
+      in this order: `BLASTER DISABLED`, `RESCUE THE LIFEPOD` / `RESCUE 2|3|4 LIFEPODS`
+      (none when no ship was lost), `AVOID THE ROCKS`, `COLLECT SATURNIUM DUST` - the
+      bar's whole queue (`IND_QMAX` 4); the first pod is born no sooner than 7.9 s in, after
+      them. The ids are `IM_TUN_*` (hud_game.s), the voice `tools/mkspeech.py`; the tables
+      `IND_LO`/`IND_HI` moved into the message bank (MSGDATA) to make room, so a new
+      message costs no RAM.
+    * **The sector's summary (score, time, kills) and the radio's debrief/brief are NOT in
+      the tunnel**: they go on a SUMMARY SCREEN after it, and the radio on the information
+      screen after that (the 50/300/50 bands' stat and radio bars above are withdrawn).
+      With the picture between sectors, that is later work.
+    * Deferred, not dropped: the per-level variety (L1 ice ... L5 folding back), the
+      tunnel's music (the effects stay as they are; there is none now).
 
 46. **Mining stations: one fixed, indestructible landmark in some sectors.**
     Decided 2026-09-18 (the user); **the figure and its wall are built as the

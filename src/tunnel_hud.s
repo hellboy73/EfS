@@ -29,28 +29,47 @@
 ; LEVEL + SCORE nor the game-over banner is ever sent here.
 ;
 ; WHAT THE TUNNEL GIVES BACK:
+;   THE TUNNEL HEALS AND DOES NOT PUNISH (the user, 2026-10-15): a run flown with the
+;   stick let go still leaves with the hull full and the hold as it came in.
 ;   * the HULL grows by one point every TUN_HPP frames, from whatever the sector left,
-;     so it is full (HP_MAX) before the rush whatever it started at;
+;     so it is full (HP_MAX) before the rush whatever it started at. A rock hit STOPS
+;     it for TUN_HSTOP seconds (and the repair effect with it); in the rush whatever is
+;     left comes back a point every TUN_HPPR frames, so it is full at the end anyway;
 ;   * the SATURNIUM is the sector's (SATN, under the window, read once at the start into
 ;     TSATN and written back at the end, tun_pay): a cloud adds TUN_SATCLD, a rock hit
-;     takes TUN_SATHIT (to 0); at SATN_FULL and over SPARKS flash round the window, as
-;     on the hull in the sector (TUN_SPK*);
-;   * a SHIP for each lifepod caught (LIVES, never past TUN_LIVMAX), and as many pods
+;     takes TUN_SATHIT - but never below what the ship came in with (TSAT0): a hit
+;     costs only what this passage gave. At SATN_FULL and over SPARKS flash round the
+;     window, as on the hull in the sector (TUN_SPK*);
+;   * a SHIP for each lifepod caught (LIVES, never past LIVES_MAX), and as many pods
 ;     fly as ships were lost in the sector (LVSTART - LIVES, tunnel_pod.s); the bar
 ;     says PILOT RESCUED, or PILOT LOST IN SPACE for one gone past - on the sector's
 ;     message bar (line 2, the band above the window: the user, 2026-10-13, to see
 ;     whether it can stay there), spoken;
-;   * SCORE: TUN_PODPTS hundred a pod, TUN_CLDPTS hundred a cloud (score_add).
+;   * SCORE: TUN_PODPTS hundred a pod, TUN_CLDPTS a cloud (score_add), and TUN_CLNPTS
+;     hundred when no rock struck the ship (HITS = 0) - paid TUN_BONR into the rush,
+;     when no rock is left to strike it, with CLEAN RUN BONUS on the bar.
+;
+; THE ORDERS: as the blinder comes off the bar says (and the voice reads) what the
+; flight is for - BLASTER DISABLED, RESCUE n LIFEPODS (only when a ship was lost),
+; AVOID THE ROCKS, COLLECT SATURNIUM DUST - the four the queue holds (IND_QMAX).
 ; =============================================================================
 
 TUN_HUDROW0 = HUD_ROW2          ; the SATURNIUM row: line 48, the sector's LEVEL + SCORE
 TUN_HPP     = 60                ; frames a hull point (TBM): 1 s, so HP_MAX - 1 = 49 points
                                 ;   are back in 49 s, before the rush starts
-TUN_SATCLD  = 50                ; Saturnium a cloud adds (the user, 2026-10-13)
-TUN_SATHIT  = 20                ; ...and a rock hit takes
-TUN_PODPTS  = 3                 ; score, in hundreds: a lifepod...
-TUN_CLDPTS  = 1                 ; ...and a cloud
-TUN_LIVMAX  = 5                 ; ships in hand never go past this (design_technical 11.45)
+TUN_HSTOP   = 5                 ; ...a rock hit stops it this many hull points' time (5 s)
+TUN_HPPR    = 6                 ; ...and in the rush a point every this many frames, so
+                                ;   the hull is full at the end whatever was hit
+TUN_SATCLD  = 25                ; Saturnium a cloud adds (the user, 2026-10-15; was 50)
+TUN_SATHIT  = 25                ; ...and a rock hit takes, down to what the ship came in with
+TUN_PODPTS  = 3                 ; score, in hundreds: a lifepod
+TUN_CLDPTS  = 50                ; ...a cloud, in points (the user, 2026-10-15; was 100)
+TUN_CLNPTS  = 5                 ; ...no rock hit in the whole run, in hundreds
+TUN_BONR    = 15                ; ...paid at this RUSHR (units of 2 frames: 0.5 s into the
+                                ;   rush, when the last rocks have gone past)
+TUN_LIVMAX  = LIVES_MAX         ; ships in hand never go past this: 9 since extra ships
+                                ;   (2026-10-15; a pod only gives back a ship lost in the
+                                ;   sector, so it cannot pass what the sector began with)
 TUN_RPD     = 3                 ; frames each frame of the repair effect stays (the user,
                                 ;   2026-10-14): 44 of them, a lap in ~2.2 s
 TUN_SPKP    = 6                 ; SPARKS (at SATN_FULL and over): a burst every this many
@@ -61,6 +80,8 @@ TUN_SPKR1   = 70                ;   to this (half-res px, about the window's cen
 
         .assert HUD_ROW1 * 8 >= 350, error, "tunnel_hud.s: the SHIPS row would be under the window"
         .assert (HP_MAX - 1) * TUN_HPP <= TUN_FRAMES - TUN_RUSHF, error, "tunnel_hud.s: the hull would not be full before the rush"
+        .assert (HP_MAX - 1) * TUN_HPPR + TUN_HPP <= TUN_RUSHF, error, "tunnel_hud.s: the rush would not fill the hull"
+        .assert TUN_BONR < TUN_RUSH, error, "tunnel_hud.s: the clean-run bonus would come after the rush"
         .assert TUN_SPKR1 < TUN_HALF, error, "tunnel_hud.s: a spark would leave the window"
         .assert TUN_SPKR1 <= 127, error, "tunnel_hud.s: tun_sm takes a radius of at most 127"
 
@@ -75,11 +96,22 @@ TL0:    .res    HUD_L1_LEN + 1          ; the SATURNIUM row's own buffer (the OS
 SPKN:   .res    1                       ; dashes left in this burst
 RPF:    .res    1                       ; the repair effect's frame, 0..RP_FRAMES-1
 RPT:    .res    1                       ; ...and frames left before the next one
+TSAT0:  .res    1                       ; the Saturnium the ship came in with: a hit's floor
+HPW:    .res    1                       ; hull points still to skip after a hit (0: repairing)
+TBON:   .res    1                       ; 1 once the clean-run bonus has been looked at
 
         .segment "MSGDATA"
 STR_SATN:   .byte   "SATURNIUM "        ; (10: the label and its space, cells 0..9)
 IM_PILOT_OK_S:   .byte   "PILOT RESCUED", 0        ; the message bar's lines (hud_game.s
 IM_PILOT_LOST_S: .byte   "PILOT LOST IN SPACE", 0  ;   IND_LO), spoken (mkspeech.py)
+IM_TUN_GUN_S:    .byte   "BLASTER DISABLED", 0     ; the orders (tun_hud_start)
+IM_TUN_POD1_S:   .byte   "RESCUE THE LIFEPOD", 0
+IM_TUN_POD2_S:   .byte   "RESCUE 2 LIFEPODS", 0
+IM_TUN_POD3_S:   .byte   "RESCUE 3 LIFEPODS", 0
+IM_TUN_POD4_S:   .byte   "RESCUE 4 LIFEPODS", 0
+IM_TUN_ROCKS_S:  .byte   "AVOID THE ROCKS", 0
+IM_TUN_DUST_S:   .byte   "COLLECT SATURNIUM DUST", 0
+IM_TUN_CLEAN_S:  .byte   "CLEAN RUN BONUS", 0      ; ...and the rush's
         .assert C_HPBAR = 10, error, "tunnel_hud.s: STR_SATN fills the cells before the bar"
         .popseg
 
@@ -100,6 +132,10 @@ tun_hud_init:
         sta     TSATN
         jsr     win_on
 .endif
+        lda     TSATN
+        sta     TSAT0
+        stz     HPW
+        stz     TBON
         lda     #TUN_HPP
         sta     HPT
         lda     #1
@@ -121,7 +157,19 @@ tun_hud_start:
         jsr     hud_reset
         lda     #$FF
         sta     HCSAT
-        rts
+        lda     #IM_TUN_GUN             ; the orders, in the order they matter
+        jsr     indicate_msg
+        lda     PODE                    ; the pods to fly (tunnel_pod.s: 0..TUN_PODS)
+        beq     :+
+        clc
+        adc     #IM_TUN_POD1 - 1
+        jsr     indicate_msg
+:       lda     #IM_TUN_ROCKS
+        jsr     indicate_msg
+        lda     #IM_TUN_DUST
+        jmp     indicate_msg            ; tail
+        .assert IM_TUN_POD4 - IM_TUN_POD1 = TUN_PODS - 1, error, "tunnel_hud.s: one RESCUE line per pod count"
+        .assert IND_QMAX >= 4, error, "tunnel_hud.s: the four orders must fit the bar's queue"
 
 ; -----------------------------------------------------------------------------
 ; tun_hud_frame - once a frame while flying: the rows (paced), the hull, the sparks.
@@ -147,11 +195,33 @@ tun_hud_frame:
 :       cmp     #HUD_PH_IND             ; ...and the message bar on its own
         bne     @hp
         jsr     indicate_tick
-@hp:    dec     HPT                     ; the hull, a point every TUN_HPP frames
+@hp:    lda     RUSHR                   ; THE RUSH: the clean-run bonus, once
+        beq     @hp1
+        lda     TBON
+        bne     @hp1
+        lda     RUSHR
+        cmp     #TUN_BONR
+        bcc     @hp1
+        inc     TBON
+        lda     HITS                    ; (tunnel.s: rocks that struck the ship)
+        bne     @hp1
+        lda     #IM_TUN_CLEAN
+        jsr     indicate_msg
+        ldx     #TUN_CLNPTS
+        jsr     tun_hud_score
+@hp1:   dec     HPT                     ; the hull, a point every TUN_HPP frames
         bne     @spk
         lda     #TUN_HPP
-        sta     HPT
-        lda     SHIPHP
+        ldx     RUSHR                   ; ...in the rush every TUN_HPPR, no pause
+        beq     :+
+        stz     HPW
+        lda     #TUN_HPPR
+:       sta     HPT
+        lda     HPW                     ; a hit's pause: this point is skipped
+        beq     :+
+        dec     HPW
+        bra     @spk
+:       lda     SHIPHP
         cmp     #HP_MAX
         bcs     @spk
         inc     SHIPHP
@@ -181,6 +251,8 @@ tun_hud_frame:
         .pushseg
         .segment "TUNCODE3"
 tun_repair:
+        lda     HPW                     ; stopped by a hit: nothing to show
+        bne     @ret
         lda     SHIPHP                  ; repaired: nothing to show
         cmp     #HP_MAX
         bcs     @ret
@@ -336,7 +408,8 @@ tun_sat_fill:
 
 ; -----------------------------------------------------------------------------
 ; tun_hud_cloud - a Saturnium cloud caught: TUN_SATCLD more (to 255), the score.
-; tun_hud_hit - a rock hit: TUN_SATHIT less (to 0).
+; tun_hud_hit - a rock hit: TUN_SATHIT less (never below TSAT0), the hull's repair
+;   stopped for TUN_HSTOP points' time.
 ; tun_hud_pod - a lifepod caught: a ship back (to TUN_LIVMAX), the score.
 ; -----------------------------------------------------------------------------
 tun_hud_cloud:
@@ -346,15 +419,21 @@ tun_hud_cloud:
         bcc     :+
         lda     #$FF
 :       sta     TSATN
-        ldx     #TUN_CLDPTS
-        bra     tun_hud_score
+        lda     #TUN_CLDPTS
+        jmp     score_add               ; tail
 tun_hud_hit:
         lda     TSATN
         sec
         sbc     #TUN_SATHIT
+        bcc     @fl                     ; (under 0)
+        cmp     TSAT0
         bcs     :+
-        lda     #0
+@fl:    lda     TSAT0                   ; ...or under what it came in with
 :       sta     TSATN
+        lda     #TUN_HPP                ; the repair: TUN_HSTOP points skipped from now,
+        sta     HPT                     ;   the next one TUN_HSTOP x TUN_HPP frames on
+        lda     #TUN_HSTOP - 1
+        sta     HPW
         rts
 tun_hud_pod:
         lda     #IM_PILOT_OK

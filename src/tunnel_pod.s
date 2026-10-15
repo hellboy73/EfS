@@ -5,9 +5,10 @@
 ; design_technical.md 11.45 and open_questions.md H6 say what a pod is for: one for
 ; each ship lost in the sector, and a catch gives the ship back. So the tunnel flies
 ; as many as LVSTART - LIVES (the ships in hand when the sector began, less those
-; now: hud_game.s), 0 to TUN_PODS, spread evenly (PODT*), and a catch is a ship
-; back and the score (tunnel_hud.s tun_hud_pod). TUNTEST (make run-tunnel) flies three.
-; The speech PILOT RESCUED and PILOT LOST IN SPACE come later.
+; now: hud_game.s), 0 to TUN_PODS, spread over the run (PODB*) and each moved by a
+; random few seconds every tunnel (PODJS, the user 2026-10-15: not at the same moments
+; every time), and a catch is a ship back and the score (tunnel_hud.s tun_hud_pod),
+; with PILOT RESCUED / PILOT LOST IN SPACE spoken. TUNTEST (make run-tunnel) flies three.
 ;
 ; THE SHAPE (the user, 2026-10-13). A cylinder whose radius is the 128 rock's (32
 ; half-res px at TUN_ZFULL, R = 8.5 world units) and whose length is four times its
@@ -82,7 +83,9 @@ TUN_PODQ    = 40                ; the point list's size
 DSPT:   .res    1                       ; frames to the next rock outside the tube
 DTMP:   .res    1
 PODI:   .res    1                       ; the next pod: an index into PODTL/PODTH...
-PODE:   .res    1                       ; ...and where this tunnel's run of them ends
+PODE:   .res    1                       ; ...and how many this tunnel flies (0..TUN_PODS)
+PODTL:  .res    TUN_PODS                ; when each is born (frames flown), this tunnel's:
+PODTH:  .res    TUN_PODS                ;   PODB* moved by a random jitter (tun_pod_init)
 PODLX:  .res    1                       ; ...and its lane, 0..2 per axis
 PODLY:  .res    1
 TPOD:   .res    1                       ; pods caught this passage
@@ -239,12 +242,16 @@ KTW:    KTAB    TUN_PODWB
 LANE3:  .byte   <(-TUN_AMP), 0, TUN_AMP
 ; when each pod is born (frames flown), TBM: one run per count, spread evenly - 1: 1500;
 ; 2: 1000, 2000; 3: 900, 1800, 2700; 4: 600, 1200, 1800, 2400. PODS0 is where count N's
-; run starts.
-PODTL:  .byte   <1500, <1000, <2000, <900, <1800, <2700, <600, <1200, <1800, <2400
-PODTH:  .byte   >1500, >1000, >2000, >900, >1800, >2700, >600, >1200, >1800, >2400
+; run starts. EACH IS MOVED by a random -128..127 shifted left PODJS[N] times: +-8.5 s
+; for one pod, +-4.2 s for two or three, +-2.1 s for four - so two pods are always at
+; least ~5.7 s apart (the next is never born before the last has gone past, ~3.3 s).
+PODBL:  .byte   <1500, <1000, <2000, <900, <1800, <2700, <600, <1200, <1800, <2400
+PODBH:  .byte   >1500, >1000, >2000, >900, >1800, >2700, >600, >1200, >1800, >2400
 PODS0:  .byte   0, 0, 1, 3, 6
-        .assert TUN_PODS = 4, error, "tunnel_pod.s: PODTL/PODTH hold runs for 1..4 pods"
-        .assert 2700 < TUN_FRAMES - TUN_RUSHF - TUN_CLEAR, error, "tunnel_pod.s: the last pod must be born before the rocks stop"
+PODJS:  .byte   0, 2, 1, 1, 0
+        .assert TUN_PODS = 4, error, "tunnel_pod.s: PODB* hold runs for 1..4 pods"
+        .assert 2700 + 255 < TUN_FRAMES - TUN_RUSHF - TUN_CLEAR, error, "tunnel_pod.s: the last pod must be born before the rocks stop"
+        .assert 600 - 128 > 400, error, "tunnel_pod.s: the first pod must come after the orders on the bar"
 
 ; -----------------------------------------------------------------------------
 ; tun_pod_init - no pod flown yet, none caught; the first one's lane. The two ghost
@@ -266,13 +273,37 @@ tun_pod_init:
         lda     #TUN_PODS               ;   ...at most TUN_PODS
 :
 .endif
-        tax                             ; ...and their run in PODTL/PODTH
-        lda     PODS0,x
-        sta     PODI
+        tax                             ; ...and their run in PODB*, each one moved
+        stx     PODE
+        lda     PODJS,x
+        sta     DTMP
+        ldy     PODS0,x
+        stz     PODI                    ; (PODI the slot, Y the run's entry)
+@jt:    lda     PODI
+        cmp     PODE
+        bcs     @jd
+        jsr     prng                    ; -128..127 (X is prng's)
+        stz     PT1
+        cmp     #$80
+        bcc     :+
+        dec     PT1                     ; (the sign, into the high byte)
+:       ldx     DTMP
+        beq     @ja
+@jl:    asl     a
+        rol     PT1
+        dex
+        bne     @jl
+@ja:    ldx     PODI
         clc
-        txa
-        adc     PODI
-        sta     PODE
+        adc     PODBL,y
+        sta     PODTL,x
+        lda     PT1
+        adc     PODBH,y
+        sta     PODTH,x
+        iny
+        inc     PODI
+        bra     @jt
+@jd:    stz     PODI
         stz     TPOD
         stz     TPLOST
         ldx     #TUN_ROCKS

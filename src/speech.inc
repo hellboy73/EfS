@@ -221,6 +221,235 @@ IM_PILOT_LOST_PH:
         .byte   SPK_LONG   | SPK_PH_S
         .byte   $00
 
+; IM_TUN_GUN (id 18) - "BLASTER DISABLED": 21 phonemes, roughly 84 frames
+IM_TUN_GUN_PH:
+        .byte   SPK_NORM   | SPK_PH_CLZ   ; BLASTER   /blQs-t@/
+        .byte   SPK_NORM   | SPK_PH_B
+        .byte   SPK_NORM   | SPK_PH_L
+        .byte   SPK_STRESS | SPK_PH_AE
+        .byte   SPK_NORM   | SPK_PH_S
+        .byte   SPK_NORM   | SPK_PH_CLS
+        .byte   SPK_NORM   | SPK_PH_T
+        .byte   SPK_NORM   | SPK_PH_ER
+        .byte   SPK_NORM   | SPK_PH_PAU
+        .byte   SPK_NORM   | SPK_PH_CLZ   ; DISABLED   /dIs-eI-bld/
+        .byte   SPK_NORM   | SPK_PH_D
+        .byte   SPK_SHORT  | SPK_PH_IH
+        .byte   SPK_NORM   | SPK_PH_S
+        .byte   SPK_STRESS | SPK_PH_EH   ;   /eI/
+        .byte   SPK_NORM   | SPK_PH_I
+        .byte   SPK_NORM   | SPK_PH_CLZ
+        .byte   SPK_NORM   | SPK_PH_B
+        .byte   SPK_SHORT  | SPK_PH_AX
+        .byte   SPK_NORM   | SPK_PH_L
+        .byte   SPK_NORM   | SPK_PH_CLZ
+        .byte   SPK_LONG   | SPK_PH_D
+        .byte   $00
+
+; IM_TUN_POD1 (id 19) - "RESCUE THE LIFEPOD": 21 phonemes, roughly 84 frames
+IM_TUN_POD1_PH:
+        .byte   SPK_NORM   | SPK_PH_R   ; RESCUE   /rEs-kju:/
+        .byte   SPK_STRESS | SPK_PH_EH
+        .byte   SPK_NORM   | SPK_PH_S
+        .byte   SPK_NORM   | SPK_PH_CLS
+        .byte   SPK_NORM   | SPK_PH_K
+        .byte   SPK_NORM   | SPK_PH_Y
+        .byte   SPK_STRESS | SPK_PH_UW
+        .byte   SPK_NORM   | SPK_PH_UW
+        .byte   SPK_NORM   | SPK_PH_PAU
+        .byte   SPK_NORM   | SPK_PH_TH   ; THE
+        .byte   SPK_SHORT  | SPK_PH_AX
+        .byte   SPK_NORM   | SPK_PH_PAU
+        .byte   SPK_NORM   | SPK_PH_L   ; LIFEPOD   /laIf-pQd/
+        .byte   SPK_STRESS | SPK_PH_AA   ;   /aI/
+        .byte   SPK_NORM   | SPK_PH_I
+        .byte   SPK_NORM   | SPK_PH_F
+        .byte   SPK_NORM   | SPK_PH_CLS
+        .byte   SPK_NORM   | SPK_PH_P
+        .byte   SPK_NORM   | SPK_PH_AA
+        .byte   SPK_NORM   | SPK_PH_CLZ
+        .byte   SPK_LONG   | SPK_PH_D
+        .byte   $00
+
+; IM_TUN_POD2 (id 20) - "RESCUE 2 LIFEPODS": 24 phonemes, roughly 96 frames
+IM_TUN_POD2_PH:
+        .byte   SPK_NORM   | SPK_PH_R   ; RESCUE   /rEs-kju:/
+        .byte   SPK_STRESS | SPK_PH_EH
+        .byte   SPK_NORM   | SPK_PH_S
+        .byte   SPK_NORM   | SPK_PH_CLS
+        .byte   SPK_NORM   | SPK_PH_K
+        .byte   SPK_NORM   | SPK_PH_Y
+        .byte   SPK_STRESS | SPK_PH_UW
+        .byte   SPK_NORM   | SPK_PH_UW
+        .byte   SPK_NORM   | SPK_PH_PAU
+        .byte   SPK_NORM   | SPK_PH_CLS   ; TWO
+        .byte   SPK_NORM   | SPK_PH_T
+        .byte   SPK_STRESS | SPK_PH_UW
+        .byte   SPK_NORM   | SPK_PH_UW
+        .byte   SPK_NORM   | SPK_PH_PAU
+        .byte   SPK_NORM   | SPK_PH_L   ; LIFEPOD   /laIf-pQd/
+        .byte   SPK_STRESS | SPK_PH_AA   ;   /aI/
+        .byte   SPK_NORM   | SPK_PH_I
+        .byte   SPK_NORM   | SPK_PH_F
+        .byte   SPK_NORM   | SPK_PH_CLS
+        .byte   SPK_NORM   | SPK_PH_P
+        .byte   SPK_NORM   | SPK_PH_AA
+        .byte   SPK_NORM   | SPK_PH_CLZ
+        .byte   SPK_NORM   | SPK_PH_D
+        .byte   SPK_LONG   | SPK_PH_Z
+        .byte   $00
+
+; IM_TUN_POD3 (id 21) - "RESCUE 3 LIFEPODS": 24 phonemes, roughly 96 frames
+IM_TUN_POD3_PH:
+        .byte   SPK_NORM   | SPK_PH_R   ; RESCUE   /rEs-kju:/
+        .byte   SPK_STRESS | SPK_PH_EH
+        .byte   SPK_NORM   | SPK_PH_S
+        .byte   SPK_NORM   | SPK_PH_CLS
+        .byte   SPK_NORM   | SPK_PH_K
+        .byte   SPK_NORM   | SPK_PH_Y
+        .byte   SPK_STRESS | SPK_PH_UW
+        .byte   SPK_NORM   | SPK_PH_UW
+        .byte   SPK_NORM   | SPK_PH_PAU
+        .byte   SPK_NORM   | SPK_PH_TH   ; THREE
+        .byte   SPK_NORM   | SPK_PH_R
+        .byte   SPK_STRESS | SPK_PH_I
+        .byte   SPK_NORM   | SPK_PH_I
+        .byte   SPK_NORM   | SPK_PH_PAU
+        .byte   SPK_NORM   | SPK_PH_L   ; LIFEPOD   /laIf-pQd/
+        .byte   SPK_STRESS | SPK_PH_AA   ;   /aI/
+        .byte   SPK_NORM   | SPK_PH_I
+        .byte   SPK_NORM   | SPK_PH_F
+        .byte   SPK_NORM   | SPK_PH_CLS
+        .byte   SPK_NORM   | SPK_PH_P
+        .byte   SPK_NORM   | SPK_PH_AA
+        .byte   SPK_NORM   | SPK_PH_CLZ
+        .byte   SPK_NORM   | SPK_PH_D
+        .byte   SPK_LONG   | SPK_PH_Z
+        .byte   $00
+
+; IM_TUN_POD4 (id 22) - "RESCUE 4 LIFEPODS": 23 phonemes, roughly 92 frames
+IM_TUN_POD4_PH:
+        .byte   SPK_NORM   | SPK_PH_R   ; RESCUE   /rEs-kju:/
+        .byte   SPK_STRESS | SPK_PH_EH
+        .byte   SPK_NORM   | SPK_PH_S
+        .byte   SPK_NORM   | SPK_PH_CLS
+        .byte   SPK_NORM   | SPK_PH_K
+        .byte   SPK_NORM   | SPK_PH_Y
+        .byte   SPK_STRESS | SPK_PH_UW
+        .byte   SPK_NORM   | SPK_PH_UW
+        .byte   SPK_NORM   | SPK_PH_PAU
+        .byte   SPK_NORM   | SPK_PH_F   ; FOUR
+        .byte   SPK_STRESS | SPK_PH_AO
+        .byte   SPK_NORM   | SPK_PH_R
+        .byte   SPK_NORM   | SPK_PH_PAU
+        .byte   SPK_NORM   | SPK_PH_L   ; LIFEPOD   /laIf-pQd/
+        .byte   SPK_STRESS | SPK_PH_AA   ;   /aI/
+        .byte   SPK_NORM   | SPK_PH_I
+        .byte   SPK_NORM   | SPK_PH_F
+        .byte   SPK_NORM   | SPK_PH_CLS
+        .byte   SPK_NORM   | SPK_PH_P
+        .byte   SPK_NORM   | SPK_PH_AA
+        .byte   SPK_NORM   | SPK_PH_CLZ
+        .byte   SPK_NORM   | SPK_PH_D
+        .byte   SPK_LONG   | SPK_PH_Z
+        .byte   $00
+
+; IM_TUN_ROCKS (id 23) - "AVOID THE ROCKS": 15 phonemes, roughly 60 frames
+IM_TUN_ROCKS_PH:
+        .byte   SPK_SHORT  | SPK_PH_AX   ; AVOID   /@-vOId/
+        .byte   SPK_NORM   | SPK_PH_V
+        .byte   SPK_STRESS | SPK_PH_AO
+        .byte   SPK_NORM   | SPK_PH_I
+        .byte   SPK_NORM   | SPK_PH_CLZ
+        .byte   SPK_NORM   | SPK_PH_D
+        .byte   SPK_NORM   | SPK_PH_PAU
+        .byte   SPK_NORM   | SPK_PH_TH   ; THE
+        .byte   SPK_SHORT  | SPK_PH_AX
+        .byte   SPK_NORM   | SPK_PH_PAU
+        .byte   SPK_NORM   | SPK_PH_R   ; ROCKS
+        .byte   SPK_STRESS | SPK_PH_AA
+        .byte   SPK_NORM   | SPK_PH_CLS
+        .byte   SPK_NORM   | SPK_PH_K
+        .byte   SPK_LONG   | SPK_PH_S
+        .byte   $00
+
+; IM_TUN_DUST (id 24) - "COLLECT SATURNIUM DUST": 26 phonemes, roughly 104 frames
+IM_TUN_DUST_PH:
+        .byte   SPK_NORM   | SPK_PH_CLS   ; COLLECT   /k@-lEkt/
+        .byte   SPK_NORM   | SPK_PH_K
+        .byte   SPK_SHORT  | SPK_PH_AX
+        .byte   SPK_NORM   | SPK_PH_L
+        .byte   SPK_STRESS | SPK_PH_EH
+        .byte   SPK_NORM   | SPK_PH_CLS
+        .byte   SPK_NORM   | SPK_PH_K
+        .byte   SPK_NORM   | SPK_PH_CLS
+        .byte   SPK_NORM   | SPK_PH_T
+        .byte   SPK_NORM   | SPK_PH_PAU
+        .byte   SPK_NORM   | SPK_PH_S   ; SATURNIUM   /s@-t3:-ni-@m/
+        .byte   SPK_SHORT  | SPK_PH_AX
+        .byte   SPK_NORM   | SPK_PH_CLS
+        .byte   SPK_NORM   | SPK_PH_T
+        .byte   SPK_STRESS | SPK_PH_ER
+        .byte   SPK_NORM   | SPK_PH_N
+        .byte   SPK_NORM   | SPK_PH_I
+        .byte   SPK_SHORT  | SPK_PH_AX
+        .byte   SPK_NORM   | SPK_PH_M
+        .byte   SPK_NORM   | SPK_PH_PAU
+        .byte   SPK_NORM   | SPK_PH_CLZ   ; DUST
+        .byte   SPK_NORM   | SPK_PH_D
+        .byte   SPK_STRESS | SPK_PH_AH
+        .byte   SPK_NORM   | SPK_PH_S
+        .byte   SPK_NORM   | SPK_PH_CLS
+        .byte   SPK_LONG   | SPK_PH_T
+        .byte   $00
+
+; IM_TUN_CLEAN (id 25) - "CLEAN RUN BONUS": 18 phonemes, roughly 72 frames
+IM_TUN_CLEAN_PH:
+        .byte   SPK_NORM   | SPK_PH_CLS   ; CLEAN
+        .byte   SPK_NORM   | SPK_PH_K
+        .byte   SPK_NORM   | SPK_PH_L
+        .byte   SPK_STRESS | SPK_PH_I
+        .byte   SPK_NORM   | SPK_PH_I
+        .byte   SPK_NORM   | SPK_PH_N
+        .byte   SPK_NORM   | SPK_PH_PAU
+        .byte   SPK_NORM   | SPK_PH_R   ; RUN
+        .byte   SPK_STRESS | SPK_PH_AH
+        .byte   SPK_NORM   | SPK_PH_N
+        .byte   SPK_NORM   | SPK_PH_PAU
+        .byte   SPK_NORM   | SPK_PH_CLZ   ; BONUS   /boU-n@s/
+        .byte   SPK_NORM   | SPK_PH_B
+        .byte   SPK_STRESS | SPK_PH_AO   ;   /oU/
+        .byte   SPK_NORM   | SPK_PH_UH
+        .byte   SPK_NORM   | SPK_PH_N
+        .byte   SPK_SHORT  | SPK_PH_AX
+        .byte   SPK_LONG   | SPK_PH_S
+        .byte   $00
+
+; IM_EXTRA (id 26) - "EXTRA SHIP BONUS": 21 phonemes, roughly 84 frames
+IM_EXTRA_PH:
+        .byte   SPK_STRESS | SPK_PH_EH   ; EXTRA   /Ek-str@/
+        .byte   SPK_NORM   | SPK_PH_CLS
+        .byte   SPK_NORM   | SPK_PH_K
+        .byte   SPK_NORM   | SPK_PH_S
+        .byte   SPK_NORM   | SPK_PH_CLS
+        .byte   SPK_NORM   | SPK_PH_T
+        .byte   SPK_NORM   | SPK_PH_R
+        .byte   SPK_SHORT  | SPK_PH_AX
+        .byte   SPK_NORM   | SPK_PH_PAU
+        .byte   SPK_NORM   | SPK_PH_SH   ; SHIP
+        .byte   SPK_STRESS | SPK_PH_IH
+        .byte   SPK_NORM   | SPK_PH_CLS
+        .byte   SPK_NORM   | SPK_PH_P
+        .byte   SPK_NORM   | SPK_PH_PAU
+        .byte   SPK_NORM   | SPK_PH_CLZ   ; BONUS   /boU-n@s/
+        .byte   SPK_NORM   | SPK_PH_B
+        .byte   SPK_STRESS | SPK_PH_AO   ;   /oU/
+        .byte   SPK_NORM   | SPK_PH_UH
+        .byte   SPK_NORM   | SPK_PH_N
+        .byte   SPK_SHORT  | SPK_PH_AX
+        .byte   SPK_LONG   | SPK_PH_S
+        .byte   $00
+
 ; The pointer table: one entry per IM_* id, IN ID ORDER, $00 where the
 ; message is not spoken. Read INSIDE the message bank's window (speech.s).
 SPK_LO:
@@ -242,6 +471,15 @@ SPK_LO:
         .byte   $00             ; 15 DEFEAT ALL ENEMIES
         .byte   <IM_PILOT_OK_PH ; 16 PILOT RESCUED
         .byte   <IM_PILOT_LOST_PH; 17 PILOT LOST IN SPACE
+        .byte   <IM_TUN_GUN_PH  ; 18 BLASTER DISABLED
+        .byte   <IM_TUN_POD1_PH ; 19 RESCUE THE LIFEPOD
+        .byte   <IM_TUN_POD2_PH ; 20 RESCUE 2 LIFEPODS
+        .byte   <IM_TUN_POD3_PH ; 21 RESCUE 3 LIFEPODS
+        .byte   <IM_TUN_POD4_PH ; 22 RESCUE 4 LIFEPODS
+        .byte   <IM_TUN_ROCKS_PH; 23 AVOID THE ROCKS
+        .byte   <IM_TUN_DUST_PH ; 24 COLLECT SATURNIUM DUST
+        .byte   <IM_TUN_CLEAN_PH; 25 CLEAN RUN BONUS
+        .byte   <IM_EXTRA_PH    ; 26 EXTRA SHIP BONUS
 SPK_HI:
         .byte   $00             ;  0 HULL BREACH
         .byte   >IM_CRITICAL_PH ;  1 WARNING! HULL CRITICAL
@@ -261,8 +499,17 @@ SPK_HI:
         .byte   $00             ; 15 DEFEAT ALL ENEMIES
         .byte   >IM_PILOT_OK_PH ; 16 PILOT RESCUED
         .byte   >IM_PILOT_LOST_PH; 17 PILOT LOST IN SPACE
+        .byte   >IM_TUN_GUN_PH  ; 18 BLASTER DISABLED
+        .byte   >IM_TUN_POD1_PH ; 19 RESCUE THE LIFEPOD
+        .byte   >IM_TUN_POD2_PH ; 20 RESCUE 2 LIFEPODS
+        .byte   >IM_TUN_POD3_PH ; 21 RESCUE 3 LIFEPODS
+        .byte   >IM_TUN_POD4_PH ; 22 RESCUE 4 LIFEPODS
+        .byte   >IM_TUN_ROCKS_PH; 23 AVOID THE ROCKS
+        .byte   >IM_TUN_DUST_PH ; 24 COLLECT SATURNIUM DUST
+        .byte   >IM_TUN_CLEAN_PH; 25 CLEAN RUN BONUS
+        .byte   >IM_EXTRA_PH    ; 26 EXTRA SHIP BONUS
 
-SPK_IDS     = 18                 ; ...and how many, for speech.s's assert
+SPK_IDS     = 27                 ; ...and how many, for speech.s's assert
 
 ; The ending's lines (ENDING in mkspeech.py), spoken by gate.s sector_frame.
 ; "SECTOR CLEARED": 15 phonemes

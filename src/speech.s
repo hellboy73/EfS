@@ -31,10 +31,10 @@
 ;     then reads only RAM, so the pointer has to be valid FOR ONE CALL - which is
 ;     exactly what a window already open on the message bank gives it. There is no
 ;     second bracket and no spk_open;
-;   * SPK_LO/SPK_HI are read INSIDE that bracket - unlike IND_LO/IND_HI, which
-;     hud_game.s keeps in RODATA and reads before it. That is not symmetry for its
-;     own sake: upper RAM ($A000-$BEFF) has 16 bytes left after CODE7, and 28
-;     bytes of pointer table would not fit. In the bank they cost nothing;
+;   * SPK_LO/SPK_HI are read INSIDE that bracket - and so, since 2026-10-15, are
+;     hud_game.s's IND_LO/IND_HI: upper RAM ($A000-$BEFF) has a handful of bytes
+;     left after CODE7, and pointer tables would not fit. In the bank they cost
+;     nothing;
 ;   * one bank keeps the pointers flat 16-bit, which is the reason bank 9 exists
 ;     at all (cart.cfg, THE MESSAGE BANK). 118 bytes of phonemes and 28 of pointers
 ;     against ~7.7 KB free: the spoken half will not be what fills it.

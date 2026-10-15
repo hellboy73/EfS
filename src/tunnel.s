@@ -3415,9 +3415,10 @@ tunnel_frame:
         jsr     tun_stars_frame         ;   it moves...
         jsr     tun_pod_arrows          ;   (a lifepod's arrows: last, over everything)
         jsr     tun_hud_frame           ; the rows under the window, the hull, the sparks
-        ldx     JOYPORT                 ; ...and FIRE skips to the rush (testing; in both
-        lda     JOY1_PRESS,x            ;   images - it used to end the tunnel at once in
-        and     #JOY_FIRE               ;   cart.bin: the user, 2026-10-13)
+.if TUNTEST
+        ldx     JOYPORT                 ; ...and FIRE skips to the rush - in make run-tunnel
+        lda     JOY1_PRESS,x            ;   only: in the game no button does anything here
+        and     #JOY_FIRE               ;   (the user, 2026-10-15)
         beq     @nof
         lda     JOY1_PRESS,x
         and     #<~JOY_FIRE
@@ -3432,6 +3433,7 @@ tunnel_frame:
         lda     #>(TUN_FRAMES - TUN_RUSHF - 60)
         sta     SC_PTRH
 @nof:
+.endif
         inc     SC_PTRL
         bne     :+
         inc     SC_PTRH
