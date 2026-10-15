@@ -61,6 +61,7 @@
         .import __CODE4_LOAD__, __CODE4_RUN__, __CODE4_SIZE__
         .import __CODE5_LOAD__, __CODE5_RUN__, __CODE5_SIZE__
         .import __CODE6_LOAD__, __CODE6_RUN__, __CODE6_SIZE__
+        .import __CODE9_LOAD__, __CODE9_RUN__, __CODE9_SIZE__
         .import __CODE8_LOAD__, __CODE8_RUN__, __CODE8_SIZE__
         .import __CODE7_LOAD__, __CODE7_RUN__, __CODE7_SIZE__
         .import __SHAPES_LOAD__, __SHAPES_RUN__, __SHAPES_SIZE__
@@ -96,6 +97,8 @@ CODE5_BANK    = 4               ; ...and CODE5 behind BGDATA, running at $C000 -
 CODE6_BANK    = 6               ; ...and the pulsar (+ gate/emp/trainer/base)
                                  ;   behind the screens' pictures in bank 6,
                                  ;   packed into FIELDRAM after CODE5
+CODE9_BANK    = 2               ; ...and the EMP mine's hull behind SHAPES in
+                                 ;   bank 2, FIELDRAM again, after CODE6
 CODE7_BANK    = 7               ; ...and the base's code behind SPRART in bank 7,
                                  ;   running in upper RAM, after HIDATA
 CODE8_BANK    = 7               ; ...and behind CODE7, overlay.s - the FIELD/
@@ -160,6 +163,8 @@ boot_segs:
         .word   __CODE5_LOAD__, __CODE5_RUN__, __CODE5_SIZE__
         .byte   CODE6_BANK
         .word   __CODE6_LOAD__, __CODE6_RUN__, __CODE6_SIZE__
+        .byte   CODE9_BANK
+        .word   __CODE9_LOAD__, __CODE9_RUN__, __CODE9_SIZE__
         .byte   SHAPES_BANK
         .word   __SHAPES_LOAD__, __SHAPES_RUN__, __SHAPES_SIZE__
         .byte   CODE7_BANK

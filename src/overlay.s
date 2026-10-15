@@ -2,7 +2,7 @@
 ; overlay.s - the FIELD / SCREEN overlay over DEMO_RAM
 ; =============================================================================
 ; DEMO_RAM ($C000-$DEFF) holds one of two tenants, never both:
-;   FIELD  - CODE5 + CODE6, the flight engine's DEMO_RAM code (cam.s's enemy
+;   FIELD  - CODE5 + CODE6 + CODE9, the flight engine's DEMO_RAM code (cam.s's enemy
 ;            framing, game_start/level_begin, gate.s, emp.s, trainer.s,
 ;            pulsar.s, base.s's field hooks) - needed whenever SCR_STATE is
 ;            SC_PLAY (0), i.e. the world is simulated.
@@ -33,6 +33,7 @@
 
         .import __CODE5_LOAD__, __CODE5_RUN__, __CODE5_SIZE__
         .import __CODE6_LOAD__, __CODE6_RUN__, __CODE6_SIZE__
+        .import __CODE9_LOAD__, __CODE9_RUN__, __CODE9_SIZE__
         .import __UICODE_LOAD__, __UICODE_RUN__, __UICODE_SIZE__
         .import __TUNCODE_LOAD__, __TUNCODE_RUN__, __TUNCODE_SIZE__
         .import __TUNCODE2_LOAD__, __TUNCODE2_RUN__, __TUNCODE2_SIZE__
@@ -48,6 +49,7 @@
 
 CODE5_BANK  = 4                 ; must match cart.cfg's MEMORY order and
 CODE6_BANK  = 6                 ;   bootstrap.s's own copies of these - nothing
+CODE9_BANK  = 2                 ;   (the EMP mine's hull, empmine.s)
 TUNCODE_BANK = 10
 TUNCODE3_BANK = 11              ; the lifepods (tunnel_pod.s)
 ENG0_BANK   = 0                 ; the flight engine's four banks - bootstrap.s's CODE_BANK ..
@@ -76,6 +78,8 @@ ovl_field_segs:
         .word   __CODE5_LOAD__, __CODE5_RUN__, __CODE5_SIZE__
         .byte   CODE6_BANK
         .word   __CODE6_LOAD__, __CODE6_RUN__, __CODE6_SIZE__
+        .byte   CODE9_BANK
+        .word   __CODE9_LOAD__, __CODE9_RUN__, __CODE9_SIZE__
         .byte   $FF
 ovl_screen_segs:
         .byte   UICODE_BANK

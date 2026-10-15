@@ -5960,6 +5960,107 @@ if not QUICK:
 
 
 # =============================================================================
+# The EMP mine's hull (empmine.s empm_bump): a rock that never moves. Before
+# 2026-10-14 nothing tested it and the ship flew straight through.
+# =============================================================================
+def empmine_bench():
+    E = asm_consts("physics.s", "enemies.s")
+    RS = E["SHIP_RAD"] + E["EN_EMP_MINE_R"]             # rsum, collision units
+    FK = foes_const("FK_EMPMINE")
+    ZP = {n: main_zp(n) for n in ("HEAD", "HEADF", "SHXL", "SHXH", "SHYL", "SHYH",
+                                  "VELYL", "VELYH", "VELYT", "THRTLL", "THRTLH")}
+    TZ = int(_num(MAIN_SRC, "TIER_ZERO"))
+    SHIPHP_A, SHIPINV_A = cart_addr("SHIPHP"), cart_addr("SHIPINV")
+    fa = {n: foes_addr(n) for n in ("FOEAPP", "FOEHP", "FOEAST", "FOEACD", "FOEANG")}
+
+    boot_cart()
+    for k in range(cpu_mem[0x6E1C]):
+        cpu_mem[FOEST_A + k] = 0
+
+    def w(n):
+        return cpu_mem[ZP[n + "L"]] | (cpu_mem[ZP[n + "H"]] << 8)
+
+    def fly(tier, frames):
+        """Head straight up the screen (-y) at TIER_ZERO + tier, a mine 50 units
+        ahead (FOECD 255: cooling, so it never fires). -> (closest centre
+        distance in world units, last vy); the hull paid is summed in fly.paid."""
+        shx, shy = w("SHX"), w("SHY")
+        mx, my = shx, (shy - 50 * 32) & 0xFFFF
+        foe_put(0, mx, my)
+        cpu_mem[FOEKIND_AD] = FK
+        for n, v in (("FOEAPP", _app["EMP_MINE"]), ("FOEHP", 60), ("FOEAST", 0),
+                     ("FOEACD", 8), ("FOEANG", 0)):
+            cpu_mem[fa[n]] = v
+        cpu_mem[ZP["HEAD"]] = cpu_mem[ZP["HEADF"]] = 0
+        t = (TZ + tier) * 128
+        cpu_mem[ZP["THRTLL"]], cpu_mem[ZP["THRTLH"]] = t & 0xFF, t >> 8
+        best, vy = 1 << 20, 0
+        for _ in range(frames):
+            cpu_mem[SHIPINV_A] = 0
+            cpu_mem[SHIPHP_A] = max(cpu_mem[SHIPHP_A], 40)  # never die mid-run
+            hp = cpu_mem[SHIPHP_A]
+            run_frame()
+            dx = ((w("SHX") - mx + 0x8000) & 0xFFFF) - 0x8000
+            dy = ((w("SHY") - my + 0x8000) & 0xFFFF) - 0x8000
+            best = min(best, math.hypot(dx, dy))
+            fly.paid += hp - cpu_mem[SHIPHP_A]
+            vy = s24(cpu_mem[ZP["VELYL"]], cpu_mem[ZP["VELYH"]], cpu_mem[ZP["VELYT"]])
+        return best, vy
+
+    for tier in (2, 5, 7):
+        fly.paid = 0
+        best, vy = fly(tier, 60)
+        print(f"        mine dead ahead, tier +{tier}: closest {best / 32:.1f} units "
+              f"(rsum {RS}), hull paid {fly.paid}, vy at the end {vy / 256:+.1f}")
+        check(f"the ship does not fly through an EMP mine at tier +{tier}",
+              best >= (RS - 1) * 32, f"closest {best / 32:.1f} units, rsum {RS}")
+        check(f"...it pays a ram for it (RAM_DMG {HIT_HP}) at tier +{tier}",
+              fly.paid >= HIT_HP, f"paid {fly.paid}")
+    cpu_mem[FOEST_A] = 0
+
+    # --- two mines side by side, slots 0 and 1, each with its own spin rate --
+    M = asm_consts(*[n for n in ["main.s"] + re.findall(r'^\s*\.include\s+"([^"]+\.s)"',
+                                                          MAIN_SRC, re.M)
+                     if (SRC / n).exists()])
+    EMACL_A, EMACH_A = M["EMACL"], M["EMACH"]
+    UP, CHG, SPMAX = M["EMPM_RAMP_UP"], M["EMPM_CHARGE"], M["EMPM_SPIN_MAX"]
+    shx, shy = w("SHX"), w("SHY")
+    for k in (0, 1):                            # far behind the ship: no bump
+        foe_put(k, shx, (shy + 9000 + 200 * k) & 0xFFFF)
+        cpu_mem[FOEKIND_AD + k] = FK
+        for n, v in (("FOEAPP", _app["EMP_MINE"]), ("FOEHP", 60), ("FOEAST", 0),
+                     ("FOEACD", 8), ("FOEANG", 0)):
+            cpu_mem[fa[n] + k] = v
+        cpu_mem[foes_addr("FOENEW") + k] = 0
+    cpu_mem[ZP["THRTLL"]], cpu_mem[ZP["THRTLH"]] = (TZ * 128) & 0xFF, (TZ * 128) >> 8
+
+    def charge(k):
+        cpu_mem[FOEST_A + k] = foes_const("FS_PURSUE")
+        cpu_mem[foes_addr("FOECD") + k] = CHG
+        cpu_mem[EMACL_A + k] = cpu_mem[EMACH_A + k] = 0
+
+    def want(n):                                # the rate after n charge frames
+        return min((n * UP) >> 8, SPMAX)
+
+    charge(0)
+    for _ in range(30):
+        run_frame()
+    charge(1)                                   # the second one 30 frames behind
+    for _ in range(40):
+        run_frame()
+    got = [ram(EMACH_A + k) for k in (0, 1)]
+    exp = [want(70), want(40)]
+    print(f"        two mines side by side, charging 70 and 40 frames: rates {got}, want {exp}")
+    check("two mines side by side keep their own spin rates", got == exp, f"{got} vs {exp}")
+    for k in (0, 1):
+        cpu_mem[FOEST_A + k] = 0
+
+
+if not QUICK:
+    empmine_bench()
+
+
+# =============================================================================
 # preview.png — the framebuffer as the rotated monitor shows it
 # =============================================================================
 # fb-x + runs DOWN the screen and fb-y + runs LEFT, so the destination pixel is

@@ -546,6 +546,8 @@ foe_think_all:
         bra     @next
 @free:  jsr     pls_spin                ; a pulsar turns (pulsar.s), every frame
         jsr     empm_spin               ; ...and so does a charging mine (empmine.s)
+        jsr     empm_bump               ; ...and a mine is a wall the ship bounces
+                                        ;   off, every frame (empmine.s)
         jsr     foe_think
         ldx     FEI
         jsr     foe_integrate

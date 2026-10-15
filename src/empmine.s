@@ -117,9 +117,14 @@ EMH0        = BASE_END + 4      ; the quarter-square test's working sum
 EMH1        = BASE_END + 5
 EMDXT       = BASE_END + 6      ; ...|dx|, held across the |dy| test
 EMACL       = BASE_END + 7      ; the spin RATE, 8.8 fixed - ramps up while
-EMACH       = BASE_END + 8      ;   charging, down while cooling; EMACH,x is
-                                 ;   this frame's FOEANG step either way
-EMPM_END    = BASE_END + 9
+EMACH       = EMACL + FOE_MAX   ;   charging, down while cooling; EMACH,x is
+                                 ;   this frame's FOEANG step either way. One
+                                 ;   byte of each PER FOE SLOT, indexed by FEI:
+                                 ;   they were two lone bytes once, so a mine's
+                                 ;   EMACH was the next slot's EMACL and two
+                                 ;   mines side by side spun each other (fixed
+                                 ;   2026-10-15)
+EMPM_END    = EMACH + FOE_MAX
         .assert EMPM_END <= SHAPES_AT, error, "empmine.s: past the RAM under the window"
 
         .pushseg
@@ -333,4 +338,259 @@ empm_fire:
         sta     FEI
         rts
 
-        .popseg
+        ; =============================================================================
+; The hull. CODE9 (FIELDRAM, after CODE6; stored in bank 2 - cart.cfg): run
+; once a frame from foe_think_all, inside its win_off bracket, X = FEI.
+; =============================================================================
+        .segment "CODE9"
+
+; -----------------------------------------------------------------------------
+; empm_bump - the ship against a mine's body: a ROCK THAT NEVER MOVES (the user,
+; 2026-10-14 - before this nothing tested it and the ship flew straight
+; through; a UFO's ram lives in foe_avoid, which a mine never runs). Every
+; frame, not on the think cadence: the ship closes by up to 13 collision units
+; a frame against an rsum of EMPM_RS, so a test every other frame could miss.
+;
+; ship_respond's own maths with the mine for the rock: the unit normal ship ->
+; mine (foe_respond's normalisation), vn = (0 - V_ship).n, and when closing
+; P = 1.75 vn n, of which the ship takes EMPM_FI - its share against the
+; heaviest rock, the mine being immovable - through ship_kick (physics.s:
+; knockback and throttle), and it pays a ram, RAM_DMG, as for a rock. Closing
+; or not, the ship is then put just outside, ship_separate's snap. Nothing is
+; done to the mine. Returns X = FEI.
+; -----------------------------------------------------------------------------
+EMPM_RS     = SHIP_RAD + EN_EMP_MINE_R  ; rsum, collision units
+EMPM_FI     = 120                       ; the ship's share, Q0.7: MASSF's entry
+                                         ;   against a mass 16x its own
+EMPM_SNAP   = (EMPM_RS + SHIP_SEP_MG) * 32  ; where it is put, world units
+        .assert EMPM_RS < 64, error, "empmine.s: 2*|d| must index the quarter-squares"
+
+empm_bump:
+        lda     FOEKIND,x
+        cmp     #FK_EMPMINE
+        bne     @no
+        lda     SHIPGONE
+        bne     @no
+        sec                             ; d = mine - ship, collision units
+        lda     FOEXL,x
+        sbc     SHXL
+        sta     FETL
+        lda     FOEXH,x
+        sbc     SHXH
+        jsr     foe_cu
+        bcs     @no
+        sta     FETX
+        jsr     absa
+        cmp     #EMPM_RS
+        bcs     @no
+        sta     FEADX
+        ldx     FEI
+        sec
+        lda     FOEYL,x
+        sbc     SHYL
+        sta     FETL
+        lda     FOEYH,x
+        sbc     SHYH
+        jsr     foe_cu
+        bcs     @no
+        sta     FETY
+        jsr     absa
+        cmp     #EMPM_RS
+        bcs     @no
+        sta     FEADY
+        asl     a                       ; |d|^2 against rsum^2, the
+        tay                             ;   quarter-squares: f(2a) = a*a
+        lda     FEADX
+        asl     a
+        tax
+        clc
+        lda     QSL,x
+        adc     QSL,y
+        sta     FET0
+        lda     QSH,x
+        adc     QSH,y
+        cmp     #>(EMPM_RS*EMPM_RS)
+        bcc     @in
+        bne     @no
+        lda     FET0
+        cmp     #<(EMPM_RS*EMPM_RS)
+        bcc     @in
+@no:    ldx     FEI
+        rts
+
+@in:    jsr     foe_e2                  ; --- the unit normal, ship -> mine
+        beq     @degen
+        ldy     #$01                    ; foe_respond's own normalisation
+@dn:    cmp     #129
+        bcc     @up
+        lsr     a
+        dey
+        bra     @dn
+@up:    cmp     #65
+        bcs     @nd
+        asl     a
+        iny
+        bra     @up
+@nd:    sty     FES
+        sec
+        sbc     #65
+        tax
+        lda     RECIP64,x
+        sta     FEQ
+        lda     FEADX
+        jsr     foe_nrm
+        ldy     FETX
+        bpl     :+
+        eor     #$FF
+        inc     a
+:       sta     COL_NX
+        lda     FEADY
+        jsr     foe_nrm
+        ldy     FETY
+        bpl     :+
+        eor     #$FF
+        inc     a
+:       sta     COL_NY
+        ora     COL_NX
+        bne     @vn
+@degen: lda     #127
+        sta     COL_NX
+        stz     COL_NY
+
+@vn:    sec                             ; --- vn = (0 - V_ship).n, the ship's
+        lda     #$00                    ;   16.8 velocity saturated (vel_sat)
+        sbc     VELXL
+        sta     COL_T0
+        lda     #$00
+        sbc     VELXH
+        sta     COL_T1
+        lda     #$00
+        sbc     VELXT
+        jsr     vel_sat
+        lda     COL_T0
+        sta     MAL
+        lda     COL_T1
+        sta     MAH
+        lda     COL_NX
+        sta     MB
+        jsr     smul16q7
+        lda     MAL
+        sta     COL_VNL
+        lda     MAH
+        sta     COL_VNH
+        sec
+        lda     #$00
+        sbc     VELYL
+        sta     COL_T0
+        lda     #$00
+        sbc     VELYH
+        sta     COL_T1
+        lda     #$00
+        sbc     VELYT
+        jsr     vel_sat
+        lda     COL_T0
+        sta     MAL
+        lda     COL_T1
+        sta     MAH
+        lda     COL_NY
+        sta     MB
+        jsr     smul16q7
+        clc
+        lda     MAL
+        adc     COL_VNL
+        sta     COL_VNL
+        lda     MAH
+        adc     COL_VNH
+        sta     COL_VNH
+        bmi     @hit
+        jmp     @snap                   ; parting: no hit, just the snap
+@hit:
+
+        lda     COL_VNL                 ; peg the closing speed, ship_respond's
+        cmp     #<(65536-COL_VNMAX)     ;   own bound
+        lda     COL_VNH
+        sbc     #>(65536-COL_VNMAX)
+        bcs     :+
+        lda     #<(65536-COL_VNMAX)
+        sta     COL_VNL
+        lda     #>(65536-COL_VNMAX)
+        sta     COL_VNH
+:       lda     COL_VNL                 ; P = vn + vn/2 + vn/4
+        sta     COL_T0
+        lda     COL_VNH
+        sta     COL_T1
+        jsr     asr_t
+        clc
+        lda     COL_VNL
+        adc     COL_T0
+        sta     COL_PL
+        lda     COL_VNH
+        adc     COL_T1
+        sta     COL_PH
+        jsr     asr_t
+        clc
+        lda     COL_PL
+        adc     COL_T0
+        sta     COL_PL
+        sta     MAL
+        lda     COL_PH
+        adc     COL_T1
+        sta     COL_PH
+        sta     MAH
+        lda     COL_NX                  ; ...times n
+        sta     MB
+        jsr     smul16q7
+        lda     MAL
+        sta     COL_IXL
+        lda     MAH
+        sta     COL_IXH
+        lda     COL_PL
+        sta     MAL
+        lda     COL_PH
+        sta     MAH
+        lda     COL_NY
+        sta     MB
+        jsr     smul16q7
+        lda     MAL
+        sta     COL_IYL
+        lda     MAH
+        sta     COL_IYH
+        lda     #EMPM_FI
+        sta     COL_FI
+        jsr     ship_kick               ; the knockback and the throttle
+        lda     #RAM_DMG                ; ...and a ram's worth, as for a rock
+        jsr     ship_hurt
+
+@snap:  lda     #<EMPM_SNAP             ; --- the ship := mine - n * EMPM_SNAP
+        sta     MAL
+        lda     #>EMPM_SNAP
+        sta     MAH
+        lda     COL_NX
+        sta     MB
+        jsr     smul16q7
+        ldx     FEI
+        sec
+        lda     FOEXL,x
+        sbc     MAL
+        sta     SHXL
+        lda     FOEXH,x
+        sbc     MAH
+        sta     SHXH
+        lda     #<EMPM_SNAP
+        sta     MAL
+        lda     #>EMPM_SNAP
+        sta     MAH
+        lda     COL_NY
+        sta     MB
+        jsr     smul16q7
+        ldx     FEI
+        sec
+        lda     FOEYL,x
+        sbc     MAL
+        sta     SHYL
+        lda     FOEYH,x
+        sbc     MAH
+        sta     SHYH
+        rts
+
+.popseg

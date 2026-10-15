@@ -995,6 +995,91 @@ ship_respond:
         lda     MASSF,x
         sta     COL_FI
 
+        jsr     ship_kick               ; A = F_ship * P onto the ship
+
+        sec                             ; rock's share = A - P, straight into
+        lda     COL_AXL                 ;   OBJVXL/Y for real - col_respond's
+        sbc     COL_IXL                 ;   own "v[j] += A-P"
+        sta     COL_T0
+        lda     COL_AXH
+        sbc     COL_IXH
+        sta     COL_T1
+        ldx     COL_I
+        clc
+        lda     OBJVXL,x
+        adc     COL_T0
+        sta     OBJVXL,x
+        lda     OBJVXH,x
+        adc     COL_T1
+        sta     OBJVXH,x
+        sec
+        lda     COL_AYL
+        sbc     COL_IYL
+        sta     COL_T0
+        lda     COL_AYH
+        sbc     COL_IYH
+        sta     COL_T1
+        ldx     COL_I
+        clc
+        lda     OBJVYL,x
+        adc     COL_T0
+        sta     OBJVYL,x
+        lda     OBJVYH,x
+        adc     COL_T1
+        sta     OBJVYH,x
+
+        ; the rock's own HP is DISABLED here for now, by request - it still
+        ; gets its velocity share above and rock_take_hit_deferred is still
+        ; wired up (physics.s, below) for whenever this comes back; only the
+        ; jsr to it is pulled.
+        lda     #RAM_DMG
+        jsr     ship_hurt               ; the ship still pays - then fall into
+                                        ;   the separation below, same as
+                                        ;   col_respond falls into col_separate
+        ; fall through into ship_separate
+
+; -----------------------------------------------------------------------------
+; vel_sat - COL_T0/COL_T1 hold the low two bytes of a signed 24-bit value and
+; A holds its top byte; saturate the whole thing into a signed 16-bit in
+; COL_T0/COL_T1. See the relative-velocity block above for why 24 bits reach
+; this at all, and VEL_SAT for why the peg is not simply $7FFF.
+; -----------------------------------------------------------------------------
+vel_sat:
+        sta     COL_T2
+        and     #$80                    ; bit 7 of the TOP byte is the sign of
+        bne     @neg                    ;   the whole 24-bit value
+        lda     COL_T0
+        cmp     #<VEL_SAT
+        lda     COL_T1
+        sbc     #>VEL_SAT
+        lda     COL_T2
+        sbc     #$00
+        bcc     @done
+        lda     #<VEL_SAT
+        sta     COL_T0
+        lda     #>VEL_SAT
+        sta     COL_T1
+        rts
+@neg:   lda     COL_T0                  ; this and the bound both have bit 23
+        cmp     #<(16777216-VEL_SAT)    ;   set, so the unsigned compare is
+        lda     COL_T1                  ;   the signed one again
+        sbc     #>(16777216-VEL_SAT)
+        lda     COL_T2
+        sbc     #^(16777216-VEL_SAT)
+        bcs     @done
+        lda     #<(65536-VEL_SAT)
+        sta     COL_T0
+        lda     #>(65536-VEL_SAT)
+        sta     COL_T1
+@done:  rts
+
+; -----------------------------------------------------------------------------
+; ship_kick - the ship's own share of a hit: A = COL_FI * P (COL_IX/COL_IY),
+; onto the knockback and, with THRTL_HIT, the throttle. ship_respond's, and
+; empmine.s empm_bump's - a mine is a rock that never moves (the user,
+; 2026-10-14). Leaves A in COL_AX/COL_AY.
+; -----------------------------------------------------------------------------
+ship_kick:
         lda     COL_IXL                 ; A = F_ship * P - the ship's OWN
         sta     MAL                     ;   share
         lda     COL_IXH
@@ -1125,82 +1210,7 @@ ship_respond:
         adc     COL_AYH
         sta     KNBYH
 .endif
-
-        sec                             ; rock's share = A - P, straight into
-        lda     COL_AXL                 ;   OBJVXL/Y for real - col_respond's
-        sbc     COL_IXL                 ;   own "v[j] += A-P"
-        sta     COL_T0
-        lda     COL_AXH
-        sbc     COL_IXH
-        sta     COL_T1
-        ldx     COL_I
-        clc
-        lda     OBJVXL,x
-        adc     COL_T0
-        sta     OBJVXL,x
-        lda     OBJVXH,x
-        adc     COL_T1
-        sta     OBJVXH,x
-        sec
-        lda     COL_AYL
-        sbc     COL_IYL
-        sta     COL_T0
-        lda     COL_AYH
-        sbc     COL_IYH
-        sta     COL_T1
-        ldx     COL_I
-        clc
-        lda     OBJVYL,x
-        adc     COL_T0
-        sta     OBJVYL,x
-        lda     OBJVYH,x
-        adc     COL_T1
-        sta     OBJVYH,x
-
-        ; the rock's own HP is DISABLED here for now, by request - it still
-        ; gets its velocity share above and rock_take_hit_deferred is still
-        ; wired up (physics.s, below) for whenever this comes back; only the
-        ; jsr to it is pulled.
-        lda     #RAM_DMG
-        jsr     ship_hurt               ; the ship still pays - then fall into
-                                        ;   the separation below, same as
-                                        ;   col_respond falls into col_separate
-        ; fall through into ship_separate
-
-; -----------------------------------------------------------------------------
-; vel_sat - COL_T0/COL_T1 hold the low two bytes of a signed 24-bit value and
-; A holds its top byte; saturate the whole thing into a signed 16-bit in
-; COL_T0/COL_T1. See the relative-velocity block above for why 24 bits reach
-; this at all, and VEL_SAT for why the peg is not simply $7FFF.
-; -----------------------------------------------------------------------------
-vel_sat:
-        sta     COL_T2
-        and     #$80                    ; bit 7 of the TOP byte is the sign of
-        bne     @neg                    ;   the whole 24-bit value
-        lda     COL_T0
-        cmp     #<VEL_SAT
-        lda     COL_T1
-        sbc     #>VEL_SAT
-        lda     COL_T2
-        sbc     #$00
-        bcc     @done
-        lda     #<VEL_SAT
-        sta     COL_T0
-        lda     #>VEL_SAT
-        sta     COL_T1
         rts
-@neg:   lda     COL_T0                  ; this and the bound both have bit 23
-        cmp     #<(16777216-VEL_SAT)    ;   set, so the unsigned compare is
-        lda     COL_T1                  ;   the signed one again
-        sbc     #>(16777216-VEL_SAT)
-        lda     COL_T2
-        sbc     #^(16777216-VEL_SAT)
-        bcs     @done
-        lda     #<(65536-VEL_SAT)
-        sta     COL_T0
-        lda     #>(65536-VEL_SAT)
-        sta     COL_T1
-@done:  rts
 
 .if THRTL_HIT
 ; -----------------------------------------------------------------------------
