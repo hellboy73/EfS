@@ -79,17 +79,20 @@ snap_demo = bytes(cpu_mem[0xC800:0xD800])                 # ...and the field's D
                                                           #   UICODE over its first $657 bytes, so those are left out)
 check("power-on is the tunnel (TUNTEST)", cpu_mem[SCR["SCR_STATE"]] == SCR["SC_TUNNEL"],
       f"SCR_STATE {cpu_mem[SCR['SCR_STATE']]}")
-seen = [frame() for _ in range(40)]
+seen, phs = [], []
+for _ in range(40):
+    phs.append(cpu_mem[SCR["SCR_PH"]])                       # (the step the frame starts in)
+    seen.append(frame())
 cleared = any(op == 0x20 for op, _ in seen[0])
 rects = sum(1 for c in seen for op, _ in c if op == 0x32)
-game = any(op in (0x4C, 0x4E) for c in seen for op, _ in c)
+game = any(op in (0x4C, 0x4E) for c, ph in zip(seen, phs) if ph < 5 for op, _ in c)   # (flying, the far rocks are there)
 check("a CLEAR_BG, then the cockpit's 20 bands, each sent and replayed, and nothing of the field",
       cleared and rects == 40 and not game, f"{rects} bands")
 
 TK = asm_consts("tunnel.s")
 RUMBLE_A = asm_consts("rumble.s")["RUMBLE"]
 VLEN_A = asm_consts("main.s")["VLEN"]
-AMP, NR, ZHIT = TK["TUN_AMP"], TK["TUN_ROCKS"], TK["TUN_ZHIT"]
+AMP, NR, ZHIT = TK["TUN_AMP"], TK["TUN_TUBE"], TK["TUN_ZHIT"]   # (the tube's slots: the far rocks are after them)
 A = {n: LBL[n] for n in ("CAMX", "CAMY", "RZL", "RZH", "RXW", "RYW", "RHI", "RAN", "RSP", "RTY", "SPT",
                          "HITS", "SZ", "ROC", "RBX", "RBY")}
 
@@ -192,6 +195,19 @@ if "--stress" in sys.argv:
     sys.exit(1 if bad else 0)
 
 # ---- the stars ---------------------------------------------------------------
+# The far rocks (tunnel_pod.s tun_deco) are switched off for everything scripted below - each
+# case counts its own polygons - and have a section of their own at the end.
+NF0, NF1 = TK["TUN_DECO0"], TK["TUN_ROCKS"]
+
+
+def far_rocks(on):
+    cpu_mem[LBL["DECOFF"]] = 0 if on else 1
+    if not on:
+        for k in range(NF0, NF1):
+            cpu_mem[A["RZL"] + k] = cpu_mem[A["RZH"] + k] = 0
+
+
+far_rocks(False)
 clear = None
 
 
@@ -933,6 +949,79 @@ check("...and never past 9 (LIVES is one digit)", score() == 40000 and cpu_mem[L
       f"score {score()} LIVES {cpu_mem[LIVES_A]}")
 set_score(0)
 cpu_mem[LIVES_A] = 5
+
+# ---- the far rocks: always TUN_DECOS of them outside the tube, dotted, hiding nothing --------
+clear_rocks()
+lean_run(0, 60)
+call(cpu, LBL["tun_deco_init"])                            # (all ten, spread in depth, as the tunnel starts)
+h0 = cpu_mem[A["HITS"]]
+counts, outside, solid, discs = [], 0, 0, 0
+for _ in range(300):
+    cmds = flying_frame()
+    counts.append(sum(1 for op, _ in cmds if op == 0x4C))
+    solid += sum(1 for op, _ in cmds if op == 0x4E)
+    outside += sum(1 for kind, x, y in geometry(cmds) if not 48 <= x <= 351)
+    discs += sum(1 for k in range(NF0, NF1) if cpu_mem[A["ROC"] + k])
+check(f"far rocks: {TK['TUN_DECOS']} of them, DOTTED (at least {TK['TUN_DECOS'] - 3} in view every frame, "
+      f"{TK['TUN_DECOS'] - 1} on average), never a solid polygon",
+      min(counts) >= TK["TUN_DECOS"] - 3 and sum(counts) / len(counts) >= TK["TUN_DECOS"] - 1 and solid == 0,
+      f"in view {min(counts)}..{max(counts)}, mean {sum(counts) / len(counts):.2f}, {solid} solid")
+check("...inside the window's x range (fb x 50..349), never a disc (they hide no star), never a hit",
+      outside == 0 and discs == 0 and cpu_mem[A["HITS"]] == h0, f"{outside} points outside, {discs} discs, hits {cpu_mem[A['HITS']] - h0}")
+k = next(k for k in range(NF0, NF1) if cpu_mem[LBL["RVIS"] + k])
+ox, oy = cpu_mem[A["RBX"] + k] - 128, cpu_mem[A["RBY"] + k] - 128
+put_rock(0, ox, oy, 150)                                   # a tube rock in front of it (z 150: rel = offset)
+cpu_mem[A["RHI"]] = 1
+cmds = flying_frame()
+fx = (cpu_mem[LBL["RCXL"] + k] | cpu_mem[LBL["RCXH"] + k] << 8) // 2
+fy = (cpu_mem[LBL["RCYL"] + k] | cpu_mem[LBL["RCYH"] + k] << 8) // 2
+near = [pl for op, pl in cmds if op == 0x4C and abs((pl[0] | pl[1] << 8) - fx) <= 3 and abs((pl[2] | pl[3] << 8) - fy) <= 3]
+check("...and a NEARER tube rock hides one (whole: it is a speck)", len(polys(cmds)) == 1 and not near,
+      f"{len(polys(cmds))} near polygons, {len(near)} far ones at its place")
+raw, cyc = raw_frame()
+g0 = gpu.processorCycles
+gpu_draw(raw)
+print(f"        a frame of far rocks alone: {cyc} CPU cycles ({100 * cyc / 237000:.1f}%), "
+      f"GPU {gpu.processorCycles - g0} cycles ({100 * (gpu.processorCycles - g0) / 237000:.1f}%)")
+TP = asm_consts("tunnel.s", "tunnel_pod.s")
+
+
+def far_alive():
+    return sum(1 for k in range(NF0, NF1) if cpu_mem[A["RZL"] + k] | cpu_mem[A["RZH"] + k])
+
+
+def run_clock(t0, n):
+    cpu_mem[SCR["SC_PTRL"]], cpu_mem[SCR["SC_PTRH"]] = t0 & 0xFF, t0 >> 8
+    for _ in range(n):
+        cpu_mem[A["SPT"]] = 250                            # (no tube rocks: only the budget is looked at)
+        frame()
+
+
+clear_rocks()
+call(cpu, LBL["tun_deco_init"])
+pode, podi = cpu_mem[LBL["PODE"]], cpu_mem[LBL["PODI"]]
+cpu_mem[LBL["PODE"]], cpu_mem[LBL["PODI"]] = 1, 0          # one lifepod, due at 1000
+cpu_mem[LBL["PODTL"]], cpu_mem[LBL["PODTH"]] = 1000 & 0xFF, 1000 >> 8
+births, a0, over = 0, None, 0
+cpu_mem[SCR["SC_PTRL"]], cpu_mem[SCR["SC_PTRH"]] = (1000 - TP["TUN_DECPG"]) & 0xFF, (1000 - TP["TUN_DECPG"]) >> 8
+for _ in range(TP["TUN_DECPG"] - 2):
+    zs = [cpu_mem[A["RZL"] + k] | cpu_mem[A["RZH"] + k] << 8 for k in range(NF0, NF1)]
+    cpu_mem[A["SPT"]] = 250
+    frame()
+    a0 = far_alive() if a0 is None else a0
+    b = sum(1 for k, z in zip(range(NF0, NF1), zs) if (cpu_mem[A["RZL"] + k] | cpu_mem[A["RZH"] + k] << 8) > z)
+    births += b
+    over += b and far_alive() > TK["TUN_DECOS"] // 2
+check(f"in the {TP['TUN_DECPG']} frames before a lifepod only HALF of the far rocks: none born over that, and the ones over leave",
+      over == 0 and far_alive() <= TK["TUN_DECOS"] // 2, f"{births} born ({over} over half), {a0} -> {far_alive()} alive")
+cpu_mem[LBL["PODE"]], cpu_mem[LBL["PODI"]] = pode, podi
+clear_rocks()
+call(cpu, LBL["tun_deco_init"])
+run_clock(TK["TUN_FRAMES"] - TK["TUN_RUSHF"] - TK["TUN_CLEAR"], TK["TUN_CLEAR"])
+check("...nor once the tube's rocks stop: none left when the rush begins", far_alive() == 0, f"{far_alive()} alive")
+far_rocks(False)
+clear_rocks()
+cpu_mem[SCR["SC_PTRL"]] = cpu_mem[SCR["SC_PTRH"]] = 0
 
 # ---- what it costs -----------------------------------------------------------
 raw, cyc = raw_frame()
