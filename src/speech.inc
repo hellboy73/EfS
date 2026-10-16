@@ -650,20 +650,14 @@ SPK_END2_PH:
         .byte   SPK_NORM   | SPK_PH_F
         .byte   SPK_LONG   | SPK_PH_AX
         .byte   $00
-; "ON NRG 2026": 45 phonemes
+; "ON ENERGY 2026": 39 phonemes
 SPK_END3_PH:
         .byte   SPK_STRESS | SPK_PH_AO   ; ON
         .byte   SPK_LONG   | SPK_PH_N
         .byte   SPK_NORM   | SPK_PH_PAU
-        .byte   SPK_STRESS | SPK_PH_EH   ; NRG   /En-ar-dZi/ - the letters
+        .byte   SPK_STRESS | SPK_PH_EH   ; ENERGY   /En-@r-dZi/
         .byte   SPK_NORM   | SPK_PH_N
-        .byte   SPK_NORM   | SPK_PH_PAU
-        .byte   SPK_STRESS | SPK_PH_EH
-        .byte   SPK_NORM   | SPK_PH_N
-        .byte   SPK_NORM   | SPK_PH_PAU
-        .byte   SPK_STRESS | SPK_PH_AA
-        .byte   SPK_NORM   | SPK_PH_R
-        .byte   SPK_NORM   | SPK_PH_PAU
+        .byte   SPK_SHORT  | SPK_PH_ER
         .byte   SPK_NORM   | SPK_PH_CLZ
         .byte   SPK_NORM   | SPK_PH_D
         .byte   SPK_NORM   | SPK_PH_Z

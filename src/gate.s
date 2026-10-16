@@ -807,7 +807,7 @@ end_col:    .byte   (37 - (end_s1 - end_s0 - 1)) / 2
 end_s0:     .byte   "SECTOR CLEARED", 0
 end_s1:     .byte   "THANK YOU FOR PLAYING", 0
 end_s2:     .byte   "ESCAPE FROM SATURN ALPHA", 0
-end_s3:     .byte   "ON NRG 2026", 0
+end_s3:     .byte   "ON ENERGY 2026", 0
 end_s2_end:
 sec_s2:     .byte   "PUSH FIRE", 0
 sec_s2_end:
