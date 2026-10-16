@@ -164,11 +164,16 @@ TUN_FSH     = 3                 ; they move CAM >> 3: at full lean (81) 10 px of
 ; 1:1 at the depth TUN_ZFULL and no bigger after it. Its occlusion disc (the
 ; field's SHAPE_OCC, 39 of the 48-px radius) hides the stars behind it, which is
 ; what makes the hollow outline read as a solid body.
-TUN_ROCKS   = 16                ; at once (4 at first, doubled twice to test, 2026-10-13: the
+TUN_TUBE    = 16                ; in the tube at once (4 at first, doubled twice to test, 2026-10-13: the
                                 ;   difficulty is meant to be in dodging them, and they are rare) TBM: a solid polygon is ~1.2k GPU cycles
                                 ;   a SEGMENT, 13 of them a rock (11.49)
-TUN_NDISC   = TUN_ROCKS + 2     ; the occlusion discs: the rocks', and a lifepod's middle
-                                ;   and back lid (tunnel_pod.s), in the two slots after them
+TUN_DECOS   = 10                ; FAR ROCKS outside the tube, always this many (the user, 2026-10-15:
+                                ;   at least 9, for the look): tunnel_pod.s tun_deco
+TUN_GHOST   = TUN_TUBE          ; a lifepod's middle and back lid discs (tunnel_pod.s): two slots
+TUN_NDISC   = TUN_TUBE + 2      ;   after the tube's, so that every disc is in slots 0..NDISC-1
+TUN_DECO0   = TUN_NDISC         ; THE FAR ROCKS (tunnel_pod.s tun_deco) in the slots after the
+TUN_ROCKS   = TUN_DECO0 + TUN_DECOS ;   discs: they have none, so no disc loop ever visits them
+                                ;   (the stars' test, a rock's list of nearer discs)
 TUN_RZMAX   = 1020              ; a rock is born this far: four times a star's ZMAX (the
                                 ;   user, 2026-10-13: they came in too late and too big),
                                 ;   so its depth is 16 bit, indexed by z >> RTIER (below)
@@ -229,6 +234,7 @@ TUN_CY      = 75                ;   coordinates: fb x = 100 + (portrait down),
         .assert TUN_AMP <= 127, error, "tunnel.s: the lean is a signed byte"
         .assert TUN_ZMIN > TUN_SPEED + 1, error, "tunnel.s: z would borrow"
         .assert TUN_ROCKS <= 32, error, "tunnel.s: the near list is indexed by a byte and the arrays are 32 apart in cost"
+        .assert TUN_DECOS >= 1, error, "tunnel.s: the far rocks' slots are skipped to from the ghosts'"
 
         .pushseg
         .segment "TUNBSS"
@@ -360,8 +366,8 @@ DEN:    .res    1
 QUO:    .res    1
 TMPV:   .res    1
 EI:     .res    1
-RZL:    .res    TUN_NDISC               ; depth (16 bit, true z up to TUN_RZMAX), 0 = no rock
-RZH:    .res    TUN_NDISC
+RZL:    .res    TUN_ROCKS               ; depth (16 bit, true z up to TUN_RZMAX), 0 = no rock
+RZH:    .res    TUN_ROCKS
 RVIS:   .res    TUN_ROCKS               ; 1 = in the window this frame, to be drawn
 RCXL:   .res    TUN_ROCKS               ; its centre, full-res fb, signed 16
 RCXH:   .res    TUN_ROCKS
@@ -402,10 +408,10 @@ RSP:    .res    TUN_ROCKS               ; ...and its spin, signed brad a frame
 RKIND:  .res    TUN_ROCKS               ; 0 = a rock, 1 = a Saturnium cloud, 2 = a lifepod
 RTY:    .res    TUN_ROCKS               ; which of the four outlines
 RHI:    .res    TUN_ROCKS               ; 1 once it has been tested against the ship
-ROC:    .res    TUN_NDISC               ; its occlusion radius on the window this frame,
+ROC:    .res    TUN_ROCKS               ; its occlusion radius on the window this frame,
                                         ;   half-res px, 0 = it hides nothing
-RBX:    .res    TUN_NDISC               ; ...and where, as an offset from the window's
-RBY:    .res    TUN_NDISC               ;   centre BIASED by 128 (unsigned)
+RBX:    .res    TUN_ROCKS               ; ...and where, as an offset from the window's
+RBY:    .res    TUN_ROCKS               ;   centre BIASED by 128 (unsigned)
 TSHP:   .res    4 * 26 + 4 * 16         ; the outlines, copied out of SHAPES and
 TSHN:   .res    8                       ;   doubled to full-res; their vertex counts
 RBUF:   .res    7 + 26                  ; the POLYGON16 argument block
@@ -1262,6 +1268,7 @@ tun_rocks_init:
         bpl     :-
         stz     HITS
         jsr     tun_pod_init
+        jsr     tun_deco_init           ; the far rocks, spread in depth (tunnel_pod.s)
         lda     #30                     ; the first rock after half a second
         sta     SPT
         rts
@@ -1272,7 +1279,7 @@ tun_rocks_init:
 ; angle and spin. None free: nothing.
 ; -----------------------------------------------------------------------------
 tun_spawn:
-        ldx     #TUN_ROCKS - 1
+        ldx     #TUN_TUBE - 1
 :       lda     RZL,x
         ora     RZH,x
         beq     @free
@@ -1341,9 +1348,19 @@ tun_spawn:
         sta     RSP,x
 @rk:    rts
 
-; tun_shr - OH:OL >>= RTIER (a rock's offset was projected with z >> RTIER).
+; tun_shr - OH:OL >>= RTIER (a rock's offset was projected with z >> RTIER). A far rock's
+; rel was HALVED (tun_deco_rel), so its offset goes one place less, or is doubled.
 tun_shr:
         ldy     RTIER
+        lda     TRK
+        cmp     #TUN_DECO0
+        bcc     @t
+        dey
+        bpl     @t
+        asl     OL
+        rol     OH
+        rts
+@t:     cpy     #0
         beq     @d
 @l:     lsr     OH
         ror     OL
@@ -1365,7 +1382,7 @@ tun_shr:
 ; -----------------------------------------------------------------------------
 tun_rocks_frame:
         jsr     tun_pod_sched           ; the lifepods' times, and their ghost discs cleared
-        jsr     tun_deco                ; now and then a rock outside the tube (tunnel_pod.s)
+        jsr     tun_deco_cam            ; the far rocks' camera, turned (tunnel_pod.s)
         dec     SPT
         bne     @loop0
         lda     SC_PTRL                 ; no new rock in the last TUN_RUSHF + TUN_CLEAR frames:
@@ -1386,7 +1403,15 @@ tun_rocks_frame:
         lda     RZL,x
         ora     RZH,x
         bne     :+
-        jmp     @next
+        cpx     #TUN_DECO0              ; a far rock gone: another one, far away
+        bcc     @nx0
+        lda     DECOFF                  ; (unless the bench has switched them off, or a
+        ora     DECNO                   ;   lifepod or the run's end has the frame)
+        bne     @nx0
+        jsr     tun_deco
+        ldx     TRK
+        bra     :+
+@nx0:   jmp     @next
 :       lda     RDF,x
         beq     @fall
         lda     RXW,x                   ; thrown: its depth is frozen, it flies sideways
@@ -1454,7 +1479,11 @@ tun_rocks_frame:
         clc
         adc     RSP,x
         sta     RAN,x
-        lda     RXW,x                   ; rel = w - cam, 16 bit (|rel| reaches 177 a
+        cpx     #TUN_DECO0              ; a far rock: its rel, halved and turned (tunnel_pod.s)
+        bcc     :+
+        jsr     tun_deco_rel
+        bra     @prj
+:       lda     RXW,x                   ; rel = w - cam, 16 bit (|rel| reaches 177 a
         jsr     tun_sx                  ;   side: +-97 less the lean +-81)...
         tay
         lda     RXW,x
@@ -1475,7 +1504,7 @@ tun_rocks_frame:
         sbc     CYH
         sta     RYH
         jsr     tun_rot                 ; ...turned with the world
-        lda     RQXL
+@prj:   lda     RQXL
         ldx     RQXH
         jsr     tun_projw
         jsr     tun_shr                 ; (it was projected with z >> RTIER)
@@ -1576,9 +1605,11 @@ tun_rocks_frame:
         cmp     TMP
         bcc     @vis
 @gone:  ldx     TRK                     ; (out of the window: nothing to draw - and a
-        lda     RDF,x                   ;   thrown rock is gone for good: it is not
-        beq     :+                      ;   coming back, and its world x would wrap)
-        stz     RZL,x
+        cpx     #TUN_DECO0              ;   far rock is gone, to be born again, and a
+        bcs     @kill                   ;   thrown rock is gone for good: it is not
+        lda     RDF,x                   ;   coming back, and its world x would wrap)
+        beq     :+
+@kill:  stz     RZL,x
         stz     RZH,x
         stz     RDF,x
 :       jmp     @next
@@ -1603,9 +1634,11 @@ tun_rocks_frame:
         sec
         sbc     YML
 :       sta     RBY,x
-        lda     RKIND,x                 ; a cloud hides nothing (ROC = 0 keeps it out of every
-        beq     @ocr                    ;   rock's list of nearer discs and every star's test)
-        stz     ROC,x
+        cpx     #TUN_DECO0              ; a cloud hides nothing (ROC = 0 keeps it out of every
+        bcs     :+                      ;   rock's list of nearer discs and every star's test),
+        lda     RKIND,x                 ;   nor does a far rock (its slot is past them anyway)
+        beq     @ocr
+:       stz     ROC,x
         bra     @ocd
 @ocr:   lda     SCL                     ; the occlusion radius: 5/16 of the scale
         lsr     a                       ;   (39 of 128)
@@ -1640,7 +1673,10 @@ tun_rocks_frame:
         sbc     #>(TUN_ZDOT + 1)
         lda     #0
         rol     a                       ; the carry: 1 = z > ZDOT
-        sta     RDOT,x
+        cpx     #TUN_DECO0              ; (a far rock: always dotted)
+        bcc     :+
+        lda     #1
+:       sta     RDOT,x
         ; --- the centre (full-res fb: x = 200 + 2 oy, y = 150 - 2 ox) --------
         lda     YML                     ; 2 |oy|: |oy| <= 123, so it fits a byte
         asl     a
@@ -1736,7 +1772,10 @@ tun_rocks_frame:
 @wc:    stz     RWC,x                   ; does the rock cross a limit? R2 = 2 * radius
         lda     RSC
         asl     a
-        sta     TMP
+        cpx     #TUN_DECO0              ; a far rock: 6 px more - its radius is truncated
+        bcc     :+                      ;   (scale 7 gives 1 for ~2.6) and it is drawn
+        adc     #5                      ;   half-res (carry set: + 6)
+:       sta     TMP
         lda     RBH,x                   ; BH < R2 ?
         sec
         sbc     TMP
@@ -1749,11 +1788,19 @@ tun_rocks_frame:
         adc     TMP                     ;   HUD's frame); a negative one: BL + R2 > 0
         bmi     @next
         beq     @next
-@cross: lda     #1
+@cross: cpx     #TUN_DECO0              ; a far rock at the HUD's frame is gone: a speck
+        bcc     :+                      ;   of a few px is not worth the cut, edge by edge
+        stz     RVIS,x
+        jmp     @kill
+:       lda     #1
         sta     RWC,x
 @next:  inc     TRK
         lda     TRK
-        cmp     #TUN_ROCKS
+        cmp     #TUN_GHOST              ; (the pod's two ghost discs are not things)
+        bne     :+
+        lda     #TUN_DECO0
+        sta     TRK
+:       cmp     #TUN_ROCKS
         beq     @p2
         jmp     @rock
 @p2:    stz     TRK                     ; pass 2: draw
@@ -1907,6 +1954,8 @@ tun_hid:
 @hid:   sec
         rts
 
+        .segment "TUNCODE3"             ; (the edge cutting, tun_ad to tun_line, runs in the run
+                                        ;   area like the rest, from bank 11: bank 10 is full)
 ; -----------------------------------------------------------------------------
 ; tun_ad - A = the result of an SBC of two signed bytes, flags as it left them: the
 ; difference reaches +-254, which a signed byte cannot hold, so the sign is N xor V
@@ -2150,7 +2199,8 @@ tun_wy:
         sta     OS_ARG+1,x
         rts
 
-; tun_line - a solid LINE16 of the edge EX0,EY0 - EX1,EY1 of rock TRK.
+; tun_line - a solid LINE16 of the edge EX0,EY0 - EX1,EY1 of rock TRK; a DOTLINE_CLIP
+; when the rock is dotted (RDOT), so a far one cut at the window's edge stays dotted.
 tun_line:
         ldy     TRK
         lda     EX0
@@ -2165,7 +2215,19 @@ tun_line:
         lda     EY1
         ldx     #6
         jsr     tun_wy
+        lda     RDOT,y                  ; a dotted rock: a DOTTED line, half-res (the ends
+        bne     :+                      ;   halved, arithmetic), which the OS clips
         jmp     API_GPU_LINE16          ; tail
+:       ldx     #6
+:       lda     OS_ARG+1,x
+        cmp     #$80
+        ror     OS_ARG+1,x
+        ror     OS_ARG,x
+        dex
+        dex
+        bpl     :-
+        jmp     API_GPU_DOTLINE_CLIP    ; tail
+        .segment "TUNCODE2"
 
 ; -----------------------------------------------------------------------------
 ; tun_verts - rock TRK's outline on the window: every vertex as the GPU will place
@@ -2336,12 +2398,15 @@ tun_draw_rock:
 :       jmp     tun_draw_cloud          ; a Saturnium cloud: pixels
 :       stz     NCNT
         ldy     #TUN_NDISC - 1
-@n:     cpy     TRK
-        bne     :+
-        jmp     @nn
-:       ldx     TRK
-        lda     ROC,y
+        bra     @n
+@nn:    dey
+        bpl     @n
+        jmp     @end
+@n:     lda     ROC,y                   ; (a disc at all first: most slots have none)
         beq     @nn
+        cpy     TRK
+        beq     @nn
+        ldx     TRK
         lda     RZL,y                   ; nearer: z_n < z_f, 16 bit
         cmp     RZL,x
         lda     RZH,y
@@ -2395,11 +2460,14 @@ tun_draw_rock:
         tya
         sta     NLIST,x
         inc     NCNT
-@nn:    dey
-        bmi     :+
-        jmp     @n
-:       ldx     TRK
-        lda     RWC,x
+        jmp     @nn
+@end:   ldx     TRK
+        cpx     #TUN_DECO0              ; a far rock: a speck, hidden WHOLE by any nearer disc
+        bcc     :+                      ;   it touches (the disc is inside the near rock's
+        lda     NCNT                    ;   outline), else drawn whole - never edge by edge
+        beq     :+
+        rts
+:       lda     RWC,x
         bne     @xclip
         lda     NCNT
         bne     @occ
@@ -2508,13 +2576,23 @@ tun_closed:
         sta     VCNT
         ldx     #0
         ldy     VOFF
+        lda     DOTM
+        bne     @half
 :       lda     TSHP,y
-        jsr     tun_vb
         sta     RBUF+7,x
         iny
         inx
         cpx     VCNT
         bne     :-
+        jmp     tun_go
+@half:  lda     TSHP,y                  ; dotted: the bytes halved (tun_vb, inline - this
+        cmp     #$80                    ;   is every far rock, every frame)
+        ror     a
+        sta     RBUF+7,x
+        iny
+        inx
+        cpx     VCNT
+        bne     @half
         jmp     tun_go
 
 ; -----------------------------------------------------------------------------

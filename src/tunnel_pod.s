@@ -34,7 +34,7 @@
 ;
 ; OCCLUSION. Three discs, cross sections of the barrel: the front lid (the pod's own
 ; slot), the middle (z + L/2) and the back lid (z + L) - the last two in the two
-; slots after the rocks (TUN_ROCKS, TUN_ROCKS + 1), which nothing spawns into. Stars
+; slots after the rocks (TUN_GHOST, TUN_GHOST + 1), which nothing spawns into. Stars
 ; and rocks behind them are hidden by tunnel.s's own tests, which loop TUN_NDISC. The
 ; pod is hidden by the nearer rocks' discs edge by edge, the rocks' rule (an edge
 ; whose ends or middle are in a disc is not drawn).
@@ -66,22 +66,27 @@ TUN_PODAG   = 6                 ; their tips this far outside the lid's radius, 
 TUN_PODAP   = 14                ; the blink: on for 8 frames of every 14 - SE_ALARM's own
 TUN_PODAON  = 8                 ;   beep and gap, so firing it every 3 x 14 frames (it is
                                 ;   three beeps) keeps the beeps on the arrows
-TUN_DECO    = 0                 ; OUTSIDE THE TUBE (the user, 2026-10-13): rocks that fly past
-                                ;   out of reach, for the look - one every this many frames, plus
-                                ;   0..31. 0 = none: tried and switched OFF (the user). 40 was ~3
-                                ;   more rocks at once and a worst frame of 96% CPU; 80 with the
-                                ;   budget below was 80% (174 k = 73% without them)...
-TUN_DECOM   = 6                 ; ...and only while fewer than this many rocks fly and no pod
-                                ;   does: a budget, so the worst frame stays the tube's own
-TUN_DECOX   = 112               ; ...at least this far off the axis on one side (to 127): the lean
-                                ;   is 81 and a lane's rock +-16, so none can be reached
+TUN_DECR0   = 112               ; THE FAR ROCKS (tunnel.s TUN_DECOS): a far rock's distance from the
+TUN_DECRM   = 15                ;   axis is 2 x (DECR0 + 0..DECRM) = 224..254 world units - twice the
+                                ;   first try's 112..127 (the user, 2026-10-15; the lean is 81)
+TUN_DECZJ   = 63                ; ...born at RZMAX less 0..this, so that they do not come in step
+TUN_DECSP   = 6                 ; ...and one every 6 frames at most (they live ~110: 10 keep up)
+TUN_DECPG   = 120               ; ...and only half of them from 120 frames before a lifepod until
+                                ;   it is gone, none once the tube's rocks stop (tun_deco_cam)
 TUN_PODQ    = 40                ; the point list's size
 
         .assert TUN_PODQ >= 24 + 1, error, "tunnel_pod.s: the front lid's 24 points must fit the list"
 
         .segment "TUNBSS"
-DSPT:   .res    1                       ; frames to the next rock outside the tube
 DTMP:   .res    1
+DSEED:  .res    1                       ; the far rocks' random (tun_drnd)
+DECOFF: .res    1                       ; not 0: no far rock is born (tools/tunnel_bench.py)
+DSPT:   .res    1                       ; frames to the next far rock's birth
+DECNO:  .res    1                       ; ...and this frame's budget says the same (tun_deco_cam)
+DCXL:   .res    1                       ; R(TH) (cam / 2) this frame, for the far rocks
+DCXH:   .res    1
+DCYL:   .res    1
+DCYH:   .res    1
 PODI:   .res    1                       ; the next pod: an index into PODTL/PODTH...
 PODE:   .res    1                       ; ...and how many this tunnel flies (0..TUN_PODS)
 PODTL:  .res    TUN_PODS                ; when each is born (frames flown), this tunnel's:
@@ -258,8 +263,6 @@ PODJS:  .byte   0, 2, 1, 1, 0
 ; discs hide nothing.
 ; -----------------------------------------------------------------------------
 tun_pod_init:
-        lda     #20                     ; the first rock outside the tube a third of a second in
-        sta     DSPT
 .if TUNTEST
         lda     #3                      ; (no sector behind it: three)
 .else
@@ -306,7 +309,7 @@ tun_pod_init:
 @jd:    stz     PODI
         stz     TPOD
         stz     TPLOST
-        ldx     #TUN_ROCKS
+        ldx     #TUN_GHOST
         stz     ROC,x
         stz     RZL,x
         stz     RZH,x
@@ -329,104 +332,243 @@ tun_pod_lane:
         beq     @y
         sta     PODLY
         rts
+        .segment "TUNCODE2"             ; (the far rocks run from bank 10: bank 11 is full)
 
 ; -----------------------------------------------------------------------------
-; tun_deco - a rock OUTSIDE THE TUBE now and then (TUN_DECO): born far like the others, on
-; a place at least TUN_DECOX off the axis on one side (x or y, either sign) and anywhere
-; on the other, never tested against the ship (RHI = 1). Pods and Saturnium stay in the
-; tube. It lives here, not beside tun_spawn, because bank 10 is full.
+; THE FAR ROCKS (the user, 2026-10-15). TUN_DECOS rocks OUTSIDE THE TUBE, that many but
+; for a lifepod and the run's end (the budget, tun_deco_cam), for the look: in slots of their own (TUN_DECO0 up, after every disc), on a ring
+; 2 x (TUN_DECR0 + 0..TUN_DECRM) from the axis at any angle, falling like the others. A
+; far rock is ALWAYS DOTTED and has NO occlusion disc: it hides no star (the stars' test
+; was the dearest part of the first try, 2026-10-13, which gave them one) and no rock -
+; but a nearer tube rock hides it, by the rocks' own rule. It is never tested against the
+; ship (RHI = 1). When it leaves the window, or goes past, it is born again far away
+; (tunnel.s tun_rocks_frame), one every TUN_DECSP frames at most. Its place is POLAR,
+; in HALF units: RXW its distance from the axis, RYW its angle round it - so turning it
+; with the world is an add (tun_deco_rel). Its rel is taken halved, w - cam / 2, and its
+; offset is doubled after the projection (tunnel.s tun_shr).
 ; -----------------------------------------------------------------------------
+; tun_deco - far rock TRK is born: depth, place, outline, angle and spin; the next not for
+; TUN_DECSP frames (tun_deco_cam).
 tun_deco:
-.if TUN_DECO
-        dec     DSPT
-        bne     @r
-        jsr     prng
-        and     #31
-        clc
-        adc     #TUN_DECO
+        lda     #TUN_DECSP
         sta     DSPT
-        lda     SC_PTRL                 ; none in the run's end either
-        cmp     #<(TUN_FRAMES - TUN_RUSHF - TUN_CLEAR)
-        lda     SC_PTRH
-        sbc     #>(TUN_FRAMES - TUN_RUSHF - TUN_CLEAR)
-        bcs     @r
-        stz     PT1                     ; the budget: how many fly, and is one a pod?
-        ldx     #TUN_ROCKS - 1
-:       lda     RZL,x
-        ora     RZH,x
-        beq     :+
-        inc     PT1
-        lda     RKIND,x
-        cmp     #2
-        beq     @r                      ; a pod in flight: it has the frame
-:       dex
-        bpl     :--
-        lda     PT1
-        cmp     #TUN_DECOM
-        bcs     @r
-        ldx     #TUN_ROCKS - 1
-:       lda     RZL,x
-        ora     RZH,x
-        beq     @free
-        dex
-        bpl     :-
-@r:     rts
-@free:  stx     TRK
+        lda     #1
+        sta     DECNO
+        jsr     tun_drnd
+        and     #TUN_DECZJ
+        sta     PT1
+        ldx     TRK
+        sec
         lda     #<TUN_RZMAX
+        sbc     PT1
         sta     RZL,x
         lda     #>TUN_RZMAX
+        sbc     #0
         sta     RZH,x
         lda     #1
         sta     RHI,x                   ; (out of reach: never tested)
         stz     RDF,x
         stz     ROC,x
         stz     RKIND,x
-        jsr     prng
+        jsr     tun_drnd
         and     #3
         ldx     TRK
         sta     RTY,x
-        jsr     prng
+        jsr     tun_drnd
         ldx     TRK
         sta     RAN,x
-        jsr     prng
+        jsr     tun_drnd
         and     #TUN_RSPIN
         sec
         sbc     #4
         ldx     TRK
         sta     RSP,x
-        jsr     prng                    ; bit 0: which axis is off; bit 1: which side
-        sta     DTMP
-        .assert (127 - TUN_DECOX) & (128 - TUN_DECOX) = 0, error, "tunnel_pod.s: 127 - TUN_DECOX must be a mask (2^n - 1)"
-        jsr     prng
-        and     #127 - TUN_DECOX
+        jsr     tun_drnd                ; its distance, half units...
+        and     #TUN_DECRM
         clc
-        adc     #TUN_DECOX              ; TUN_DECOX..127...
-        sta     PT1                     ; the off coordinate...
-        lda     DTMP
-        and     #2
-        beq     :+
-        lda     #0                      ; ...or its negative
-        sec
-        sbc     PT1
-        sta     PT1
-:
-        jsr     prng
-        sta     PT2                     ; ...and the other, anywhere
+        adc     #TUN_DECR0
         ldx     TRK
-        lda     DTMP
-        lsr     a
-        bcc     @ony
+        sta     RXW,x
+        jsr     tun_drnd                ; ...and its angle round the axis
+        ldx     TRK
+        sta     RYW,x
+        rts
+        .assert TUN_DECR0 + TUN_DECRM <= 127, error, "tunnel_pod.s: a far rock's distance is a tun_sm operand"
+        .assert (TUN_DECRM & (TUN_DECRM + 1)) = 0, error, "tunnel_pod.s: TUN_DECRM must be a mask (2^n - 1)"
+        .assert (TUN_DECZJ & (TUN_DECZJ + 1)) = 0, error, "tunnel_pod.s: TUN_DECZJ must be a mask (2^n - 1)"
+
+        .segment "TUNCODE3"             ; (once, at the start: bank 11)
+; tun_deco_init - every far rock born, and spread in depth: slot by slot, each one
+; TUN_DECZS nearer than the one before, so they do not all come in at once.
+TUN_DECZS   = 56                ; (a far rock is in view from ~1020 to ~450: 570 z over 10)
+tun_deco_init:
+        lda     PRNGL                   ; their own random, seeded from the game's (read,
+        ora     #1                      ;   not stepped: the tube's rocks come as they would
+        sta     DSEED                   ;   without them), never 0
+        stz     DECOFF
+        lda     #TUN_DECO0
+        sta     TRK
+        stz     PT1                     ; how much nearer, 16 bit (PT1 low, TMP2 high)
+        stz     TMP2
+@d:     lda     PT1
+        pha
+        lda     TMP2
+        pha
+        jsr     tun_deco                ; (uses PT1)
+        pla
+        sta     TMP2
+        pla
+        sta     PT1
+        ldx     TRK
+        sec
+        lda     RZL,x
+        sbc     PT1
+        sta     RZL,x
+        lda     RZH,x
+        sbc     TMP2
+        sta     RZH,x
+        clc
         lda     PT1
-        sta     RXW,x
-        lda     PT2
-        sta     RYW,x
+        adc     #TUN_DECZS
+        sta     PT1
+        bcc     :+
+        inc     TMP2
+:       inc     TRK
+        lda     TRK
+        cmp     #TUN_ROCKS
+        bne     @d
         rts
-@ony:   lda     PT1
-        sta     RYW,x
-        lda     PT2
-        sta     RXW,x
-.endif
+        .assert TUN_RZMAX - TUN_DECZJ - TUN_DECZS * (TUN_DECOS - 1) > TUN_RZMIN, error, "tunnel_pod.s: the nearest far rock would be born past the camera"
+
+        .segment "TUNCODE2"
+; tun_deco_cam - once a frame, before the rocks: may a far rock be born (DECNO), and half
+; the camera, turned with the world - R(TH) (cam / 2), which is (0, LY / 2) but for the
+; shake - into DCX/DCY, signed 16.
+; THE BUDGET (the user, 2026-10-16: ~50% CPU, over 90% once a lifepod came - a madsim dump:
+; the pod 61 k, the stars' test against its discs, 10 far rocks 45 k). From TUN_DECPG frames
+; before a pod until it is gone only HALF of them (not none: the user, it looked odd) - the
+; ones over that leave in ~110 frames and are not replaced - and none once the tube's rocks
+; stop (TUN_CLEAR before the rush, which has none).
+tun_deco_cam:
+        lda     SC_PTRL
+        cmp     #<(TUN_FRAMES - TUN_RUSHF - TUN_CLEAR)
+        lda     SC_PTRH
+        sbc     #>(TUN_FRAMES - TUN_RUSHF - TUN_CLEAR)
+        bcs     @no
+        lda     DSPT                    ; one birth every TUN_DECSP frames at most, so that
+        beq     :+                      ;   after a pause they do not all come in step
+        dec     DSPT
+        bra     @no
+:       ldx     PODI                    ; the next lifepod: within TUN_DECPG frames, HALF
+        cpx     PODE                    ;   of them (the ones over that leave before it comes)
+        bcs     @inf
+        lda     PODTL,x
+        sec
+        sbc     SC_PTRL
+        tay
+        lda     PODTH,x
+        sbc     SC_PTRH
+        bcc     @half                   ; (due, waiting for a slot)
+        bne     @inf
+        cpy     #TUN_DECPG
+        bcc     @half
+@inf:   ldx     #TUN_TUBE - 1
+@k:     lda     RKIND,x
+        cmp     #2
+        bne     @nx
+        lda     RZL,x
+        ora     RZH,x
+        bne     @half                   ; a lifepod in flight
+@nx:    dex
+        bpl     @k
+@yes:   lda     #0
+        bra     @st
+@half:  ldy     #0                      ; how many fly: under half of them, one more may come
+        ldx     #TUN_ROCKS - 1
+:       lda     RZL,x
+        ora     RZH,x
+        beq     :+
+        iny
+:       dex
+        cpx     #TUN_DECO0
+        bcs     :--
+        cpy     #TUN_DECOS / 2
+        bcc     @yes
+@no:    lda     #1
+@st:    sta     DECNO
+        lda     CAMX
+        cmp     #$80
+        ror     a                       ; cam / 2, arithmetic
+        sta     RXL
+        jsr     tun_sx
+        sta     RXH
+        lda     CAMY
+        cmp     #$80
+        ror     a
+        sta     RYL
+        jsr     tun_sx
+        sta     RYH
+        jsr     tun_rot
+        lda     RQXL
+        sta     DCXL
+        lda     RQXH
+        sta     DCXH
+        lda     RQYL
+        sta     DCYL
+        lda     RQYH
+        sta     DCYH
         rts
+
+; tun_drnd - A = the far rocks' own random byte: an 8-bit Galois LFSR (x^8 + x^4 + x^3 +
+; x^2 + 1, period 255), so that they take nothing from prng. Keeps X and Y.
+tun_drnd:
+        lda     DSEED
+        asl     a
+        bcc     :+
+        eor     #$1D
+:       sta     DSEED
+        rts
+
+; tun_deco_rel - far rock TRK: RQX, RQY = its rel, halved and turned with the world - what
+; tun_rot would make of w - cam / 2. Its place is polar, d (RXW) at angle a (RYW), so R(TH) w
+; is d (cos (a + TH), sin (a + TH)): two table looks and two multiplies, not a tun_rot, less
+; R(TH) (cam / 2), which is the same for all of them (DCX/DCY). X = TRK on return.
+tun_deco_rel:
+        lda     RXW,x
+        sta     SMB
+        lda     RYW,x
+        clc
+        adc     THH
+        sta     PT2
+        jsr     API_COS
+        jsr     tun_sm                  ; d cos (a + TH)
+        sta     PT1
+        jsr     tun_sx
+        tay
+        lda     PT1
+        sec
+        sbc     DCXL
+        sta     RQXL
+        tya
+        sbc     DCXH
+        sta     RQXH
+        lda     PT2
+        jsr     API_SIN
+        jsr     tun_sm                  ; d sin (a + TH)
+        sta     PT1
+        jsr     tun_sx
+        tay
+        lda     PT1
+        sec
+        sbc     DCYL
+        sta     RQYL
+        tya
+        sbc     DCYH
+        sta     RQYH
+        ldx     TRK
+        rts
+
+        .segment "TUNCODE3"
 
 ; (tun_ring and tun_rmul are the roll's - tunnel.s - and live here because bank 10 is full)
 ; tun_ring - thing X (TRK) in a CORNER lane (|x| and |y| both over 40: the lanes are
@@ -499,8 +641,8 @@ tun_rmul:
 ; -----------------------------------------------------------------------------
 tun_pod_sched:
         stz     PARR
-        stz     ROC + TUN_ROCKS
-        stz     ROC + TUN_ROCKS + 1
+        stz     ROC + TUN_GHOST
+        stz     ROC + TUN_GHOST + 1
         lda     SC_PTRL                 ; past the point where rocks stop (a clock moved on:
         cmp     #<(TUN_FRAMES - TUN_RUSHF - TUN_CLEAR)  ;   FIRE in run-tunnel, a bench):
         lda     SC_PTRH                 ;   no pod is born late, in the run's end
@@ -516,7 +658,7 @@ tun_pod_sched:
         lda     SC_PTRH
         sbc     PODTH,x
         bcc     @r                      ; not yet
-        ldx     #TUN_ROCKS - 1
+        ldx     #TUN_TUBE - 1 
 :       lda     RZL,x
         ora     RZH,x
         beq     @free
@@ -716,7 +858,7 @@ tun_pod_p1:
         lda     PCXH
         adc     #0
         sta     PAXH
-        ldx     #TUN_ROCKS
+        ldx     #TUN_GHOST
         jsr     tun_pdisc
         ldy     TRK
         lda     RZL,y
@@ -732,7 +874,7 @@ tun_pod_p1:
         jsr     tun_pin
         bcs     :+
         inc     PVIS
-:       ldx     #TUN_ROCKS + 1
+:       ldx     #TUN_GHOST + 1
         jsr     tun_pdisc
         ldy     TRK
         lda     RZL,y
@@ -750,8 +892,8 @@ tun_pod_p1:
         rts
 @out:   stz     PARR                    ; out of the window: no arrows...
         stz     ROC,x                   ; ...and it hides nothing either
-        stz     ROC + TUN_ROCKS
-        stz     ROC + TUN_ROCKS + 1
+        stz     ROC + TUN_GHOST
+        stz     ROC + TUN_GHOST + 1
         rts
 
 ; tun_povl - C SET when disc Y (a nearer rock's) overlaps the pod's disc X, which is
@@ -1365,10 +1507,10 @@ tun_draw_pod:
         ldx     TRK                     ; ...and only one that overlaps one of the pod's
         jsr     tun_povl                ;   own three discs: the rest cannot hide any of
         bcs     @tk                     ;   it, and every one kept is a test for every
-        ldx     #TUN_ROCKS              ;   point and edge of the pod
+        ldx     #TUN_GHOST              ;   point and edge of the pod
         jsr     tun_povl
         bcs     @tk
-        ldx     #TUN_ROCKS + 1
+        ldx     #TUN_GHOST + 1
         jsr     tun_povl
         bcc     @nn
 @tk:    lda     RBY,y
