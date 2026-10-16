@@ -639,7 +639,7 @@ hud_build_row2:
         bne     @lab
         lda     CURLEV                  ; 0-based in the game, 1-based on screen
         clc
-        adc     #'1'
+        adc     #'1' - 2 * DEMO         ; (the demo flies level 1 of levels.s and calls it LEVEL: 0)
         sta     HUD_L2+C_LABEL_NUM
         lda     #' '                    ; the gap, written rather than assumed
         ldy     #C_LABEL_NUM+1
