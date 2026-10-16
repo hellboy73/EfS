@@ -650,12 +650,62 @@ SPK_END2_PH:
         .byte   SPK_NORM   | SPK_PH_F
         .byte   SPK_LONG   | SPK_PH_AX
         .byte   $00
+; "ON NRG 2026": 45 phonemes
+SPK_END3_PH:
+        .byte   SPK_STRESS | SPK_PH_AO   ; ON
+        .byte   SPK_LONG   | SPK_PH_N
+        .byte   SPK_NORM   | SPK_PH_PAU
+        .byte   SPK_STRESS | SPK_PH_EH   ; NRG   /En-ar-dZi/ - the letters
+        .byte   SPK_NORM   | SPK_PH_N
+        .byte   SPK_NORM   | SPK_PH_PAU
+        .byte   SPK_STRESS | SPK_PH_EH
+        .byte   SPK_NORM   | SPK_PH_N
+        .byte   SPK_NORM   | SPK_PH_PAU
+        .byte   SPK_STRESS | SPK_PH_AA
+        .byte   SPK_NORM   | SPK_PH_R
+        .byte   SPK_NORM   | SPK_PH_PAU
+        .byte   SPK_NORM   | SPK_PH_CLZ
+        .byte   SPK_NORM   | SPK_PH_D
+        .byte   SPK_NORM   | SPK_PH_Z
+        .byte   SPK_STRESS | SPK_PH_I
+        .byte   SPK_NORM   | SPK_PH_PAU
+        .byte   SPK_NORM   | SPK_PH_CLS   ; TWO   /tu/
+        .byte   SPK_NORM   | SPK_PH_T
+        .byte   SPK_STRESS | SPK_PH_UW
+        .byte   SPK_NORM   | SPK_PH_UW
+        .byte   SPK_NORM   | SPK_PH_PAU
+        .byte   SPK_NORM   | SPK_PH_TH   ; THOUSAND   /Tau-z@nd/
+        .byte   SPK_STRESS | SPK_PH_AA
+        .byte   SPK_NORM   | SPK_PH_UH
+        .byte   SPK_NORM   | SPK_PH_Z
+        .byte   SPK_SHORT  | SPK_PH_AX
+        .byte   SPK_NORM   | SPK_PH_N
+        .byte   SPK_NORM   | SPK_PH_CLZ
+        .byte   SPK_NORM   | SPK_PH_D
+        .byte   SPK_NORM   | SPK_PH_PAU
+        .byte   SPK_NORM   | SPK_PH_CLS   ; TWENTY   /twEn-ti/
+        .byte   SPK_NORM   | SPK_PH_T
+        .byte   SPK_NORM   | SPK_PH_W
+        .byte   SPK_STRESS | SPK_PH_EH
+        .byte   SPK_NORM   | SPK_PH_N
+        .byte   SPK_NORM   | SPK_PH_CLS
+        .byte   SPK_NORM   | SPK_PH_T
+        .byte   SPK_NORM   | SPK_PH_I
+        .byte   SPK_NORM   | SPK_PH_PAU
+        .byte   SPK_NORM   | SPK_PH_S   ; SIX
+        .byte   SPK_STRESS | SPK_PH_IH
+        .byte   SPK_NORM   | SPK_PH_CLS
+        .byte   SPK_NORM   | SPK_PH_K
+        .byte   SPK_LONG   | SPK_PH_S
+        .byte   $00
 SPK_END_LO:
         .byte   <SPK_END0_PH
         .byte   <SPK_END1_PH
         .byte   <SPK_END2_PH
+        .byte   <SPK_END3_PH
 SPK_END_HI:
         .byte   >SPK_END0_PH
         .byte   >SPK_END1_PH
         .byte   >SPK_END2_PH
-SPK_END_N   = 3
+        .byte   >SPK_END3_PH
+SPK_END_N   = 4
