@@ -265,6 +265,10 @@ L0_TOTAL    = L0_N192 + L0_N128 + L0_N64 + L0_N32 + L0_N16 + L0_ROCKN
 LVL1_ROCKS:
         .byte   $CD, $CC, $14, $6E, 0, 0       ; 192A at 52429, 28180
         .byte   $F1, $95, $0F, $EA, 0, 0       ; 192A at 38385, 59919
+        .byte   $23, $18, $74, $DF, 0, 0       ; 192A at 6179, 57204
+        .byte   $B1, $69, $CE, $3D, 3, 0       ; 32A at 27057, 15822
+        .byte   $FD, $DD, $B1, $E9, 3, 0       ; 32A at 56829, 59825
+        .byte   $56, $CB, $09, $E6, 3, 0       ; 32A at 52054, 58889
 LVL1_ROCKS_END:
 ; enemies: XL, XH, YL, YH, kind, heading, speed - 7 bytes each
 LVL1_FOES:
@@ -273,6 +277,7 @@ LVL1_FOES:
         .byte   $82, $09, $75, $D0, 1, 0, 0       ; SPIDER at 2434, 53365, holding its post
         .byte   $04, $D3, $94, $D5, 2, 192, 40       ; PULSAR at 54020, 54676, course 192 at 40 px/s
         .byte   $2F, $20, $71, $1D, 3, 0, 0       ; EMP MINE at 8239, 7537, holding its post
+        .byte   $A5, $E1, $45, $9F, 3, 0, 0       ; EMP MINE at 57765, 40773, holding its post
 LVL1_FOES_END:
 L1_ROCKN    = (LVL1_ROCKS_END - LVL1_ROCKS) / 6
 L1_FOEN     = (LVL1_FOES_END - LVL1_FOES) / 7
