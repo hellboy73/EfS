@@ -535,7 +535,7 @@ class LevelEditor(tk.Tk):
         left = tk.Frame(mid, bg=BG)
         left.pack(side="left", fill="both", expand=True)
         tk.Label(left, text="The torus (it wraps - pan straight through the seam). "
-                             "Click to select, drag to move, double-click empty space to add.",
+                             "Click = select, drag = move, double-click empty space = add, Del = remove.",
                   bg=BG, fg=DIM).pack(anchor="w")
         self.map = tk.Canvas(left, bg=BG, highlightthickness=0)
         self.map.pack(fill="both", expand=True)
@@ -552,17 +552,31 @@ class LevelEditor(tk.Tk):
         self.bind("<Delete>", self._delete_selected)
         self.bind("<BackSpace>", self._delete_selected)
 
-        side = tk.Frame(mid, bg=BG, width=330)
-        side.pack(side="left", fill="y", padx=(10, 0))
-        side.pack_propagate(False)
+        # The panels are taller than a laptop screen: they live in a scrollable
+        # column (scrollbar on the right, mouse wheel while the cursor is over it).
+        wrap = tk.Frame(mid, bg=BG, width=350)
+        wrap.pack(side="left", fill="y", padx=(10, 0))
+        wrap.pack_propagate(False)
+        sbar = tk.Scrollbar(wrap, orient="vertical")
+        sbar.pack(side="right", fill="y")
+        scv = tk.Canvas(wrap, bg=BG, highlightthickness=0, width=330,
+                        yscrollcommand=sbar.set)
+        scv.pack(side="left", fill="both", expand=True)
+        sbar.configure(command=scv.yview)
+        side = tk.Frame(scv, bg=BG, width=330)
+        scv.create_window((0, 0), window=side, anchor="nw", width=330)
+        side.bind("<Configure>", lambda e: scv.configure(scrollregion=scv.bbox("all")))
+        wrap.bind("<Enter>", lambda e: self.bind_all(
+            "<MouseWheel>", lambda ev: scv.yview_scroll(-1 if ev.delta > 0 else 1, "units")))
+        wrap.bind("<Leave>", lambda e: self.unbind_all("<MouseWheel>"))
 
         self._build_name_panel(side)
+        self._build_place_panel(side)
+        self._build_sel_panel(side)
         self._build_scatter_panel(side)
         self._build_ship_panel(side)
         self._build_gate_panel(side)
         self._build_base_panel(side)
-        self._build_place_panel(side)
-        self._build_sel_panel(side)
 
         self.warn = tk.Label(side, text="", bg=BG, fg="#ff6666", wraplength=310,
                               justify="left")
@@ -587,7 +601,7 @@ class LevelEditor(tk.Tk):
         e.bind("<FocusOut>", lambda ev: self._commit_name())
 
     def _build_scatter_panel(self, side):
-        f = self._section(side, "Scatter - rocks per size class")
+        f = self._section(side, "Random scatter (generated - not draggable)")
         self.count_vars = []
         for i, c in enumerate(CLASSES):
             tk.Label(f, text=f"{c} px", bg=BG, fg=TEXT, width=7,
@@ -729,67 +743,122 @@ class LevelEditor(tk.Tk):
         self._draw()
 
     def _build_place_panel(self, side):
-        f = self._section(side, "Place (double-click the map)")
-        self.place_var = tk.StringVar(value="rock")
-        tk.Radiobutton(f, text="Rock", variable=self.place_var, value="rock", bg=BG,
-                        fg=TEXT, selectcolor="#333", activebackground=BG,
-                        command=self._draw).grid(row=0, column=0, sticky="w")
-        tk.Radiobutton(f, text="Enemy", variable=self.place_var, value="foe", bg=BG,
-                        fg=TEXT, selectcolor="#333", activebackground=BG,
-                        command=self._draw).grid(row=0, column=1, sticky="w")
+        """ADD: the tab IS the choice of what to add - set it up, then press the
+        button (drops it at the middle of the view) or double-click an empty
+        spot on the map."""
+        f = self._section(side, "Add to the map")
+        self.place_nb = ttk.Notebook(f)
+        self.place_nb.pack(fill="x")
+        rock = tk.Frame(self.place_nb, bg=BG, padx=6, pady=6)
+        foe = tk.Frame(self.place_nb, bg=BG, padx=6, pady=6)
+        self.place_nb.add(rock, text="  Rock  ")
+        self.place_nb.add(foe, text="  Enemy  ")
 
-        tk.Label(f, text="Class", bg=BG, fg=TEXT).grid(row=1, column=0, sticky="w", pady=1)
-        self.new_cls = ttk.Combobox(f, state="readonly", width=6,
-                                     values=[str(c) for c in CLASSES])
-        self.new_cls.set(str(CLASSES[0]))
-        self.new_cls.grid(row=1, column=1, sticky="w", padx=4)
-
-        tk.Label(f, text="Variant", bg=BG, fg=TEXT).grid(row=2, column=0, sticky="w", pady=1)
-        self.new_type = ttk.Combobox(f, state="readonly", width=6,
+        tk.Label(rock, text="Size", bg=BG, fg=TEXT, width=10, anchor="w").grid(
+            row=0, column=0, sticky="w", pady=1)
+        self.new_cls = ttk.Combobox(rock, state="readonly", width=10,
+                                     values=self._cls_labels())
+        self.new_cls.current(0)
+        self.new_cls.grid(row=0, column=1, sticky="w", padx=4)
+        tk.Label(rock, text="Variant", bg=BG, fg=TEXT, width=10, anchor="w").grid(
+            row=1, column=0, sticky="w", pady=1)
+        self.new_type = ttk.Combobox(rock, state="readonly", width=10,
                                       values=list(string.ascii_uppercase[:self.ast_types]))
-        self.new_type.set("A")
-        self.new_type.grid(row=2, column=1, sticky="w", padx=4)
+        self.new_type.current(0)
+        self.new_type.grid(row=1, column=1, sticky="w", padx=4)
 
-        tk.Label(f, text="Enemy kind", bg=BG, fg=TEXT).grid(row=3, column=0, sticky="w", pady=1)
-        self.new_kind = tk.Spinbox(f, from_=0, to=FOE_KINDS - 1, width=5)
-        self.new_kind.grid(row=3, column=1, sticky="w", padx=4)
-        tk.Label(f, text="Heading", bg=BG, fg=TEXT).grid(row=4, column=0, sticky="w", pady=1)
-        self.new_hd = tk.Spinbox(f, from_=0, to=255, increment=8, width=5)
-        self.new_hd.grid(row=4, column=1, sticky="w", padx=4)
-        tk.Label(f, text="Speed px/s", bg=BG, fg=TEXT).grid(row=5, column=0, sticky="w", pady=1)
-        self.new_spd = tk.Spinbox(f, from_=0, to=FOE_SPD_MAX, increment=5, width=5)
-        self.new_spd.grid(row=5, column=1, sticky="w", padx=4)
+        tk.Label(foe, text="Kind", bg=BG, fg=TEXT, width=10, anchor="w").grid(
+            row=0, column=0, sticky="w", pady=1)
+        self.new_kind = ttk.Combobox(foe, state="readonly", width=12,
+                                      values=self._kind_labels())
+        self.new_kind.current(0)
+        self.new_kind.grid(row=0, column=1, sticky="w", padx=4)
+        tk.Label(foe, text="Heading", bg=BG, fg=TEXT, width=10, anchor="w").grid(
+            row=1, column=0, sticky="w", pady=1)
+        self.new_hd = tk.Spinbox(foe, from_=0, to=255, increment=8, width=6)
+        self.new_hd.grid(row=1, column=1, sticky="w", padx=4)
+        tk.Label(foe, text="Speed px/s", bg=BG, fg=TEXT, width=10, anchor="w").grid(
+            row=2, column=0, sticky="w", pady=1)
+        self.new_spd = tk.Spinbox(foe, from_=0, to=FOE_SPD_MAX, increment=5, width=6)
+        self.new_spd.grid(row=2, column=1, sticky="w", padx=4)
+        tk.Label(foe, text="speed 0 = holds its post", bg=BG, fg=DIM).grid(
+            row=3, column=0, columnspan=2, sticky="w")
+
+        tk.Button(f, text="+ Add at view centre", command=self._add_at_centre
+                  ).pack(fill="x", pady=(6, 0))
+        tk.Label(f, text="...or double-click an empty spot on the map.", bg=BG,
+                 fg=DIM, anchor="w").pack(fill="x")
+
+    @staticmethod
+    def _cls_labels():
+        return [f"{c} px" for c in CLASSES]
+
+    @staticmethod
+    def _kind_labels():
+        return [f"{k}  {kind_name(k)}" for k in range(FOE_KINDS)]
+
+    def _add_at(self, wx, wy):
+        lv = self._lvl()
+        if self.place_nb.index(self.place_nb.select()) == 0:
+            lv.rocks.append({"x": wx, "y": wy, "cls": self.new_cls.current(),
+                             "type": self.new_type.current()})
+            self.sel = ("rock", len(lv.rocks) - 1)
+        else:
+            try:
+                hd = int(self.new_hd.get(), 0) & 0xFF
+                spd = max(0, min(FOE_SPD_MAX, int(self.new_spd.get(), 0)))
+            except ValueError:
+                hd, spd = 0, 0
+            lv.foes.append({"x": wx, "y": wy, "kind": self.new_kind.current(),
+                            "hd": hd, "spd": spd})
+            self.sel = ("foe", len(lv.foes) - 1)
+        self._touch()
+        self._refresh_sel()
+        self._draw()
+
+    def _add_at_centre(self):
+        self._add_at(self.view_cx & 0xFFFF, self.view_cy & 0xFFFF)
 
     def _build_sel_panel(self, side):
-        f = self._section(side, "Selection")
-        self.sel_label = tk.Label(f, text="Nothing selected", bg=BG, fg=DIM, anchor="w")
+        """What is selected on the map. Only the rows that mean something for the
+        selection are shown: a rock has a size and variant, an enemy a kind and
+        a patrol, the ship / gate / base only a position."""
+        f = self._section(side, "Selected")
+        self.sel_label = tk.Label(f, text="", bg=BG, fg=DIM, anchor="w",
+                                  wraplength=300, justify="left")
         self.sel_label.grid(row=0, column=0, columnspan=3, sticky="w")
-        tk.Label(f, text="X", bg=BG, fg=TEXT).grid(row=1, column=0, sticky="w")
-        self.selx = tk.StringVar()
-        e = tk.Entry(f, textvariable=self.selx, width=8)
-        e.grid(row=1, column=1, padx=4)
-        e.bind("<Return>", lambda ev: self._commit_sel())
-        e.bind("<FocusOut>", lambda ev: self._commit_sel())
-        tk.Label(f, text="Y", bg=BG, fg=TEXT).grid(row=2, column=0, sticky="w")
-        self.sely = tk.StringVar()
-        e = tk.Entry(f, textvariable=self.sely, width=8)
-        e.grid(row=2, column=1, padx=4)
-        e.bind("<Return>", lambda ev: self._commit_sel())
-        e.bind("<FocusOut>", lambda ev: self._commit_sel())
-        tk.Button(f, text="Delete", command=self._delete_selected).grid(row=1, column=2,
-                                                                        rowspan=2, padx=6)
-        tk.Label(f, text="Heading", bg=BG, fg=TEXT).grid(row=3, column=0, sticky="w")
-        self.selhd = tk.StringVar()
-        e = tk.Entry(f, textvariable=self.selhd, width=8)
-        e.grid(row=3, column=1, padx=4)
-        e.bind("<Return>", lambda ev: self._commit_sel())
-        e.bind("<FocusOut>", lambda ev: self._commit_sel())
-        tk.Label(f, text="Speed px/s", bg=BG, fg=TEXT).grid(row=4, column=0, sticky="w")
-        self.selspd = tk.StringVar()
-        e = tk.Entry(f, textvariable=self.selspd, width=8)
-        e.grid(row=4, column=1, padx=4)
-        e.bind("<Return>", lambda ev: self._commit_sel())
-        e.bind("<FocusOut>", lambda ev: self._commit_sel())
+        self.sel_rows = {}
+
+        def entry_row(row, key, label, var):
+            lab = tk.Label(f, text=label, bg=BG, fg=TEXT, width=10, anchor="w")
+            lab.grid(row=row, column=0, sticky="w", pady=1)
+            e = tk.Entry(f, textvariable=var, width=8)
+            e.grid(row=row, column=1, padx=4, sticky="w")
+            e.bind("<Return>", lambda ev: self._commit_sel())
+            e.bind("<FocusOut>", lambda ev: self._commit_sel())
+            self.sel_rows[key] = (lab, e)
+
+        def combo_row(row, key, label, values, width):
+            lab = tk.Label(f, text=label, bg=BG, fg=TEXT, width=10, anchor="w")
+            lab.grid(row=row, column=0, sticky="w", pady=1)
+            cb = ttk.Combobox(f, state="readonly", width=width, values=values)
+            cb.grid(row=row, column=1, padx=4, sticky="w")
+            cb.bind("<<ComboboxSelected>>", lambda ev: self._commit_sel())
+            self.sel_rows[key] = (lab, cb)
+            return cb
+
+        self.selx, self.sely = tk.StringVar(), tk.StringVar()
+        self.selhd, self.selspd = tk.StringVar(), tk.StringVar()
+        entry_row(1, "x", "X", self.selx)
+        entry_row(2, "y", "Y", self.sely)
+        self.sel_cls = combo_row(3, "cls", "Size", self._cls_labels(), 10)
+        self.sel_type = combo_row(4, "type", "Variant",
+                                  list(string.ascii_uppercase[:self.ast_types]), 10)
+        self.sel_kind = combo_row(5, "kind", "Kind", self._kind_labels(), 12)
+        entry_row(6, "hd", "Heading", self.selhd)
+        entry_row(7, "spd", "Speed px/s", self.selspd)
+        self.del_btn = tk.Button(f, text="Delete (Del)", command=self._delete_selected)
+        self.del_btn.grid(row=1, column=2, rowspan=2, padx=6)
 
     # ---- model helpers ------------------------------------------------------
     def _lvl(self):
@@ -1133,20 +1202,7 @@ class LevelEditor(tk.Tk):
         if self._hit(ev.x, ev.y) is not None:
             return
         wx, wy = self._from_canvas(ev.x, ev.y)
-        lv = self._lvl()
-        if self.place_var.get() == "rock":
-            cls = CLASSES.index(int(self.new_cls.get()))
-            t = string.ascii_uppercase.index(self.new_type.get())
-            lv.rocks.append({"x": wx, "y": wy, "cls": cls, "type": t})
-            self.sel = ("rock", len(lv.rocks) - 1)
-        else:
-            lv.foes.append({"x": wx, "y": wy, "kind": int(self.new_kind.get()),
-                            "hd": int(self.new_hd.get()) & 0xFF,
-                            "spd": max(0, min(FOE_SPD_MAX, int(self.new_spd.get())))})
-            self.sel = ("foe", len(lv.foes) - 1)
-        self._touch()
-        self._refresh_sel()
-        self._draw()
+        self._add_at(wx, wy)
 
     def _delete_selected(self, _ev=None):
         if self.sel is None or self.sel[0] in ("ship", "gate", "base"):
@@ -1248,16 +1304,26 @@ class LevelEditor(tk.Tk):
         self._touch()
         self._draw()
 
+    def _show_sel_rows(self, keys):
+        for k, (lab, w) in self.sel_rows.items():
+            if k in keys:
+                lab.grid()
+                w.grid()
+            else:
+                lab.grid_remove()
+                w.grid_remove()
+
     def _refresh_sel(self):
-        self.selhd.set("")
-        self.selspd.set("")
         if self.sel is None:
-            self.sel_label.configure(text="Nothing selected")
+            self.sel_label.configure(text="Nothing selected - click something on the map")
             self.selx.set("")
             self.sely.set("")
+            self._show_sel_rows(())
+            self.del_btn.grid_remove()
             return
         kind, i = self.sel
         lv = self._lvl()
+        keys = {"x", "y"}
         if kind == "ship":
             self.sel_label.configure(text="Ship start")
             x, y = lv.shx, lv.shy
@@ -1270,17 +1336,27 @@ class LevelEditor(tk.Tk):
         elif kind == "rock":
             r = lv.rocks[i]
             self.sel_label.configure(
-                text=f"Placed rock {i} - {CLASSES[r['cls']]}"
+                text=f"Placed rock #{i} - {CLASSES[r['cls']]}"
                       f"{string.ascii_uppercase[r['type']]}")
             x, y = r["x"], r["y"]
+            self.sel_cls.current(r["cls"])
+            self.sel_type.current(min(r["type"], self.ast_types - 1))
+            keys |= {"cls", "type"}
         else:
             f = lv.foes[i]
-            self.sel_label.configure(text=f"Enemy {i} - {kind_name(f['kind'])}")
+            self.sel_label.configure(text=f"Enemy #{i} - {kind_name(f['kind'])}")
             x, y = f["x"], f["y"]
+            self.sel_kind.current(min(f["kind"], FOE_KINDS - 1))
             self.selhd.set(str(f.get("hd", 0)))
             self.selspd.set(str(f.get("spd", 0)))
+            keys |= {"kind", "hd", "spd"}
         self.selx.set(str(x))
         self.sely.set(str(y))
+        self._show_sel_rows(keys)
+        if kind in ("rock", "foe"):
+            self.del_btn.grid()
+        else:
+            self.del_btn.grid_remove()
 
     def _commit_sel(self):
         if self.sel is None:
@@ -1305,16 +1381,22 @@ class LevelEditor(tk.Tk):
             lv.base_x, lv.base_y = x, y
             self.base_vars["base_x"].set(str(x))
             self.base_vars["base_y"].set(str(y))
+        elif kind == "rock":
+            r = lv.rocks[i]
+            r["x"], r["y"] = x, y
+            r["cls"] = self.sel_cls.current()
+            r["type"] = self.sel_type.current()
+            self._refresh_sel()
         else:
-            item = lv.rocks[i] if kind == "rock" else lv.foes[i]
+            item = lv.foes[i]
             item["x"], item["y"] = x, y
-            if kind == "foe":
-                try:
-                    item["hd"] = int(self.selhd.get(), 0) & 0xFF
-                    item["spd"] = max(0, min(FOE_SPD_MAX, int(self.selspd.get(), 0)))
-                except ValueError:
-                    pass
-                self._refresh_sel()
+            item["kind"] = self.sel_kind.current()
+            try:
+                item["hd"] = int(self.selhd.get(), 0) & 0xFF
+                item["spd"] = max(0, min(FOE_SPD_MAX, int(self.selspd.get(), 0)))
+            except ValueError:
+                pass
+            self._refresh_sel()
         self._touch()
         self._draw()
 
