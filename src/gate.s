@@ -148,6 +148,14 @@ gate_load:
         lda     LVL_MPAR,x
         sta     GTMPR
         jsr     lv_close
+        ldx     #$00                    ; the radar follows the mission: rocks
+        lda     GTMIS                   ;   only when it asks for them (MS_ROCKS,
+        beq     :+                      ;   MS_BOTH), and only classes 0..MPAR -
+        cmp     #MS_BOTH                ;   see radar.s, RADCL
+        bne     @rcl
+:       ldx     GTMPR
+        inx
+@rcl:   stx     RADCL
         stz     GTON
         stz     GTAST
         stz     GTANL

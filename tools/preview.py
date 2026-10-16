@@ -924,6 +924,7 @@ RAD_SH = radar_const("RAD_SH")
 RAD_SCR = RAD_RH >> RAD_SH              # ...and on screen, in half-res cells
 RADCX, RADCY = radar_const("RADCX"), radar_const("RADCY")
 RAD_MAX = radar_const("RAD_MAX")
+RADCL_A = int(re.search(r"^RADCL\s*=\s*\$([0-9A-Fa-f]+)", open(SRC / "radar.s").read(), re.M).group(1), 16)
 RAD_BLINK_N = radar_const("RAD_BLINK_N")
 RAD_BLINK_ON = radar_const("RAD_BLINK_ON")
 RAD_ORDER = [5, 0, 1, 2, 3, 4]          # enemies, then biggest rock class first
@@ -1123,7 +1124,7 @@ for f in range(FRAMES):
         if cls != SHP_DEAD:
             live[cls] += 1
     want, left = [0] * 5, RAD_MAX
-    for c in range(5):
+    for c in range(ram(RADCL_A)):                   # only the classes the mission asks for
         want[c] = min(left, live[c])
         left -= want[c]
     given = [c for c in range(5) if want[c]]

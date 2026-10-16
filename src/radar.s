@@ -185,12 +185,15 @@ RAD_ERR_Y1  = 42                ; "RADAR"
 RAD_ERR_Y2  = 44                ; ...one blank line, then "ERROR"
 RAD_ERR_N   = 6                 ; the longest word plus its trailing space
 
-; WHICH ROCKS THE RADAR SHOWS. Only the first RAD_ROCKCL size classes: the demo
-; sector's radar is the mission's - the biggest rocks (class 0, the 192s, which
-; the exit gate waits on), the enemies, and the gate - and not the field's
-; debris. 5 puts back every class (radar_alloc then spends its 48 slots biggest
-; first, as it always did).
-RAD_ROCKCL  = 5 - 4 * DEMO      ; the demo shows the 192s only
+; WHICH ROCKS THE RADAR SHOWS. The radar is the MISSION's instrument, not the
+; field's: it shows what the player still has to deal with - the enemies, the
+; base, the exit once it is open, and the rocks the sector's mission asks to be
+; broken (levels.s MISN/MPAR, classes 0..MPAR) and no others. A mission that
+; does not ask for rocks (kill the enemies, open exit) shows none. RADCL is
+; that count of classes, set once per sector by gate_load from the mission it
+; has just read; radar_alloc spends its 48 slots biggest first within it. It
+; used to be a build switch (DEMO's RAD_ROCKCL, alpha v0.6): the same idea,
+; now the level's own.
 
 RAD_BLINK_N = 20                ; the enemy blink: a 20-frame cycle at 60.317 Hz
 RAD_BLINK_ON = 10               ; ...lit for the first half of it, ~3 Hz. The
@@ -262,6 +265,8 @@ RADWANT     = $6E1F             ; 6 bytes: each list's ceiling for the frame -
 RADLEFT     = $6E25             ; contacts still to be plotted before the whole
                                 ;   budget is spent. The scan stops at zero.
         .assert RADLEFT = RADWANT + 6, error, "radar.s: RADWANT's six bytes ran into RADLEFT"
+RADCL       = $6E26             ; rock classes the mission wants on the radar:
+                                ;   0..RADCL-1 (0 = none). Set by gate_load
 
 FOEXL       = $6F00             ; the enemies' positions and kinds, FOE_MAX of
 FOEXH       = $6F10             ;   each. The radar reads the high bytes and
@@ -466,8 +471,8 @@ radar_alloc:
         ldx     #$00
         ldy     #$FF                    ; the last class given anything, or none
 @lp:    stz     RADWANT,x
-        cpx     #RAD_ROCKCL
-        bcs     @next                   ; not a class the radar shows at all
+        cpx     RADCL
+        bcs     @next                   ; not a class the mission asks for
         lda     RADLEFT
         beq     @next                   ; the budget is spent - everything from
         cmp     RKLIVE,x                ;   here down gets nothing
