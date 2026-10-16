@@ -104,7 +104,8 @@ TUN_CLOUDMAX = 32               ; ...and at the camera (scale 128: the formula i
 TUN_CATCHR  = 36                ; a catch: |rel x| and |rel y| both under this (a rock's is 15;
                                 ;   it was 22, made easier - the user, 2026-10-13: a pod's is 36
                                 ;   too, and more would reach a cloud from the next lane, 81 off)
-TUN_CLOUDP  = 7                 ; a spawn is a cloud when (random AND this) = 0: 1 in 8
+TUN_CLOUDP  = 40                ; a spawn is a cloud when random < this (of 256): 1 in 6.4 (was 1 in 8,
+                                ;   an AND mask - the user, 2026-10-16: a little more often, twice)
 
 ; --- THE ENGINE (design: the user, 2026-10-13) --------------------------------------
 ; A low RUMBLE on the effects chip's NOISE voice: white noise at its slowest rate (mode 6),
@@ -1340,8 +1341,8 @@ tun_spawn:
         sta     RTY,x
         stz     RKIND,x
         jsr     prng
-        and     #TUN_CLOUDP
-        bne     @rk
+        cmp     #TUN_CLOUDP
+        bcs     @rk
         ldx     TRK                     ; a Saturnium cloud: no spin to speak of, its
         lda     #1                      ;   pattern drifts a place every 4 frames
         sta     RKIND,x
