@@ -647,7 +647,12 @@ sector_frame:
         jmp     @next
 @p1:    cmp     #1                      ; step 1: the clear's replay lands
         bne     @p2
-        inc     SCR_T
+        lda     SCR_T                   ; the first frame here asks again: coming out
+        bne     :+                      ;   of the tunnel the engine's reload ran long, and a
+        lda     #VR_BLIND_ON            ;   late frame is dropped by the GPU, clear and all
+        jsr     API_GPU_VREG            ;   (the cockpit stayed on the background)
+        jsr     API_GPU_CLEARBG
+:       inc     SCR_T
         lda     SCR_T
         cmp     #SETTLE
         bcc     @ret
