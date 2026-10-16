@@ -20,8 +20,9 @@ SC_MSG:
         .byte   "           IN THE YEAR 2093, SATURN'S RINGS REVEAL A NEW MINERAL - SATURNIUM - A POSSIBLE KEY TO THE PROPULSION OF 22ND CENTURY.   "
         .byte   "HUMANITY'S HOPES ARE HIGH. BUT THE RINGS HAVE STARTED LYING... GHOSTS ON RADAR... COLLISIONS WITH NOTHING AT ALL.   "
         .byte   "FIVE SHIPS LAUNCH FROM TITAN STATION. YOU FLY ONE OF THEM.   "
-        .byte   "YOUR ORDERS: CLEAR THE RINGS, SECTOR BY SECTOR.   "
+        .byte   "YOUR ORDERS: CLEAR THE RINGS, SECTOR BY SECTOR - THEN FLY THE TUNNEL TO THE NEXT.   "
         .byte   "BUT SOMETHING OUT THERE IS NOT WHAT IT SEEMS...   "
+        .byte   "THIS ALPHA ENDS AFTER THE FIRST TUNNEL. THE REST OF THE RINGS IS STILL TO COME.   "
         .byte   "GOOD LUCK, PILOT. YOU'LL NEED IT TO ESCAPE FROM SATURN.                      "
-        .byte   "A MAD-65 ARCADE GAME BY MATEUSZ MATYSIAK V0.6 ALFA 2026.10.08                                                     "
+        .byte   "A MAD-65 ARCADE GAME BY MATEUSZ MATYSIAK V0.7 ALFA 2026.10.16                                                     "
         .byte   $FF                                         ; end of the loop

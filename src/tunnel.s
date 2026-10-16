@@ -3532,6 +3532,13 @@ tunnel_frame:
         stz     SCR_T                   ;   fly it again from the dark
         rts
 .endif
+.if DEMO
+        lda     #SC_SECTOR              ; the expo build ends here: SECTOR COMPLETED and
+        sta     SCR_STATE               ;   the spoken ending (gate.s sector_frame),
+        stz     SCR_PH                  ;   not a next sector
+        stz     SCR_T
+        rts
+.endif
         ldx     CURLEV                  ; the next sector, as sector_frame does
         inx
         cpx     #NLEVELS
