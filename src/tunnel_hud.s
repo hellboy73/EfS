@@ -30,11 +30,12 @@
 ;
 ; WHAT THE TUNNEL GIVES BACK:
 ;   THE TUNNEL HEALS AND DOES NOT PUNISH (the user, 2026-10-15): a run flown with the
-;   stick let go still leaves with the hull full and the hold as it came in.
+;   stick let go still leaves with the hold as it came in, and the hull as repaired as
+;   its hits let it be (the user, 2026-10-16: it need not leave full).
 ;   * the HULL grows by one point every TUN_HPP frames, from whatever the sector left,
 ;     so it is full (HP_MAX) before the rush whatever it started at. A rock hit STOPS
-;     it for TUN_HSTOP seconds (and the repair effect with it); in the rush whatever is
-;     left comes back a point every TUN_HPPR frames, so it is full at the end anyway;
+;     it for TUN_HSTOP seconds (and the repair effect with it), and nothing is made up
+;     for it at the end: hit often, the ship leaves the tunnel short of full;
 ;   * the SATURNIUM is the sector's (SATN, under the window, read once at the start into
 ;     TSATN and written back at the end, tun_pay): a cloud adds TUN_SATCLD, a rock hit
 ;     takes TUN_SATHIT - but never below what the ship came in with (TSAT0): a hit
@@ -58,8 +59,6 @@ TUN_HUDROW0 = HUD_ROW2          ; the SATURNIUM row: line 48, the sector's LEVEL
 TUN_HPP     = 60                ; frames a hull point (TBM): 1 s, so HP_MAX - 1 = 49 points
                                 ;   are back in 49 s, before the rush starts
 TUN_HSTOP   = 5                 ; ...a rock hit stops it this many hull points' time (5 s)
-TUN_HPPR    = 6                 ; ...and in the rush a point every this many frames, so
-                                ;   the hull is full at the end whatever was hit
 TUN_SATCLD  = 25                ; Saturnium a cloud adds (the user, 2026-10-15; was 50)
 TUN_SATHIT  = 25                ; ...and a rock hit takes, down to what the ship came in with
 TUN_PODPTS  = 3                 ; score, in hundreds: a lifepod
@@ -80,7 +79,6 @@ TUN_SPKR1   = 70                ;   to this (half-res px, about the window's cen
 
         .assert HUD_ROW1 * 8 >= 350, error, "tunnel_hud.s: the SHIPS row would be under the window"
         .assert (HP_MAX - 1) * TUN_HPP <= TUN_FRAMES - TUN_RUSHF, error, "tunnel_hud.s: the hull would not be full before the rush"
-        .assert (HP_MAX - 1) * TUN_HPPR + TUN_HPP <= TUN_RUSHF, error, "tunnel_hud.s: the rush would not fill the hull"
         .assert TUN_BONR < TUN_RUSH, error, "tunnel_hud.s: the clean-run bonus would come after the rush"
         .assert TUN_SPKR1 < TUN_HALF, error, "tunnel_hud.s: a spark would leave the window"
         .assert TUN_SPKR1 <= 127, error, "tunnel_hud.s: tun_sm takes a radius of at most 127"
@@ -212,11 +210,7 @@ tun_hud_frame:
 @hp1:   dec     HPT                     ; the hull, a point every TUN_HPP frames
         bne     @spk
         lda     #TUN_HPP
-        ldx     RUSHR                   ; ...in the rush every TUN_HPPR, no pause
-        beq     :+
-        stz     HPW
-        lda     #TUN_HPPR
-:       sta     HPT
+        sta     HPT
         lda     HPW                     ; a hit's pause: this point is skipped
         beq     :+
         dec     HPW

@@ -1993,13 +1993,13 @@ These are settled and should not be re-opened without a reason:
 
     **THE TUNNEL CONCLUDED as the game's own element (the user, 2026-10-15).** Where
     anything above differs, this is what holds. **The tunnel heals and does not punish:**
-    a run flown with the stick let go still leaves with the hull full and the hold as it
-    came in, and the player is not to be stressed. The numbers are `physics.md` 12.
+    a run flown with the stick let go still leaves with the hold as it came in, and the
+    player is not to be stressed. The hull need NOT leave full (the user, 2026-10-16). The numbers are `physics.md` 12.
     * **Length: a minute** (3,600 frames, the last 6 s the rush) - settled.
     * **The hull** grows a point a second, as built. **A rock hit stops it for 5 s**
-      (`TUN_HSTOP`), and the repair effect round the ship's picture with it; **in the rush
-      whatever is left comes back a point every 6 frames** (`TUN_HPPR`), so the hull is
-      full at the end whatever was hit.
+      (`TUN_HSTOP`), and the repair effect round the ship's picture with it. **Nothing is
+      made up at the end** (2026-10-16; a rush top-up was tried for a day and taken out):
+      with no hit the hull is full before the rush, hit often it leaves short of full.
     * **Saturnium: a cloud +25** (was 50: ~12 clouds a run filled the hold too easily),
       **a rock hit -25, but never below what the ship came in with** (`TSAT0`): a hit
       costs only what this passage gave.

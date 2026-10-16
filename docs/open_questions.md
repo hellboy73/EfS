@@ -1143,7 +1143,7 @@ the Saturnium collected in this passage, never a pod. Open:
 * **CONCLUDED 2026-10-15 (the user): the tunnel is a game element, the numbers and rules are
   design_technical 11.45's "THE TUNNEL CONCLUDED"** - a minute, it heals and does not punish
   (a hit stops the repair 5 s and takes 25 Saturnium, never below what the ship came in with;
-  the rush finishes the hull), a cloud +25 and 50 points, a pod 300, +500 CLEAN RUN BONUS,
+  no top-up at the end: the hull may leave short of full), a cloud +25 and 50 points, a pod 300, +500 CLEAN RUN BONUS,
   pods at random moments, no FIRE, the four orders on the bar at the start. Settled with it:
   the pod is always reachable as built (no seeded generator for that); "all the Saturnium"
   is gone. What stays open:
