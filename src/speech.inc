@@ -31,6 +31,26 @@ IM_CRITICAL_PH:
         .byte   SPK_LONG   | SPK_PH_L
         .byte   $00
 
+; IM_LEVEL (id 2) - "CLEAR THE SECTOR": 16 phonemes, roughly 64 frames
+IM_LEVEL_PH:
+        .byte   SPK_NORM   | SPK_PH_CLS   ; CLEAR   /klI@/
+        .byte   SPK_NORM   | SPK_PH_K
+        .byte   SPK_NORM   | SPK_PH_L
+        .byte   SPK_STRESS | SPK_PH_I
+        .byte   SPK_NORM   | SPK_PH_ER
+        .byte   SPK_NORM   | SPK_PH_PAU
+        .byte   SPK_NORM   | SPK_PH_TH   ; THE
+        .byte   SPK_SHORT  | SPK_PH_AX
+        .byte   SPK_NORM   | SPK_PH_PAU
+        .byte   SPK_NORM   | SPK_PH_S   ; SECTOR   /sEk-t@r/
+        .byte   SPK_STRESS | SPK_PH_EH
+        .byte   SPK_NORM   | SPK_PH_CLS
+        .byte   SPK_NORM   | SPK_PH_K
+        .byte   SPK_NORM   | SPK_PH_CLS
+        .byte   SPK_NORM   | SPK_PH_T
+        .byte   SPK_LONG   | SPK_PH_ER
+        .byte   $00
+
 ; IM_LIFE (id 3) - "SHIP LOST": 10 phonemes, roughly 40 frames
 IM_LIFE_PH:
         .byte   SPK_NORM   | SPK_PH_SH   ; SHIP
@@ -168,6 +188,54 @@ IM_EMP_RDY_PH:
         .byte   SPK_NORM   | SPK_PH_B
         .byte   SPK_SHORT  | SPK_PH_AX
         .byte   SPK_LONG   | SPK_PH_L
+        .byte   $00
+
+; IM_GOAL1 (id 14) - "BREAK BIGGEST ROCKS": 23 phonemes, roughly 92 frames
+IM_GOAL1_PH:
+        .byte   SPK_NORM   | SPK_PH_CLZ   ; BREAK   /breIk/
+        .byte   SPK_NORM   | SPK_PH_B
+        .byte   SPK_NORM   | SPK_PH_R
+        .byte   SPK_STRESS | SPK_PH_EH   ;   /eI/
+        .byte   SPK_NORM   | SPK_PH_I
+        .byte   SPK_NORM   | SPK_PH_CLS
+        .byte   SPK_NORM   | SPK_PH_K
+        .byte   SPK_NORM   | SPK_PH_PAU
+        .byte   SPK_NORM   | SPK_PH_CLZ   ; BIGGEST   /bI-gIst/
+        .byte   SPK_NORM   | SPK_PH_B
+        .byte   SPK_STRESS | SPK_PH_IH
+        .byte   SPK_NORM   | SPK_PH_CLZ
+        .byte   SPK_NORM   | SPK_PH_G
+        .byte   SPK_SHORT  | SPK_PH_IH
+        .byte   SPK_NORM   | SPK_PH_S
+        .byte   SPK_NORM   | SPK_PH_CLS
+        .byte   SPK_NORM   | SPK_PH_T
+        .byte   SPK_NORM   | SPK_PH_PAU
+        .byte   SPK_NORM   | SPK_PH_R   ; ROCKS
+        .byte   SPK_STRESS | SPK_PH_AA
+        .byte   SPK_NORM   | SPK_PH_CLS
+        .byte   SPK_NORM   | SPK_PH_K
+        .byte   SPK_LONG   | SPK_PH_S
+        .byte   $00
+
+; IM_GOAL2 (id 15) - "DEFEAT ALL ENEMIES": 17 phonemes, roughly 68 frames
+IM_GOAL2_PH:
+        .byte   SPK_NORM   | SPK_PH_CLZ   ; DEFEAT   /dI-fit/
+        .byte   SPK_NORM   | SPK_PH_D
+        .byte   SPK_SHORT  | SPK_PH_IH
+        .byte   SPK_NORM   | SPK_PH_F
+        .byte   SPK_STRESS | SPK_PH_I
+        .byte   SPK_NORM   | SPK_PH_CLS
+        .byte   SPK_NORM   | SPK_PH_T
+        .byte   SPK_NORM   | SPK_PH_PAU
+        .byte   SPK_STRESS | SPK_PH_AO   ; ALL
+        .byte   SPK_NORM   | SPK_PH_L
+        .byte   SPK_NORM   | SPK_PH_PAU
+        .byte   SPK_STRESS | SPK_PH_EH   ; ENEMIES   /E-nI-miz/
+        .byte   SPK_NORM   | SPK_PH_N
+        .byte   SPK_SHORT  | SPK_PH_IH
+        .byte   SPK_NORM   | SPK_PH_M
+        .byte   SPK_NORM   | SPK_PH_I
+        .byte   SPK_LONG   | SPK_PH_Z
         .byte   $00
 
 ; IM_PILOT_OK (id 16) - "PILOT RESCUED": 19 phonemes, roughly 76 frames
@@ -455,7 +523,7 @@ IM_EXTRA_PH:
 SPK_LO:
         .byte   $00             ;  0 HULL BREACH
         .byte   <IM_CRITICAL_PH ;  1 WARNING! HULL CRITICAL
-        .byte   $00             ;  2 CLEAR THE SECTOR
+        .byte   <IM_LEVEL_PH    ;  2 CLEAR THE SECTOR
         .byte   <IM_LIFE_PH     ;  3 SHIP LOST
         .byte   $00             ;  4 ENEMY DETECTED
         .byte   $00             ;  5 BLASTER ARMED
@@ -467,8 +535,8 @@ SPK_LO:
         .byte   <IM_LASER_GOT_PH; 11 LASER ACQUIRED
         .byte   <IM_EMP_GOT_PH  ; 12 EMP ACQUIRED
         .byte   <IM_EMP_RDY_PH  ; 13 EMP AVAILABLE
-        .byte   $00             ; 14 BREAK BIGGEST ROCKS
-        .byte   $00             ; 15 DEFEAT ALL ENEMIES
+        .byte   <IM_GOAL1_PH    ; 14 BREAK BIGGEST ROCKS
+        .byte   <IM_GOAL2_PH    ; 15 DEFEAT ALL ENEMIES
         .byte   <IM_PILOT_OK_PH ; 16 PILOT RESCUED
         .byte   <IM_PILOT_LOST_PH; 17 PILOT LOST IN SPACE
         .byte   <IM_TUN_GUN_PH  ; 18 BLASTER DISABLED
@@ -483,7 +551,7 @@ SPK_LO:
 SPK_HI:
         .byte   $00             ;  0 HULL BREACH
         .byte   >IM_CRITICAL_PH ;  1 WARNING! HULL CRITICAL
-        .byte   $00             ;  2 CLEAR THE SECTOR
+        .byte   >IM_LEVEL_PH    ;  2 CLEAR THE SECTOR
         .byte   >IM_LIFE_PH     ;  3 SHIP LOST
         .byte   $00             ;  4 ENEMY DETECTED
         .byte   $00             ;  5 BLASTER ARMED
@@ -495,8 +563,8 @@ SPK_HI:
         .byte   >IM_LASER_GOT_PH; 11 LASER ACQUIRED
         .byte   >IM_EMP_GOT_PH  ; 12 EMP ACQUIRED
         .byte   >IM_EMP_RDY_PH  ; 13 EMP AVAILABLE
-        .byte   $00             ; 14 BREAK BIGGEST ROCKS
-        .byte   $00             ; 15 DEFEAT ALL ENEMIES
+        .byte   >IM_GOAL1_PH    ; 14 BREAK BIGGEST ROCKS
+        .byte   >IM_GOAL2_PH    ; 15 DEFEAT ALL ENEMIES
         .byte   >IM_PILOT_OK_PH ; 16 PILOT RESCUED
         .byte   >IM_PILOT_LOST_PH; 17 PILOT LOST IN SPACE
         .byte   >IM_TUN_GUN_PH  ; 18 BLASTER DISABLED

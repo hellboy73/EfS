@@ -342,11 +342,8 @@ gate_arrive:
         bcs     @no
         lda     #SE_TELEPORT            ; the ship's own jump, the one shimmer
         jsr     sfx_fire                ;   the game already has for "gone"
-.if DEMO
-        lda     #SC_SECTOR              ; the expo build ends on SECTOR COMPLETED
-.else
-        lda     #SC_TUNNEL              ; the development build flies the tunnel
-.endif
+        lda     #SC_TUNNEL              ; both builds fly the tunnel (alpha v0.7); the demo's
+                                        ;   tunnel ends on SECTOR COMPLETED (tunnel.s @leave)
         sta     SCR_STATE
         stz     SCR_PH
         stz     SCR_T
@@ -650,7 +647,12 @@ sector_frame:
         jmp     @next
 @p1:    cmp     #1                      ; step 1: the clear's replay lands
         bne     @p2
-        inc     SCR_T
+        lda     SCR_T                   ; the first frame here asks again: coming out
+        bne     :+                      ;   of the tunnel the engine's reload ran long, and a
+        lda     #VR_BLIND_ON            ;   late frame is dropped by the GPU, clear and all
+        jsr     API_GPU_VREG            ;   (the cockpit stayed on the background)
+        jsr     API_GPU_CLEARBG
+:       inc     SCR_T
         lda     SCR_T
         cmp     #SETTLE
         bcc     @ret

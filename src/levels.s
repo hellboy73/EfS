@@ -263,13 +263,15 @@ L0_TOTAL    = L0_N192 + L0_N128 + L0_N64 + L0_N32 + L0_N16 + L0_ROCKN
 ; level 1 - "SECTOR ZERO"
 ; rocks: XL, XH, YL, YH, class, type - 6 bytes each, class 0..4 = 192..16
 LVL1_ROCKS:
+        .byte   $CD, $CC, $14, $6E, 0, 0       ; 192A at 52429, 28180
+        .byte   $F1, $95, $0F, $EA, 0, 0       ; 192A at 38385, 59919
 LVL1_ROCKS_END:
 ; enemies: XL, XH, YL, YH, kind, heading, speed - 7 bytes each
 LVL1_FOES:
         .byte   $00, $30, $00, $60, 0, 0, 0       ; UFO at 12288, 24576, holding its post
         .byte   $0C, $88, $D4, $21, 0, 64, 60       ; UFO at 34828, 8660, course 64 at 60 px/s
-        .byte   $00, $20, $00, $B0, 1, 0, 0       ; SPIDER at 8192, 45056, holding its post
-        .byte   $A7, $D2, $4C, $D4, 2, 192, 40       ; PULSAR at 53927, 54348, course 192 at 40 px/s
+        .byte   $82, $09, $75, $D0, 1, 0, 0       ; SPIDER at 2434, 53365, holding its post
+        .byte   $04, $D3, $94, $D5, 2, 192, 40       ; PULSAR at 54020, 54676, course 192 at 40 px/s
         .byte   $2F, $20, $71, $1D, 3, 0, 0       ; EMP MINE at 8239, 7537, holding its post
 LVL1_FOES_END:
 L1_ROCKN    = (LVL1_ROCKS_END - LVL1_ROCKS) / 6

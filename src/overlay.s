@@ -162,6 +162,12 @@ ovl_load_screen:
         lda     overlay_cur
         cmp     #OVL_SCREEN
         beq     @ret
+        cmp     #OVL_TUNNEL             ; the demo ends in SECTOR COMPLETED straight
+        bne     @s                      ;   out of the tunnel: the flight engine must
+        lda     #<ovl_engine_segs       ;   come back before the next game needs it
+        ldx     #>ovl_engine_segs       ;   (ovl_load_field only restores it when the
+        jsr     ovl_walk                ;   tenant is still the tunnel)
+@s:
         lda     #OVL_SCREEN
         sta     overlay_cur
         lda     #<ovl_screen_segs

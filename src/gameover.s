@@ -253,6 +253,8 @@ GO_END:
 ; gone hand the machine back to the intro (the demo loops). Setting SCR_STATE is
 ; all FIELD -> SCREEN takes: frame_body loads the SCREEN overlay on the next frame
 ; and intro_frame runs from its step 0 (overlay.s).
+        .segment "CODE9"                ; same run area as CODE5, a different ROM bank: bank 4
+                                        ;   ran out of room when the demo got its idle clock
 over_wait:
         ldx     JOYPORT                 ; the port that has been playing
         lda     JOY1_PRESS,x
@@ -281,6 +283,7 @@ over_idle:
 .endif
         rts
 
+        .segment "CODE5"
 game_start:
         jsr     rumble_reset            ; no pulse carries over into a new game
         jsr     hud_init                ; the score, the lives, level 1 on the
