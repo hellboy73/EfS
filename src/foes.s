@@ -171,7 +171,8 @@ SPD_SPINM   = $7F               ; a drifting spider's SPIN, as a mask on a
                                 ;   breaking rock does not come off at a
                                 ;   class's rate - and after that it is the
                                 ;   PHYSICS' to change, collisions and all
-SPD_MOUNTR  = 48                ; ...and only one within this, in PAGES of
+SPD_DIG     = 24                ; frames between a mounted spider's digs (+0..15)
+SPD_MOUNTR  = 48               ; ...and only one within this, in PAGES of
                                 ;   world units (48 pages = 12288 units, 768
                                 ;   px at rest): a spider whose rock the level
                                 ;   did not place near it starts adrift rather
@@ -627,7 +628,7 @@ spider_think:
         lda     FOEST,x
         cmp     #FS_MOUNTED
         bne     spider_watch
-        rts                             ; on its rock it WORKS: no eyes, no gun
+        jmp     spider_dig              ; on its rock it WORKS: no eyes, no gun, but it digs
 
 ; -----------------------------------------------------------------------------
 ; spider_watch - adrift: eyes and a gun on a body it cannot steer. X = FEI.
@@ -3608,6 +3609,33 @@ foe_alarm:
         lda     #IM_ENEMY
         jmp     indicate_msg            ; tail (clobbers A and X)
 
+; foe_puff - a bullet's puff on FEI's own spot. Leaves X = FEI.
+foe_puff:
+        ldx     FEI
+        lda     FOEXL,x
+        sta     EXTXL
+        lda     FOEXH,x
+        sta     EXTXH
+        lda     FOEYL,x
+        sta     EXTYL
+        lda     FOEYH,x
+        sta     EXTYH
+        jmp     expl_at
+
+; spider_dig - a MOUNTED spider at work. X = FEI. Every SPD_DIG(+0..15) frames it
+; throws a bullet's puff on its own spot, without a sound - and not a hit point
+; off the rock: the dust is the Saturnium it is mining. FOECD is idle while mounted.
+spider_dig:
+        lda     FOECD,x
+        beq     :+
+        rts
+:       lda     FRAME
+        and     #$0F
+        clc
+        adc     #SPD_DIG
+        sta     FOECD,x
+        jmp     foe_puff                ; silent: it digs all game long
+
 ; -----------------------------------------------------------------------------
 ; foe_take_hit - X = FEI's UFO, A = the hit points the hit is worth: a bullet's
 ; SHOT_DMG (foe_hits) or the laser's LSR_DMG a frame (laser.s lsr_foes). Still
@@ -3665,16 +3693,7 @@ foe_kill:
         jsr     sfx_fire
         lda     #SHK_SHIFT_BREAK
         jsr     shake_arm
-        ldx     FEI
-        lda     FOEXL,x
-        sta     EXTXL
-        lda     FOEXH,x
-        sta     EXTXH
-        lda     FOEYL,x
-        sta     EXTYL
-        lda     FOEYH,x
-        sta     EXTYH
-        jsr     expl_at
+        jsr     foe_puff
         jsr     pk_drop                 ; ...and what it leaves (pickup.s)
         ; fall through into the wreck
 
