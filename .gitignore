@@ -49,3 +49,6 @@ tmp/
 
 # Local backups of whole builds (v0.6 alpha etc.) - kept on disk, never tracked.
 bkp/
+
+# Release builds packed for the expo and friends - kept on disk, never tracked.
+releases/
