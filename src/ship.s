@@ -866,8 +866,9 @@ ship_die:
         stz     KNBYL
         stz     KNBYH
 
-        jsr     capsule_spawn           ; PROTOTYPE: the ejected capsule
-                                        ;   (capsule.s), cosmetic only - EVERY
+        jsr     capsule_spawn           ; the pilot's capsule (capsule.s) -
+                                        ;   the loss made visible, and what the
+                                        ;   tunnel's lifepods are - EVERY
                                         ;   ship lost, not only the last one,
                                         ;   unlike the wreck below
 

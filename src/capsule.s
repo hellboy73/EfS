@@ -1,14 +1,15 @@
 ; =============================================================================
 ; capsule.s - a lifeboat capsule ejects when the ship is lost
 ; =============================================================================
-; PROTOTYPE HOOK, not a decided mechanic - nothing in design_technical.md or
-; open_questions.md says what this is for yet. The art (tools/capsulegen.py,
-; assets/png/capsule1-4.png) needed a way to be seen moving in madsim before
-; anything is decided about what it MEANS, so today it is pure decoration: an
-; ANTI-PICKUP. ship_die (ship.s) launches one on EVERY ship lost, not only the
-; last - unlike the wreck (debris.s), which only comes apart when there is no
-; ship left in hand - and it drifts off in a straight line and vanishes -
-; nothing tracks it, nothing can reach it, nothing happens when it is gone.
+; THE PILOT GETS OUT. ship_die (ship.s) launches one on EVERY ship lost, not
+; only the last - unlike the wreck (debris.s), which only comes apart when there
+; is no ship left in hand - and it is how the player SEES that a ship and its
+; pilot were lost: a part of the game, not decoration (the user, 2026-10-28).
+; In the sector it cannot be reached: it drifts off in a straight line and
+; vanishes, and nothing here tracks it. Where it is caught is the TUNNEL - the
+; same capsules come back there as its lifepods (tunnel_pod.s, design_technical
+; 11.45), one for each ship lost in the sector, and a catch gives the ship back.
+; The art is tools/capsulegen.py's, from assets/png/capsule1-4.png.
 ;
 ; SCREEN-ANCHORED, exactly like the wreck: CAPXL/H, CAPYL/H are a signed 16-bit
 ; full-res offset from FLCXL/H, FLCYL/H (thrust.s emit_ship's drawn ship

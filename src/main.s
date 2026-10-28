@@ -1392,7 +1392,7 @@ frame_body:
                                         ;   it goes on computing them after the
                                         ;   ship stops being drawn precisely so
                                         ;   this can read them
-        jsr     capsule_draw            ; PROTOTYPE: the ejected capsule
+        jsr     capsule_draw            ; the ejected capsule
                                         ;   (capsule.s), for the same reason -
                                         ;   it is screen-anchored on FLCX/FLCY
                                         ;   too
@@ -1588,9 +1588,9 @@ frame_body:
         .include "pickup.s"             ; the laser, the shield and the EMP,
                                         ; dropped by a kill and homing like
                                         ; Saturnium. CODE6, its art in SPRART
-        .include "capsule.s"            ; PROTOTYPE: the ejected capsule -
-                                        ; cosmetic only, an anti-pickup that
-                                        ; drifts off screen and vanishes.
+        .include "capsule.s"            ; the ejected capsule: a ship and its
+                                        ; pilot lost - the tunnel's lifepods
+                                        ; are the same capsules, caught.
                                         ; CODE6, its art in SPRART, after
                                         ; pickup.s so the art lands behind it
         .include "sprites.s"            ; every sprite's memory map, the

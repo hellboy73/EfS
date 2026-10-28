@@ -105,7 +105,7 @@ IDLEC       = $62DB             ; idle_tick: 32-frame ticks with the stick let
 ; walks the object pool, which lives under the cartridge window (window.s).
 ; -----------------------------------------------------------------------------
 state_tick:
-        jsr     capsule_tick            ; PROTOTYPE: the ejected capsule
+        jsr     capsule_tick            ; the ejected capsule
                                         ;   (capsule.s) - self-gated on CAPN,
                                         ;   independent of the wreck below
 
