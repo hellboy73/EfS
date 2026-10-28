@@ -620,7 +620,7 @@ ZSHEAD      = $62D6             ; the reciprocal the ZS tables were built for
 ;
 ; CULRL/CULRH and CUL2L/CUL2H are TWO-ENTRY ARRAYS - [0] = world X, [1] = world Y
 ; - and in_range takes the axis in X, which costs it nothing: abs,x is the same
-; four cycles as abs. $62DB came free and is not reused; $62D7-$62DA and $62E1
+; four cycles as abs. $62DB came free and is gameover.s's IDLEC; $62D7-$62DA and $62E1
 ; are BOOST_AVAIL, thrust.s's boost-pair ramp, and BOOSTARM below.
 BOOST_AVAIL = $62D7             ; nonzero = a boost can be triggered. Always 1
                                 ;   for now (see do_input) - the hook for a

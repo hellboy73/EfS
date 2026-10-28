@@ -66,6 +66,17 @@ GO_COL      = 14                ; ...and centred on it: (37 - 9) / 2
 GO_SWAP     = 64                ; frames each word holds, ~1.06 s at 60.317 Hz
         .assert (GO_SWAP / HUD_PERIOD) * HUD_PERIOD = GO_SWAP, error, "gameover.s: GO_SWAP is not a whole number of paint periods, so the swap would land at a different offset every time and the cadence would limp"
 
+; --- NOBODY AT THE STICK (idle_tick) ------------------------------------------
+IDLE_TICKS  = 226               ; 32-frame ticks with nothing held before the
+                                ;   hunter comes: 7,232 frames, 2 min at 60.317
+                                ;   Hz (the user, 2026-10-28)
+IDLE_DIST   = 350*16            ; where it appears, world units straight down
+                                ;   -Y from the ship: 350 px, inside FOE_SEE's
+                                ;   400, so it sees the ship and gives chase on
+                                ;   its own - nothing here steers it
+IDLE_SPD    = 120               ; ...and the course it opens on, px/s
+        .assert IDLE_DIST < FOE_SEE, error, "gameover.s: the hunter must appear inside FOE_SEE, or it patrols past"
+
 IDLE_FRAMES = 603               ; 10 s at 60.317 Hz: how long GAME OVER and the
                                 ;   ending wait for FIRE before the demo goes
                                 ;   back to the intro. The clock is PF_WAITL/H
@@ -81,6 +92,8 @@ OVWANT      = $6FBF             ; which of the three the row should be showing
 OVC         = $6FC0             ; ...and which it actually IS, so it is never
                                 ;   repainted for nothing
 OVSUB       = $6FC1             ; frames left before the two words trade places
+IDLEC       = $62DB             ; idle_tick: 32-frame ticks with the stick let
+                                ;   go (main.s's one free byte in that block)
 
         .segment "HIDATA"
 
@@ -143,7 +156,7 @@ state_tick:
         sta     OVWANT                  ;   distance before the row's own phase
 @fire:  jmp     over_wait               ; tail: FIRE, or the idle clock (CODE5 -
                                         ;   upper RAM has no bytes to spare)
-@done:  rts
+@done:  jmp     idle_tick               ; GS_PLAY: nobody at the stick? (CODE9)
 
 ; -----------------------------------------------------------------------------
 ; ship_hidden - C SET = the ship is not drawn this frame.
@@ -283,6 +296,61 @@ over_idle:
 .endif
         rts
 
+; -----------------------------------------------------------------------------
+; idle_tick - state_tick's tail in GS_PLAY: count the frames nobody touches the
+; stick, and after IDLE_TICKS of them send ONE UFO for the ship.
+; -----------------------------------------------------------------------------
+; At the expo people walked away mid-sector and the game sat there forever (the
+; user, 2026-10-28). It is not ended by force: a plain UFO is put in a free slot
+; IDLE_DIST from the ship, sees it and hunts it as any UFO does, and an empty
+; seat loses the ships one by one into an ordinary GAME OVER - which the demo's
+; own idle clock (over_idle) then hands back to the intro. Anybody who comes back
+; just has an enemy to deal with. One at a time, no escalation: the count starts
+; again from 0, so a second comes only after two more idle minutes. Counted in
+; 32-frame ticks so it is one byte. Every port bit counts as a touch, and any
+; touch resets it. In the tunnel nothing runs this: it ends on its own in a
+; minute.
+; -----------------------------------------------------------------------------
+        .segment "CODE9"
+idle_tick:
+        ldx     JOYPORT
+        lda     JOY1,x
+        beq     :+
+        stz     IDLEC                   ; somebody is there
+        rts
+:       lda     FRAME
+        and     #$1F
+        bne     @ret
+        inc     IDLEC
+        lda     IDLEC
+        cmp     #IDLE_TICKS
+        bcc     @ret
+        stz     IDLEC                   ; whatever comes of it, start again
+        lda     SHIPGONE                ; between ships: no one to hunt
+        bne     @ret
+        lda     NFOE                    ; no slot left: the sector is full of
+        cmp     #FOE_MAX                ;   enemies already
+        bcs     @ret
+        lda     SHXL                    ; a level record, as load_foes stages
+        sta     FEREC+0                 ;   one (FEREC is under the window -
+        lda     SHXH                    ;   state_tick runs inside the bracket)
+        sta     FEREC+1
+        sec                             ; the wrap is free
+        lda     SHYL
+        sbc     #<IDLE_DIST
+        sta     FEREC+2
+        lda     SHYH
+        sbc     #>IDLE_DIST
+        sta     FEREC+3
+        lda     #FK_UFO
+        sta     FEREC+4
+        lda     #128                    ; course +Y, back at the ship
+        sta     FEREC+5
+        lda     #IDLE_SPD
+        sta     FEREC+6
+        jmp     foe_spawn               ; tail
+@ret:   rts
+
         .segment "CODE5"
 game_start:
         jsr     rumble_reset            ; no pulse carries over into a new game
@@ -309,6 +377,7 @@ level_begin:
         lda     #>IDLE_FRAMES           ;   GAME OVER is up
         sta     PF_WAITH
 .endif
+        stz     IDLEC                   ; ...nobody has been idle yet
         stz     GSTATE                  ; ...the game is a game again
         stz     SHIPGONE
         stz     SHIPINV

@@ -25,7 +25,11 @@ OCC_MAX     = 32                ; occluders: the ship, the radar, the rocks, the
                                 ;   base's fifteen. The arrays are $20 apart
 OCCB_SLOTS  = 16                ; ids in one band: OCCBL's stride, which the star
                                 ;   loop takes as FBY & $F0
+OCC_RMIN    = 4                 ; a rock whose SHAPE_OCC is under this gets no
+                                ;   disc at all (objects.s one_asteroid): today
+                                ;   the smallest class, 3, and only that one
         .assert OCC_MAX <= $20, error, "occlude.s: the OCC arrays are spaced $20 apart"
+        .assert OCC_RMIN > 3 && OCC_RMIN <= 7, error, "occlude.s: OCC_RMIN is meant to drop the smallest rock class (SHAPE_OCC 3) and nothing bigger"
 ; -----------------------------------------------------------------------------
 ; add_ship_occluder — the star-suppression list, which is now one box.
 ; -----------------------------------------------------------------------------

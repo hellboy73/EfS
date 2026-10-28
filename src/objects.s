@@ -1210,12 +1210,16 @@ one_asteroid:
         jsr     qmul                    ;   to hide stars over a smaller disc
         sta     ARAD
         ldy     ASHP
-        lda     SHAPE_OCC,y
-        sta     MQA
+        lda     SHAPE_OCC,y             ; THE SMALLEST CLASS HIDES NO STARS: a
+        cmp     #OCC_RMIN               ;   6 px pebble covers a star or two
+        lda     #$00                    ;   nobody sees go, and every star in
+        bcc     :+                      ;   its band would pay a box test for it
+        lda     SHAPE_OCC,y             ;   (the user, 2026-10-28). AOCR = 0
+        sta     MQA                     ;   says "no disc" to the call below
         lda     ZOOMH
         sta     MQB
         jsr     qmul
-        sta     AOCR
+:       sta     AOCR
 
         lda     #$02                    ; AVSTEP: how far apart the vertices we
         sta     AVSTEP                  ;   use sit in the shape, in bytes -
@@ -1261,7 +1265,10 @@ one_asteroid:
         bne     :+
         rts
 :
+        lda     AOCR                    ; (0: the smallest class, or a disc the
+        beq     :+                      ;   zoom shrank to nothing - no hole)
         jsr     add_disc                ; the stars go out under this rock
+:
 
         ; ---------------------------------------------------------------------
         ; The argument block. Seven bytes of header and then the shape's own

@@ -23,11 +23,12 @@
 ; spacing (256/3) on purpose. It COMMITS once charging: nothing cancels it
 ; early, whatever the ship does.
 ;
-; AT 0 it fires: the ship pays EMPM_DMG FLAT if it is within EMPM_RP -
+; AT 0 it fires: the ship pays EMPM_DMG FLAT if it is within EMPM_RB - the
+; BLAST radius, bigger than the EMPM_RP that tripped it -
 ; ship_hurt_raw (physics.s), which skips both the Saturnium armour and the
 ; shield on purpose (the user, 2026-09-22): this blast ignores both, unlike
 ; every other hit the ship takes. foe_dist is reused a second time for the
-; test. Every OTHER enemy within EMPM_RP of the MINE dies outright -
+; test. Every OTHER enemy within EMPM_RB of the MINE dies outright -
 ; emp.s's do_emp own exact circle test (the quarter-square table), just
 ; re-centred on the mine instead of the ship.
 ;
@@ -39,10 +40,9 @@
 ; 180), and a mine that stays armed re-fires on a lingering ship rather than
 ; staying spent.
 ;
-; THE RING (empm_ring) draws the SAME growing DOT_CIRCLE the ship's own EMP
-; does (emp.s do_emp), just for fewer frames - "like my EMP, only limited
-; range" (the user, 2026-09-22) - not the true blast radius, EMPM_RP, which
-; a look at emp.s shows was never what the ship's own ring drew either.
+; THE RING (empm_ring) grows like the ship's own EMP ring (emp.s do_emp) and
+; stops at the true blast radius, EMPM_RB, at this frame's zoom: what is
+; inside the ring is what was hit (the user, 2026-10-28).
 ;
 ; SHOT DOWN (EMPM_HP, ordinary hits) instead of going off, it drops the EMP
 ; pickup exactly as a pulsar drops the laser - see pickup.s.
@@ -60,11 +60,17 @@ EMPM_DMG      = 25              ; hull cost of a hit, FLAT - ship_hurt_raw
                                  ;   (physics.s) skips the Saturnium armour
                                  ;   and the shield on purpose (the user,
                                  ;   2026-09-22)
-EMPM_RP       = 16              ; detection AND blast radius, in PAGES (256
-                                 ;   world units each - emp.s's own EMK unit).
-                                 ;   4,096 world units, under FOE_SEE's 6,400 -
-                                 ;   shrunk from 50 (the user, 2026-09-22: it
-                                 ;   was reaching most of the field)
+EMPM_RP       = 16              ; DETECTION radius, in PAGES (256 world units
+                                 ;   each - emp.s's own EMK unit). 4,096 world
+                                 ;   units, under FOE_SEE's 6,400 - shrunk from
+                                 ;   50 (the user, 2026-09-22: it was reaching
+                                 ;   most of the field)
+EMPM_RB       = 24              ; BLAST radius, pages: the ship and every other
+                                 ;   enemy inside it pay. Bigger than EMPM_RP on
+                                 ;   purpose - a ship that trips the mine at its
+                                 ;   edge still has to run (the user,
+                                 ;   2026-10-28) - and the ring draws exactly
+                                 ;   this (empm_ring)
 EMPM_CHARGE   = 90              ; game frames from detection to firing - 1.5 s
                                  ;   at 60.317 Hz (the user, 2026-09-22; was
                                  ;   121, then 30)
@@ -92,17 +98,16 @@ EMPM_RAMP_DN  = 85              ; ...and while cooling down, the mirror:
                                  ;   over EMPM_COOLDOWN frames -
                                  ;   (EMPM_SPIN_MAX-EMPM_SPIN)*256/EMPM_COOLDOWN
                                  ;   rounded
-EMPM_RING_FRAMES = 12            ; frames the ring grows for - emp.s's own
-                                 ;   EMP_FRAMES (31) shortened: "like my EMP,
-                                 ;   only limited range" (the user, 2026-09-22)
-EMPM_RSH      = EMP_RSH         ; ...at the SAME rate emp.s's ring grows
-                                 ;   (emp.s), so it reads as the same kind of
-                                 ;   pulse, just cut shorter - max 96 half-res
-                                 ;   px against the ship's 248
+EMPM_RSH      = EMP_RSH         ; the ring grows at the SAME rate emp.s's
+                                 ;   does, so it reads as the same kind of
+                                 ;   pulse - and stops at the blast's radius
+EMPM_RING_MAX = 255 >> EMPM_RSH ; the most frames any ring can take: n << RSH
+                                 ;   must stay a byte
 
-        .assert EMPM_RING_FRAMES << EMPM_RSH <= 255, error, "empmine.s: DOT_CIRCLE's R is one byte"
-        .assert EMPM_RING_FRAMES <= EMPM_COOLDOWN, error, "empmine.s: the ring must fit inside the cooldown it rides on"
-        .assert EMPM_RP < 128, error, "empmine.s: absa's result and 2*EMPM_RP must stay positive bytes"
+        .assert EMPM_RING_MAX <= EMPM_COOLDOWN, error, "empmine.s: the ring must fit inside the cooldown it rides on"
+        .assert EMPM_RB * 4 <= 127, error, "empmine.s: empm_ring's qmul takes EMPM_RB*4, a magnitude under 128"
+        .assert EMPM_RB * 8 <= 255, error, "empmine.s: the ring's radius at 1:1, EMPM_RB*8 half-res, is one byte"
+        .assert EMPM_RP <= EMPM_RB, error, "empmine.s: detection past the blast would charge for a ship it cannot reach"
         .assert FK_EMPMINE < FK_N, error, "empmine.s: foes.s's FK_N is behind this kind"
 
 ; --- state: under the window, chained after base.s's (foes.s's own chain) ---
@@ -220,49 +225,9 @@ empm_near:
         rts
 
 ; -----------------------------------------------------------------------------
-; empm_ring - X = FEI, a mine within EMPM_RING_FRAMES of its last shot: draw
-; this frame's ring. The SAME growing DOT_CIRCLE the ship's own EMP draws
-; (emp.s do_emp - nothing scaled, projected or zoomed, just bigger every
-; frame), only shorter-lived and so smaller at the end - "like my EMP, only
-; limited range" (the user, 2026-09-22). X preserved; clobbers A.
-; -----------------------------------------------------------------------------
-; n = EMPM_COOLDOWN+1 - FOECD: 1 on the firing frame (FOECD was just set to
-; EMPM_COOLDOWN, in either caller - empm_spin's fire branch or its @idle),
-; growing by 1 every frame after as FOECD counts down. Past EMPM_RING_FRAMES
-; the ring is over and this is a no-op; FOECD keeps counting down to the
-; cooldown regardless, and the caller is what stops calling in either case.
-; -----------------------------------------------------------------------------
-empm_ring:
-        lda     #EMPM_COOLDOWN+1
-        sec
-        sbc     FOECD,x
-        cmp     #EMPM_RING_FRAMES+1
-        bcs     @done                   ; the ring's own life is over
-        sta     EMH0
-        lda     FOEON,x                 ; never drawn: no screen centre to use
-        beq     @done
-        lda     FOEFXH,x                ; the mine's screen centre, halved -
-        lsr     a                       ;   do_emp's own conversion of a
-        lda     FOEFXL,x                ;   full-res centre, this one the
-        ror     a                       ;   mine's instead of the ship's
-        sta     OS_ARG+0
-        lda     FOEFYH,x
-        lsr     a
-        lda     FOEFYL,x
-        ror     a
-        sta     OS_ARG+1
-        lda     EMH0
-        .repeat EMPM_RSH
-        asl     a
-        .endrepeat
-        sta     OS_ARG+2
-        jsr     API_GPU_DOTCIRCLE
-@done:  rts
-
-; -----------------------------------------------------------------------------
 ; empm_fire - FEI is a charged mine, at 0: detonate. The ship first (foe_dist
 ; again, ship_hurt_raw - flat, no armour and no shield), then every OTHER
-; enemy within EMPM_RP - do_emp's own exact circle (emp.s), re-centred here.
+; enemy within EMPM_RB - do_emp's own exact circle (emp.s), re-centred here.
 ; The ring is empm_spin's, drawn once this returns and FOECD is set (its
 ; first frame needs FOECD already at EMPM_COOLDOWN). Nested inside
 ; foe_think_all's own FEI sweep, so FEI is saved and restored round the part
@@ -278,7 +243,9 @@ empm_fire:
         sta     EMCY
         lda     #SE_EMP
         jsr     sfx_fire
-        jsr     empm_near
+        jsr     foe_dist                ; the BLAST's radius, not the detection's
+        lda     FEDH
+        cmp     #EMPM_RB
         bcs     @foes
         lda     #EMPM_DMG
         jsr     ship_hurt_raw           ; flat - no armour, no shield
@@ -299,7 +266,7 @@ empm_fire:
         sec
         sbc     EMCX
         jsr     absa
-        cmp     #EMPM_RP
+        cmp     #EMPM_RB
         beq     :+
         bcs     @next
 :       sta     EMDXT
@@ -307,7 +274,7 @@ empm_fire:
         sec
         sbc     EMCY
         jsr     absa
-        cmp     #EMPM_RP
+        cmp     #EMPM_RB
         beq     :+
         bcs     @next
 :       asl     a                       ; the exact circle: f(2a) = a*a, the
@@ -322,8 +289,8 @@ empm_fire:
         lda     QSH,y
         adc     QSH,x
         sta     EMH1
-        ldx     #EMPM_RP*2
-        lda     QSL,x                   ; RP*RP - the rim is inside
+        ldx     #EMPM_RB*2
+        lda     QSL,x                   ; RB*RB - the rim is inside
         cmp     EMH0
         lda     QSH,x
         sbc     EMH1
@@ -343,6 +310,68 @@ empm_fire:
 ; once a frame from foe_think_all, inside its win_off bracket, X = FEI.
 ; =============================================================================
         .segment "CODE9"
+
+; -----------------------------------------------------------------------------
+; empm_ring - X = FEI, a mine in its cooldown: draw this frame's ring, if it is
+; still growing. Clobbers A, X and Y - both callers reload X from FEI.
+; -----------------------------------------------------------------------------
+; THE RING IS THE BLAST (the user, 2026-10-28): it grows the way the ship's own
+; EMP ring does (emp.s do_emp), n << EMPM_RSH half-res px on its n-th frame,
+; but it STOPS at the radius empm_fire actually reaches - EMPM_RB pages put on
+; the screen at this frame's zoom - and is drawn at exactly that on its last
+; frame. A page is 8 half-res px at 1:1 (emp.s), so that is
+; qmul(EMPM_RB*4, ZOOMH) * 2. It used to be a fixed 96 px whatever the zoom,
+; which said less than the blast did at 1:1 and more when zoomed out.
+;
+; n = EMPM_COOLDOWN+1 - FOECD: 1 on the firing frame (FOECD was just set to
+; EMPM_COOLDOWN by empm_spin's fire branch), growing by 1 every frame after
+; as FOECD counts down. The ring is over on the first frame whose PREVIOUS
+; radius had already reached the blast's; FOECD keeps counting down to the
+; end of the cooldown regardless.
+; -----------------------------------------------------------------------------
+empm_ring:
+        lda     #EMPM_COOLDOWN+1
+        sec
+        sbc     FOECD,x
+        cmp     #EMPM_RING_MAX+1        ; past any ring there can be - and n << 3
+        bcs     @done                   ;   would no longer fit a byte
+        .repeat EMPM_RSH
+        asl     a
+        .endrepeat
+        sta     EMH0                    ; this frame's growing radius
+        lda     FOEON,x                 ; never drawn: no screen centre to use
+        beq     @done
+        lda     #EMPM_RB*4              ; the blast on the screen, half-res
+        sta     MQA
+        lda     ZOOMH
+        sta     MQB
+        jsr     qmul                    ; (clobbers X and Y)
+        asl     a
+        sta     EMH1
+        ldx     FEI
+        lda     EMH0                    ; the last frame's radius already there:
+        sec                             ;   the ring is over
+        sbc     #1 << EMPM_RSH
+        cmp     EMH1
+        bcs     @done
+        lda     EMH0                    ; ...else this frame's, held to the
+        cmp     EMH1                    ;   blast's on the frame it gets there
+        bcc     :+
+        lda     EMH1
+:       sta     OS_ARG+2
+        lda     FOEFXH,x                ; the mine's screen centre, halved -
+        lsr     a                       ;   do_emp's own conversion of a
+        lda     FOEFXL,x                ;   full-res centre, this one the
+        ror     a                       ;   mine's instead of the ship's
+        sta     OS_ARG+0
+        lda     FOEFYH,x
+        lsr     a
+        lda     FOEFYL,x
+        ror     a
+        sta     OS_ARG+1
+        jmp     API_GPU_DOTCIRCLE       ; tail
+@done:  rts
+
 
 ; -----------------------------------------------------------------------------
 ; empm_bump - the ship against a mine's body: a ROCK THAT NEVER MOVES (the user,

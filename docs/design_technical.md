@@ -576,6 +576,9 @@ Two details that follow:
   occlusion disc uses the **same radius as the collision circle** (7.3), so what
   looks solid and what actually hits you are the same shape — a rock that
   visibly swallows a star but lets a bullet through would be a real complaint.
+- **The smallest class gets no disc** (2026-10-28, `OCC_RMIN` in occlude.s): a
+  `SHAPE_OCC` 3 pebble hides a star or two nobody sees go, while every star in its
+  16-row band paid a box test for it. It skips the `qmul` and the band filing too.
 - **Sprites do not need this.** A sprite can carry an overlay (black) plane that
   masks whatever is under it, so sprite-based objects occlude for free. Only the
   vector layer needs the mask — which is another quiet argument for the sprite LOD
