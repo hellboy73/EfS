@@ -15,6 +15,13 @@ The **firmware** (CPU1 OS + GPU OS) lives in the *separate* MAD-65 repo
 and **recopy** `cpu_os.bin` + `gpu_os.bin` into `EfS/roms/` — and refresh
 `roms/gpu_symbols.txt` (its header says how), which `tools/preview.py` reads.
 
+**Input recordings** (2026-10-31): `tools/recorder/record.bat` plays the current
+`cart.bin` in the browser and saves the joystick, one mask per frame from
+power-on; `replay.py` re-runs it offline bit-for-bit (frames + audio) — for promo
+reels and the future attract-mode demo. A recording is tied to the exact cart +
+ROMs (sha1 in the JSON; replay refuses a mismatch). `madsim-wasm.js` is madsim's
+core as WebAssembly, copied from MAD-65 `site/play/` — recopy it when madsim changes.
+
 **CPU1 RAM has five areas, not four** — since 2026-09-11 `$C000-$DFFF`
 (`DEMO_RAM`, MAD-65 ABI) is the game's from `cart_init` on: 8 KB, full speed,
 always mapped, code or data, but holding the demo's image on entry. The map and

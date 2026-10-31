@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>EfS input recorder</title>
+<!--
+  Records the joystick (port 1), one mask per frame, from power-on, while you
+  play the CURRENT build: it loads this repo's cart.bin and roms/*.bin, and
+  madsim's own emulation core compiled to WebAssembly (madsim-wasm.js, copied
+  from MAD-65 site/play/ — regenerate there with madsim/web/pack.py).
+
+  The core is deterministic, so a recording replays bit-for-bit offline
+  (replay.py) — for promo reels, or as the source of an attract-mode demo.
+
+  Run record.bat (serves the repo root on :8139; fetch() needs http, not file://).
+  ?cart=tunnel.bin records another image from the repo root.
+-->
+<style>
+  body { background:#111; color:#ddd; font:15px system-ui, sans-serif; margin:0; display:flex; gap:24px; padding:16px; }
+  canvas { height: calc(100vh - 32px); aspect-ratio: 3/4; image-rendering: pixelated; background:#000; border:1px solid #444; }
+  #side { max-width: 340px; }
+  button { font:inherit; padding:.4em 1em; margin:.2em 0; cursor:pointer; }
+  #t { font-size: 40px; font-variant-numeric: tabular-nums; margin:.3em 0; }
+  .rec { color:#f55; } kbd { border:1px solid #666; padding:0 .3em; }
+  p { line-height:1.45; } code { color:#aaa; }
+</style>
+</head>
+<body>
+<canvas id="c" width="300" height="400"></canvas>
+<div id="side">
+  <h2>EfS input recorder</h2>
+  <p>Records your joystick, frame by frame, from power-on. A recording replays
+  offline exactly as played (<code>tools/recorder/replay.py</code>).</p>
+  <p id="img" class="muted"></p>
+  <button id="go">Power on &amp; record</button><br>
+  <div id="t">0.00 s</div>
+  <div id="st"></div>
+  <button id="restart" disabled>Restart (power-cycle, discard)</button><br>
+  <button id="save" disabled>Stop &amp; save recording</button>
+  <p><b>Controls:</b> arrows move &middot; <kbd>Ctrl</kbd> / <kbd>Z</kbd> fire &middot;
+  <kbd>Shift</kbd> / <kbd>X</kbd> fire 2 &middot; or a USB gamepad.</p>
+  <p>Everything from power-on is recorded, the intro included. Save writes
+  <code>efs_input.json</code> to your Downloads folder.</p>
+</div>
+<script src="madsim-wasm.js"></script>
+<script>
+'use strict';
+const FRAME = 1 / 60.317, W = 400, H = 300;
+const UP = 1, DOWN = 2, LEFT = 4, RIGHT = 8, FIRE = 16, FIRE2 = 32;
+const KEYS = { ArrowUp: UP, ArrowDown: DOWN, ArrowLeft: LEFT, ArrowRight: RIGHT,
+  ControlRight: FIRE, ControlLeft: FIRE, KeyZ: FIRE, ShiftRight: FIRE2, ShiftLeft: FIRE2, KeyX: FIRE2 };
+const CART = new URLSearchParams(location.search).get('cart') || 'cart.bin';
+const ROOT = '../../';
+const WORKLET = `class O extends AudioWorkletProcessor{constructor(){super();this.q=[];this.o=0;this.n=0;this.r=false;
+this.port.onmessage=e=>{if(e.data==='flush'){this.q=[];this.o=0;this.n=0;this.r=false;return}this.q.push(e.data);this.n+=e.data.length/2;
+while(this.n>sampleRate*.12&&this.q.length>1){const d=this.q.shift();this.n-=(d.length-this.o)/2;this.o=0}}}
+process(_,out){const L=out[0][0],R=out[0][1];if(!this.r&&this.n<sampleRate*.04){L.fill(0);R.fill(0);return true}this.r=true;
+for(let i=0;i<L.length;i++){if(!this.q.length){L.fill(0,i);R.fill(0,i);this.r=false;break}const d=this.q[0];L[i]=d[this.o];R[i]=d[this.o+1];
+this.o+=2;this.n--;if(this.o>=d.length){this.q.shift();this.o=0}}return true}}registerProcessor('o',O);`;
+
+async function inflate(b64) {
+  const bin = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+  return new Uint8Array(await new Response(new Blob([bin]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer());
+}
+async function bin(path) {
+  const r = await fetch(ROOT + path, { cache: 'no-store' });
+  if (!r.ok) throw new Error(path + ': ' + r.status);
+  return new Uint8Array(await r.arrayBuffer());
+}
+const sha1 = async d => Array.from(new Uint8Array(await crypto.subtle.digest('SHA-1', d))).map(b => b.toString(16).padStart(2, '0')).join('');
+const $ = id => document.getElementById(id);
+let ex, node, rate, log = [], keys = 0, running = false, ids = {};
+
+async function boot() {
+  const actx = new AudioContext({ latencyHint: 'interactive' });
+  await actx.audioWorklet.addModule(URL.createObjectURL(new Blob([WORKLET], { type: 'text/javascript' })));
+  node = new AudioWorkletNode(actx, 'o', { numberOfInputs: 0, outputChannelCount: [2] });
+  node.connect(actx.destination); await actx.resume();
+  rate = actx.sampleRate;
+  const [wasm, cpu, gpu, cart] = await Promise.all([inflate(MADSIM_WASM), bin('roms/cpu_os.bin'), bin('roms/gpu_os.bin'), bin(CART)]);
+  // the images a recording belongs to: replay.py refuses a mismatch
+  ids = { cart: CART, cart_sha1: await sha1(cart), cpu_sha1: await sha1(cpu), gpu_sha1: await sha1(gpu) };
+  $('img').textContent = CART + ' · sha1 ' + ids.cart_sha1.slice(0, 10);
+  ex = (await WebAssembly.instantiate(wasm, {})).instance.exports;
+  const put = d => { const p = ex.mad_alloc(d.length); new Uint8Array(ex.memory.buffer, p, d.length).set(d); return p; };
+  ex.mad_init(put(cpu), cpu.length, put(gpu), gpu.length, put(cart), cart.length, rate);
+  ex.mad_set_mix(0);                       // as run.bat: --mix 0
+}
+
+const cv = $('c'), g = cv.getContext('2d', { alpha: false });
+const src = document.createElement('canvas'); src.width = W; src.height = H;
+const gs = src.getContext('2d'), img = gs.createImageData(W, H);
+g.imageSmoothingEnabled = false; g.setTransform(0, 1, -1, 0, H, 0);   // tate: 90 deg clockwise
+
+function pad() {
+  let m = 0;
+  for (const gp of (navigator.getGamepads ? navigator.getGamepads() : [])) {
+    if (!gp) continue;
+    const b = i => gp.buttons[i] && gp.buttons[i].pressed, ax = gp.axes[0] || 0, ay = gp.axes[1] || 0;
+    if (b(12) || ay < -0.5) m |= UP; if (b(13) || ay > 0.5) m |= DOWN;
+    if (b(14) || ax < -0.5) m |= LEFT; if (b(15) || ax > 0.5) m |= RIGHT;
+    if (b(0) || b(3)) m |= FIRE; if (b(1) || b(2)) m |= FIRE2;
+    break;                                 // port 1 only
+  }
+  return m;
+}
+addEventListener('keydown', e => { if (KEYS[e.code]) { keys |= KEYS[e.code]; e.preventDefault(); } });
+addEventListener('keyup', e => { if (KEYS[e.code]) { keys &= ~KEYS[e.code]; e.preventDefault(); } });
+addEventListener('blur', () => { keys = 0; });
+
+let last = 0, acc = 0;
+function tick(now) {
+  if (!running) return;
+  acc += Math.min((now - last) / 1000, 0.25); last = now;
+  let n = 0;
+  while (acc >= FRAME && n < 4) {
+    const m = keys | pad();
+    log.push(m);                           // exactly the mask this frame ran with
+    ex.mad_joy(0, m); ex.mad_frame();
+    acc -= FRAME; n++;
+  }
+  if (n === 4) acc = 0;
+  if (n) {
+    img.data.set(new Uint8Array(ex.memory.buffer, ex.mad_screen(), W * H * 4));
+    gs.putImageData(img, 0, 0); g.drawImage(src, 0, 0);
+    const len = ex.mad_audio_len();
+    if (len) { const a = new Float32Array(ex.memory.buffer, ex.mad_audio_ptr(), len).slice(); node.port.postMessage(a, [a.buffer]); ex.mad_audio_clear(); }
+    $('t').textContent = (log.length * FRAME).toFixed(2) + ' s';
+  }
+  requestAnimationFrame(tick);
+}
+function run() { running = true; last = performance.now(); acc = 0; requestAnimationFrame(tick); $('st').innerHTML = '<span class="rec">&#9679; recording</span>'; }
+
+$('go').onclick = async () => {
+  $('go').disabled = true; $('go').textContent = 'Loading…';
+  try { await boot(); } catch (e) { $('go').textContent = 'Failed: ' + e.message; return; }
+  $('go').remove();
+  $('restart').disabled = $('save').disabled = false;
+  run();
+};
+// a true power-on, not mad_reset(): the offline replay starts from mad_init
+$('restart').onclick = () => location.reload();
+$('save').onclick = e => {
+  running = false; e.target.blur();
+  const rle = [];
+  for (const m of log) { const r = rle[rle.length - 1]; if (r && r[0] === m) r[1]++; else rle.push([m, 1]); }
+  const out = { game: 'efs', ...ids, mix: 0, rate, frames: log.length, rle };
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(out)], { type: 'application/json' }));
+  a.download = 'efs_input.json'; a.click();
+  $('st').textContent = 'saved: ' + log.length + ' frames (' + (log.length * FRAME).toFixed(1) + ' s). Restart to record again.';
+};
+</script>
+</body>
+</html>
