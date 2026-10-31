@@ -6066,6 +6066,43 @@ def empmine_bench():
     for k in (0, 1):
         cpu_mem[FOEST_A + k] = 0
 
+    # --- the blast against the other enemies: who dies when it goes off ------
+    # A mine behind the ship, two frames from firing, and UFOs round it at
+    # offsets in PAGES (empm_fire's own unit): inside EMPM_RB, on it, past it.
+    RB = M["EMPM_RB"]
+    di, do = int(RB * 0.68), int(RB * 0.75) + 1     # a diagonal just in, one just out
+    rings = [(RB - 4, 0), (0, -(RB - 1)), (RB, 0), (di, di), (RB + 2, 0), (do, do)]
+    mx, my = shx, (shy + 9000) & 0xFFFF
+    nfoe0 = cpu_mem[0x6E1C]
+    cpu_mem[0x6E1C] = max(nfoe0, 1 + len(rings))
+    foe_put(0, mx, my)
+    cpu_mem[FOEKIND_AD] = FK
+    for n, v in (("FOEAPP", _app["EMP_MINE"]), ("FOEHP", 60), ("FOEAST", 0),
+                 ("FOEACD", 8), ("FOEANG", 0)):
+        cpu_mem[fa[n]] = v
+    cpu_mem[foes_addr("FOENEW")] = 0
+    for i, (px, py) in enumerate(rings, 1):
+        foe_put(i, (mx + px * 256) & 0xFFFF, (my + py * 256) & 0xFFFF)
+        cpu_mem[FOEKIND_AD + i] = foes_const("FK_UFO")
+        cpu_mem[fa["FOEAPP"] + i] = _app["UFO"]
+        cpu_mem[foes_addr("FOENEW") + i] = 0
+    charge(0)
+    cpu_mem[foes_addr("FOECD")] = 2
+    cpu_mem[SHIPHP_A] = max(cpu_mem[SHIPHP_A], 40)
+    for _ in range(4):
+        cpu_mem[SHIPINV_A] = 0
+        run_frame()
+    dead = [ram(FOEST_A + i) == 0 for i in range(1, 1 + len(rings))]   # ram(): FOEST is
+                                                # under the window
+    want_dead = [math.hypot(px, py) <= RB for px, py in rings]
+    print(f"        mine fires, EMPM_RB {RB} pages: UFOs at {rings} pages -> "
+          f"dead {dead}, want {want_dead}")
+    check("the mine's blast kills every enemy inside EMPM_RB and none past it",
+          dead == want_dead, f"{dead} vs {want_dead}")
+    for k in range(1 + len(rings)):
+        cpu_mem[FOEST_A + k] = 0
+    cpu_mem[0x6E1C] = nfoe0
+
 
 if not QUICK:
     empmine_bench()

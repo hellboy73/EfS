@@ -65,12 +65,17 @@ EMPM_RP       = 16              ; DETECTION radius, in PAGES (256 world units
                                  ;   units, under FOE_SEE's 6,400 - shrunk from
                                  ;   50 (the user, 2026-09-22: it was reaching
                                  ;   most of the field)
-EMPM_RB       = 24              ; BLAST radius, pages: the ship and every other
+EMPM_RB       = 31              ; BLAST radius, pages: the ship and every other
                                  ;   enemy inside it pay. Bigger than EMPM_RP on
                                  ;   purpose - a ship that trips the mine at its
                                  ;   edge still has to run (the user,
                                  ;   2026-10-28) - and the ring draws exactly
-                                 ;   this (empm_ring)
+                                 ;   this (empm_ring). 31 = 496 px at 1:1, the
+                                 ;   most empm_ring's qmul takes: 24 was too
+                                 ;   small to catch a UFO lured after the ship,
+                                 ;   which holds FOE_STAND (160 px) behind it
+                                 ;   through the 1.5 s charge (the user,
+                                 ;   2026-10-31)
 EMPM_CHARGE   = 90              ; game frames from detection to firing - 1.5 s
                                  ;   at 60.317 Hz (the user, 2026-09-22; was
                                  ;   121, then 30)
