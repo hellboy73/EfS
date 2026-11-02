@@ -39,12 +39,12 @@
 ; nothing clears a bit yet, but the base will be shot at and lose its triangles one
 ; by one, and that is all it will take.
 ;
-; THE RADAR MARK is six dots, the hexagon's own shape,
+; THE RADAR MARK is eight dots, a 4x4 ring,
 ;
 ;         . .
 ;        .   .          in the player's screen axes, never turned,
-;         . .           and on the radar only while it is in reach, as a
-;                       rock or an enemy is
+;        .   .          and on the radar only while it is in reach, as a
+;         . .           rock or an enemy is
 ;
 ; through gate.s's gr_pos, which is what puts the gate's mark there.
 ;
@@ -117,7 +117,7 @@ BS_FOE_R    = 9                 ; an enemy's circle, collision units: the UFO's,
                                 ;   and the spider's and the pulsar's 8 are under it
 BS_TI       = 20 + 2            ; a triangle's INRADIUS - its edges are 20 units from its
                                 ;   centroid - and two more, a bullet's own reach (SHOT_HITR)
-BR_N        = 6                 ; dots in the radar mark
+BR_N        = 8                 ; dots in the radar mark
 
         .assert GATE_DOT = 1, error, "base.s: EA_BASE is authored in half-res units for gb_draw's DOT_POLYGON"
         .assert EN_BASE_PN = BS_N && BS_N <= 8, error, "base.s: a segment is a part of EA_BASE, and BSLIVE is a byte"
@@ -367,10 +367,10 @@ bs_disc:
 
 ; --- tables -------------------------------------------------------------------
 ; The radar mark, in framebuffer axes (fb x runs down the player's screen, fb y
-; to the left of it): the six dots of a flat-topped hexagon, two above, one to
-; each side, two below.
-BR_DX:  .byte   <-1, <-1, 0, 0, 1, 1
-BR_DY:  .byte   0, <-1, 1, <-2, 0, <-1
+; to the left of it): the eight dots of a 4x4 ring, two above, two down each
+; side, two below.
+BR_DX:  .byte   <-2, <-2, <-1, <-1, 0, 0, 1, 1
+BR_DY:  .byte   0, <-1, 1, <-2, 1, <-2, 0, <-1
 
         .segment "CODE6"
         .assert BR_DY - BR_DX = BR_N && GTR_N >= BR_N, error, "base.s: the mark's dots go through gate.s's GTRB, which holds GTR_N"
