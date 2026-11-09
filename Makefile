@@ -83,9 +83,8 @@ src/speech.inc: tools/mkspeech.py
 assets/vgm/%_stream.bin: assets/vgm/%.vgm tools/vgmstrip.py
 	python tools/vgmstrip.py $< $@ $*
 
-# --skip-intro: the song's opening ticks paced the old power-on screen.
 assets/vgm/title_stream.bin: $(TITLE_VGM) tools/vgmstrip.py
-	python tools/vgmstrip.py --skip-intro $< $@ title
+	python tools/vgmstrip.py $< $@ title
 
 # The screens' pictures. The output is tracked, like radar_bg.s and arrows.s;
 # this rule only keeps it in step with the PNGs.

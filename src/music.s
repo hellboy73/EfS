@@ -220,9 +220,9 @@ music_start:
         sta     OS_ARG+4
         lda     #>($8000 + (TITLE_MUSIC_LOOP_OFF .MOD $2000))
         sta     OS_ARG+5
-        jmp     API_VGM_PLAY_LOOP       ; loop past the one-shot intro (the
-                                        ;   Makefile strips this song's waits
-                                        ;   before it: vgmstrip --skip-intro)
+        jmp     API_VGM_PLAY_LOOP       ; loop past the one-shot intro: the
+                                        ;   PSG ticks open the title once, and
+                                        ;   the chords come in 3.7 s after it
 .else
         jmp     API_VGM_PLAY            ; no anchor - loop the whole stream
 .endif

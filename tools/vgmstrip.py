@@ -18,15 +18,8 @@ offset (header field @ $1C) and emits it as an assembler constant in a sibling
 which main.s bakes into the loop-anchor address. No loop field ⇒ MUSIC_HAS_LOOP
 = 0 and the game uses the plain whole-stream loop.
 
-Usage: python vgmstrip.py [--skip-intro] <in.vgm> <out.bin> [prefix]
+Usage: python vgmstrip.py <in.vgm> <out.bin> [prefix]
        (also writes <out>.inc next to <out.bin>)
-
---skip-intro drops every WAIT before the loop point, keeping the chip writes:
-the one-shot intro then takes no time at all, and the song starts on its loop
-body with every register the intro set already set (an instrument or a custom
-patch written once at the top, say). Escape from Saturn's title theme opened on
-3.7 s of ticks that paced the old power-on intro; the intro has its own jingle
-now (src/music.s), so the title starts straight on the chords.
 
 The optional <prefix> namespaces the emitted constants as <PREFIX>_MUSIC_HAS_LOOP
 / <PREFIX>_MUSIC_LOOP_OFF (uppercased) so several songs can be .include'd into
@@ -50,21 +43,6 @@ UNSUPPORTED_FM_CLOCKS = {0x2C: "YM2612 (Genesis export)", 0x30: "YM2151"}
 
 def u32(d, off):
     return struct.unpack_from("<I", d, off)[0]
-
-
-def skip_intro(stream, loop_off):
-    """The stream with its pre-loop waits removed, and the new loop offset."""
-    if loop_off is None:
-        sys.exit("--skip-intro: the song has no loop point, so no intro to skip")
-    out = bytearray()
-    i = 0
-    while i < loop_off:
-        op = stream[i]
-        n = 2 if op in SUPPORTED_2BYTE else 3 if op in SUPPORTED_3BYTE else 1
-        if not (op in SUPPORTED_WAITS or 0x70 <= op <= 0x7F or op == 0x61):
-            out += stream[i:i + n]
-        i += n
-    return bytes(out) + stream[loop_off:], len(out)
 
 
 def strip(data):
@@ -126,20 +104,14 @@ def strip(data):
 
 
 def main():
-    args = sys.argv[1:]
-    skip = "--skip-intro" in args
-    if skip:
-        args.remove("--skip-intro")
-    if len(args) not in (2, 3):
-        sys.exit(f"usage: {sys.argv[0]} [--skip-intro] <in.vgm> <out.bin> [prefix]")
-    src, dst = args[0], args[1]
+    if len(sys.argv) not in (3, 4):
+        sys.exit(f"usage: {sys.argv[0]} <in.vgm> <out.bin> [prefix]")
+    src, dst = sys.argv[1], sys.argv[2]
     # <PREFIX>_ namespaces the constants so several songs coexist in one TU.
-    pfx = (args[2].upper() + "_") if len(args) == 3 else ""
+    pfx = (sys.argv[3].upper() + "_") if len(sys.argv) == 4 else ""
     with open(src, "rb") as f:
         raw = f.read()
     stream, loop_off = strip(raw)
-    if skip:
-        stream, loop_off = skip_intro(stream, loop_off)
     with open(dst, "wb") as f:
         f.write(stream)
 
