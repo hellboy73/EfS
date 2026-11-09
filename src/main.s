@@ -192,7 +192,7 @@ DBG_SATN_CELL = 0
 ; is which, and what each control does). 1 while the game is being tuned; 0
 ; takes every byte of it out of the image, and it ships at 0.
 ; DEMO = 1 builds the expo demo (alpha v0.6): the trainer out, three ships, the
-; radar showing only the mission's rocks, the idle loop back to the intro, the
+; radar showing only the mission's rocks, the idle loop back to the title, the
 ; spoken ending, and sector zero (level 1) as the only sector. 0 is the game as
 ; it is developed: trainer on, five ships, the full radar, MINING ZONE, and
 ; SECTOR COMPLETED leading to the next sector. Build the demo with:
@@ -1180,12 +1180,10 @@ cart_init:
         jsr     spr_arm                 ; ...and every sprite the game has goes
                                         ;   to the GPU in bulk, from the first
                                         ;   frames on (sprites.s)
-        jsr     music_start             ; ...and the song starts here, AFTER
-                                        ;   that: vgm_play only records where
-                                        ;   the stream is, but the player
-                                        ;   begins banking the window from the
-                                        ;   next IRQ, and it must find the
-                                        ;   window as init leaves it (music.s)
+                                        ; (No song here any more: the intro
+                                        ;   plays the jingle from the logo's
+                                        ;   reveal, the title starts the song -
+                                        ;   screens.s, music.s)
 .if HUD_ON
         jmp     init_strings            ; ...and the tuning readout's RAM copies
 .else                                   ;   last, since it is the only thing that

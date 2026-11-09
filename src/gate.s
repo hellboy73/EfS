@@ -729,18 +729,19 @@ sector_frame:
         and     #<~JOY_FIRE             ;   ends the screen also fires the gun
         sta     JOY1_PRESS,x
         bra     @intro
-@idle:  lda     PF_WAITL                ; no FIRE: 10 s, then the intro anyway
+@idle:  lda     PF_WAITL                ; no FIRE: 10 s, then the title anyway
         bne     :+
         dec     PF_WAITH
 :       dec     PF_WAITL
         lda     PF_WAITL
         ora     PF_WAITH
         bne     @ret
-@intro: lda     #SC_INTRO               ; the demo loops: intro_frame runs from
-        sta     SCR_STATE               ;   its first step (screens.s), and
-        stz     SCR_PH                  ;   restarts the song and FRAME there
-        stz     SCR_T
-        stz     SCR_SKIP
+@intro: lda     #SC_INTRO               ; the demo loops: intro_frame runs its
+        sta     SCR_STATE               ;   dark-and-clear steps (screens.s), and
+        stz     SCR_PH                  ;   with SCR_SKIP set goes on to the
+        stz     SCR_T                   ;   title, not the logo - the intro is
+        lda     #1                      ;   power-on's only
+        sta     SCR_SKIP
         rts
 
 @next:  inc     SCR_PH

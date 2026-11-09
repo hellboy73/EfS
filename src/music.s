@@ -3,9 +3,10 @@
 ; =============================================================================
 ; PLACEHOLDER, AND IT IS ON. There is no campaign music yet; the song is the
 ; title-theme sketch (efs_title_theme_sketch_rearranged10.vgm, see the Makefile),
-; started at power-on so the intro and title have sound, and stopped by FIRE on
-; the title (screens.s). With MUSIC_ON = 0 every byte below assembles to nothing
-; and its two banks go with it.
+; started when the title screen is shown and stopped by FIRE on it (screens.s).
+; The power-on intro has the MAD-65 jingle instead (below). With MUSIC_ON = 0
+; every byte below assembles to nothing and its two banks go with it - the
+; jingle with them.
 ;
 ; The Makefile strips the .vgm as a prerequisite whether or not the switch is
 ; on, so the file has to be in the repository for a clone to build.
@@ -73,13 +74,126 @@ MUSIC_BANKS = 2                 ; ...and how many it takes. TEMPORARY: the song
 .if MUSIC_ON
 music_blob:
         .incbin "../assets/vgm/title_stream.bin"
+
+; -----------------------------------------------------------------------------
+; THE JINGLE - the MAD-65 logo's four notes, the same in every MAD-65 game.
+; -----------------------------------------------------------------------------
+; Composed by the user for Dino Run (its src/sfx.s: C5 - E4 - G4 - C5+E5, one
+; note per cue, a 20-frame beat), played there as PSG beeps. Here it is on the
+; title theme's THEREMIN - the YM2413's custom patch (patch 0), which the song
+; defines once at its top and glides its lead on (channel 0) - so the jingle is
+; the music chip's, not an effect's, and the effects PSG stays free. The patch
+; is written here again, byte for byte the song's (JG_PATCH): the jingle plays
+; before the song has set anything. (The vibraphone was tried first and did
+; not suit it - the user, 2026-11-09.)
+;
+; It is a VGM command stream like the song, read by the same OS player from
+; the same banks, straight after the song - so it costs no RAM and no bank of
+; its own. screens.s starts it the frame the logo is revealed (jingle_start),
+; and the words are cued on the same beat (INTRO_TICK). A note is held 16
+; frames and keyed off for 4, and the chord is held 48 - Dino Run's lengths
+; and its beep's fade, the PSG's volume steps (15 = loudest there) turned
+; into the YM2413's attenuation steps (0 = loudest here): a note one step
+; quieter every 4 frames, the chord the same three steps over its 48. The
+; key-off is not a cut on this patch: its release is slow (RR 3), so every
+; note, the chord too, dies away on its own. Then the stream loops on a wait - silence -
+; until the title starts the song.
+;
+; YM2413 pitch: f = FNUM * (3579545 / 72) / 2^(19 - BLOCK).
+;   E4 330 Hz  block 3 FNUM 435      G4 392 Hz  block 4 FNUM 258
+;   C5 523 Hz  block 4 FNUM 345      E5 659 Hz  block 4 FNUM 435
+; -----------------------------------------------------------------------------
+JG_VOL      = 4                 ; attenuation, 3 dB a step (0 = loudest): 2 was
+                                ;   twice too loud (the user, 2026-11-09); a
+                                ;   fade takes it to JG_VOL + 3
+JG_CH1      = 0                 ; A CHANNEL A NOTE, so each one rings out
+JG_CH2      = 1                 ;   under the next instead of being keyed
+JG_CH3      = 2                 ;   over (the user, 2026-11-09): the three
+JG_CH       = 3                 ;   notes, then the chord's two voices. All
+JG_CHU      = 4                 ;   are free again once the jingle is over:
+                                ;   the title song sets every channel it uses.
+                                ;   NOT 6-8: the OS's boot tune leaves the chip
+                                ;   in RHYTHM mode ($0E, which vgm_stop does
+                                ;   not clear), where those three are drums -
+                                ;   the chord on 7 + 8 lost a voice early. $0E
+                                ;   is cleared below as well
+JG_E4       = (3 << 9) | 435    ; BLOCK << 9 | FNUM
+JG_G4       = (4 << 9) | 258
+JG_C5       = (4 << 9) | 345
+JG_E5       = (4 << 9) | 435
+JG_FR       = 735               ; samples a frame (the player's own count)
+        .assert JG_VOL + 3 <= 15, error, "music.s: the fades run past the quietest attenuation"
+
+.macro  JG_YM reg, val
+        .byte   $51, reg, val
+.endmacro
+.macro  JG_WAIT n               ; n frames, n <= 89
+        .byte   $61, <(n * JG_FR), >(n * JG_FR)
+.endmacro
+.macro  JG_ON ch, note          ; $1x FNUM low, $2x key | BLOCK | FNUM bit 8
+        JG_YM   $10 + ch, <note
+        JG_YM   $20 + ch, $10 | (note >> 8)
+.endmacro
+.macro  JG_OFF ch, note
+        JG_YM   $20 + ch, note >> 8
+.endmacro
+.macro  JG_BEEP ch, note         ; Dino Run's JBEEP: 4 x 4 frames, fading
+        JG_ON   ch, note
+        .repeat 4, i
+        JG_YM   $30 + ch, JG_VOL + i
+        JG_WAIT 4
+        .endrepeat
+        JG_OFF  ch, note                ; ...and its release rings on
+        JG_WAIT 4
+.endmacro
+.macro  JG_STEP att             ; the chord's 6 frames at JG_VOL + att
+        JG_YM   $30 + JG_CH, JG_VOL + att
+        JG_YM   $30 + JG_CHU, JG_VOL + att
+        JG_WAIT 6
+.endmacro
+
+jingle:
+        JG_YM   $0E, $00                ; melody mode, all nine channels
+        JG_YM   $00, $61                ; the custom patch, the song's own
+        JG_YM   $01, $61                ;   (its regs 00-07): vibrato on both
+        JG_YM   $02, $14                ;   operators, sustained, carrier
+        JG_YM   $03, $01                ;   release 3
+        JG_YM   $04, $92
+        JG_YM   $05, $72
+        JG_YM   $06, $04
+        JG_YM   $07, $03
+        .repeat 5, i                    ; patch 0, the theremin, on channels
+        JG_YM   $30 + JG_CH1 + i, $00 | JG_VOL ;   0..4
+        .endrepeat
+        .assert JG_CH2 = JG_CH1 + 1 && JG_CH3 = JG_CH1 + 2 && JG_CH = JG_CH1 + 3 && JG_CHU = JG_CH1 + 4, error, "music.s: the jingle's channels are set up as a run"
+        JG_BEEP JG_CH1, JG_C5           ; with the logo
+        JG_BEEP JG_CH2, JG_E4           ; MISSION
+        JG_BEEP JG_CH3, JG_G4           ; ASTEROID
+        JG_ON   JG_CH, JG_C5            ; DESTRUCTION: the chord
+        JG_ON   JG_CHU, JG_E5
+        JG_STEP 0                       ; Dino Run's JCHORD's 8 x 6 frames, but
+        JG_STEP 0                       ;   faded only as deep as a beep (+3),
+        JG_STEP 1                       ;   not to +11: the beeps are keyed off
+        JG_STEP 1                       ;   at +3 and ring on in their release,
+        JG_STEP 2                       ;   so a chord faded to nothing first was
+        JG_STEP 2                       ;   outlasted by the E4 under it - its E
+        JG_STEP 3                       ;   seemed to ring on and its C to die
+        JG_STEP 3                       ;   (the user, 2026-11-09; measured)
+        JG_OFF  JG_CH, JG_C5
+        JG_OFF  JG_CHU, JG_E5
+jingle_rest:
+        JG_WAIT 60                      ; ...and silence, looped on
+        .byte   $66
+JINGLE_OFF  = jingle - music_blob       ; byte offsets into the music banks
+JINGLE_LOOP = jingle_rest - music_blob
+
         .res    (MUSIC_BANKS * $2000) - (* - music_blob), $00
 .endif
 
         .segment "HIDATA"
 
 ; -----------------------------------------------------------------------------
-; music_start - arm and start the song. Called once, from cart_init.
+; music_start - arm and start the song. From screens.s, as the title is shown.
 ; -----------------------------------------------------------------------------
 ; The stream begins at $8000 of MUSIC_BANK. The loop anchor is a BYTE OFFSET
 ; into that stream, so it becomes bank + off/$2000 and $8000 + off mod $2000 -
@@ -89,8 +203,8 @@ music_blob:
 ; is. The player does the banking from the IRQ, on its own, from the next frame
 ; on - which is exactly the thing being measured.
 ; -----------------------------------------------------------------------------
-        .pushseg                        ; UICODE, not HIDATA: it runs once, from
-        .segment "UICODE"               ;   cart_init, and bank 3 (HIDATA +
+        .pushseg                        ; UICODE, not HIDATA: it runs from the
+        .segment "UICODE"               ;   screens, and bank 3 (HIDATA +
                                         ;   CODE3) has no room for its bytes
 music_start:
 .if MUSIC_ON
@@ -106,10 +220,34 @@ music_start:
         sta     OS_ARG+4
         lda     #>($8000 + (TITLE_MUSIC_LOOP_OFF .MOD $2000))
         sta     OS_ARG+5
-        jmp     API_VGM_PLAY_LOOP       ; loop past the one-shot intro
+        jmp     API_VGM_PLAY_LOOP       ; loop past the one-shot intro (the
+                                        ;   Makefile strips this song's waits
+                                        ;   before it: vgmstrip --skip-intro)
 .else
         jmp     API_VGM_PLAY            ; no anchor - loop the whole stream
 .endif
+.else
+        rts
+.endif
+
+; -----------------------------------------------------------------------------
+; jingle_start - the logo's four notes (above), from screens.s at the reveal.
+; -----------------------------------------------------------------------------
+jingle_start:
+.if MUSIC_ON
+        lda     #(MUSIC_BANK + (JINGLE_OFF / $2000))
+        sta     OS_ARG+0
+        lda     #<($8000 + (JINGLE_OFF .MOD $2000))
+        sta     OS_ARG+1
+        lda     #>($8000 + (JINGLE_OFF .MOD $2000))
+        sta     OS_ARG+2
+        lda     #(MUSIC_BANK + (JINGLE_LOOP / $2000))
+        sta     OS_ARG+3
+        lda     #<($8000 + (JINGLE_LOOP .MOD $2000))
+        sta     OS_ARG+4
+        lda     #>($8000 + (JINGLE_LOOP .MOD $2000))
+        sta     OS_ARG+5
+        jmp     API_VGM_PLAY_LOOP       ; loop on the silence at its end
 .else
         rts
 .endif

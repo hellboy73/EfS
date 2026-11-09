@@ -3411,8 +3411,8 @@ tunnel_frame:
         lda     #VR_BLIND_ON            ; step 0: dark, and the field, the radar
         jsr     API_GPU_VREG            ;   ring and the HUD off the background
         jsr     API_GPU_CLEARBG
-        jsr     API_VGM_STOP            ; no music in the tunnel (the title theme plays from
-                                        ;   power-on until something stops it)
+        jsr     API_VGM_STOP            ; no music in the tunnel (make run-tunnel comes
+                                        ;   straight here; a game has stopped it already)
         jsr     tun_hud_init            ; (before the stars: the pods count the ships lost)
         jsr     tun_stars_init
         stz     SHK

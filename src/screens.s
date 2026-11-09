@@ -8,9 +8,14 @@
 ; not paid for.
 ;
 ;   SC_INTRO   black; the MAD-65 logo; MISSION / ASTEROID / DESTRUCTION revealed
-;              one at a time; then the blinder
+;              one at a time, each on a note of the MAD-65 jingle (music.s);
+;              then the blinder. Power-on only: the demo's loops (game over,
+;              the ending) come back with SCR_SKIP set, which takes the same
+;              dark-and-clear steps and goes straight on to the title
 ;   SC_TLOAD   the title picture streamed onto the background under the blinder
-;   SC_TITLE   the picture, the marquee one line above the bottom, and FIRE
+;   SC_TITLE   the picture, the marquee one line above the bottom, the title
+;              song (music.s, started on the frame the picture is shown), and
+;              FIRE
 ;
 ; THE PICTURES ARE BACKGROUND, SENT COMPRESSED. Both go through the transport
 ; block (MAD-65 CPU OS): RECT_BG_BEGIN arms the rectangle, then RECT_BG_CART
@@ -51,24 +56,20 @@ INTRO_COL   = 19                ; x 154
 INTRO_LINE  = 23                ; lines 23 / 25 / 27 = y 184..223, the logo's middle
 SETTLE      = 2                 ; frames for a background write's replay to land
 
-; --- WHEN, set against the title song's opening, in FRAMES SINCE POWER-ON -----
-; (FRAME, which cart_init zeroes; 60.317 Hz.) Nothing here reads the song - the
-; numbers were read off it once: the sketch opens on a tick every 0.467 s, and
-; its chords come in at 3.733 s. The logo goes up on the first tick, as soon as
-; its band has landed; each word takes the next one; the title is shown on the
-; chords. Change the song and these are the numbers to change.
-INTRO_TICK  = 28                ; 0.467 s
+; --- WHEN, in FRAMES SINCE THE LOGO WAS REVEALED -----------------------------
+; (FRAME, zeroed on the reveal; 60.317 Hz.) The jingle is started on that same
+; frame (jingle_start, music.s) and plays a note every INTRO_TICK - so the logo
+; comes with the first and each word with the next, Dino Run's beat. The jingle
+; does not read these, nor these the jingle: change one, change the other. The
+; logo is held INTRO_END frames in all, as Dino Run holds its own, and then the
+; title streams in under the blinder and is shown the frame it has landed.
+INTRO_TICK  = 20                ; 0.33 s: the jingle's beat (16 frames a note,
+                                ;   4 of silence)
 INTRO_W1    = 1 * INTRO_TICK    ; MISSION
 INTRO_W2    = 2 * INTRO_TICK    ; ASTEROID
-INTRO_W3    = 3 * INTRO_TICK    ; DESTRUCTION
-TITLE_SHOW  = 225               ; 3.733 s: the blinder comes off the title
-TLOAD_LEAD  = 17                ; ...and goes on this much earlier. The load is
-                                ;   ~13 frames - arm 1, five batches of four
-                                ;   bands every other frame (art_step says why),
-                                ;   replay 2 - and the reveal waits for
-                                ;   TITLE_SHOW anyway
-INTRO_END   = TITLE_SHOW - TLOAD_LEAD
-        .assert TITLE_SHOW < 256, error, "screens.s: the intro's clock is FRAME's low byte"
+INTRO_W3    = 3 * INTRO_TICK    ; DESTRUCTION, on the chord
+INTRO_END   = 175               ; dark, and the title loads (~13 frames)
+        .assert INTRO_END < 256, error, "screens.s: the intro's clock is FRAME's low byte"
         .assert INTRO_W3 < INTRO_END, error, "screens.s: the last word would come after the screen has gone dark"
 
 ; --- the marquee --------------------------------------------------------------
@@ -106,8 +107,9 @@ JOYPORT     = HOF_END + 11      ; THE PLAYING PORT, as an offset from JOY1: 0 is
                                 ;   read by everything that reads a stick
                                 ;   (input.s, gameover.s, sfx.s) as JOY1,x -
                                 ;   CETAS's joy_port. Port 1 from power-on
-SCR_SKIP    = HOF_END + 12      ; nonzero: FIRE skipped the intro, so the title
-                                ;   is shown as soon as it has loaded
+SCR_SKIP    = HOF_END + 12      ; nonzero: no intro - FIRE skipped it, or the
+                                ;   demo has looped back (gameover.s, gate.s)
+                                ;   and the logo is for power-on only
 SC_BUF      = HOF_END + 13      ; SC_WIN characters + NUL, handed to VTEXT
         .assert JOY2 - JOY1 = 3 && JOY2_PRESS - JOY1_PRESS = 3 && JOY2_PREV - JOY1_PREV = 3, error, "screens.s: JOYPORT indexes the two ports' triples by one stride"
 SCR_END     = SC_BUF + SC_WIN + 1
@@ -160,17 +162,17 @@ intro_frame:
         lda     #VR_BLIND_ON            ; step 0: hide the OS's boot screen and
         jsr     API_GPU_VREG            ;   clear it off the background
         jsr     API_GPU_CLEARBG
-        stz     FRAME                   ; the cues below count from here, and so
-        stz     FRAME+1                 ;   does the song: on the way back from a
-        jsr     API_VGM_STOP            ;   demo loop (game over, the ending) it
-        jsr     music_start             ;   has to begin again with them
-        bra     @next
+        jsr     API_VGM_STOP            ; whatever was playing (back from a demo
+        jmp     @next                   ;   loop: the title song may still be)
 
 @p1:    cmp     #1                      ; step 1: the clear's replay lands, then
         bne     @p2                     ;   the logo's rectangle is armed
         jsr     @tick
         bcc     @ret
-        ldx     #ART_LOGO
+        lda     SCR_SKIP                ; ...unless this is the demo coming back:
+        beq     :+                      ;   the logo is power-on's, the title next
+        jmp     @tload
+:       ldx     #ART_LOGO
         jsr     art_arm
         bra     @next
 
@@ -186,6 +188,9 @@ intro_frame:
         bcc     @ret
         lda     #VR_BLIND_OFF
         jsr     API_GPU_VREG
+        stz     FRAME                   ; the cues below count from the reveal,
+        stz     FRAME+1                 ;   and the jingle's notes from the same
+        jsr     jingle_start            ;   frame (it sounds on the next tick)
         bra     @next
 
 @p4:    lda     JOY1_PRESS              ; FIRE on EITHER port skips the rest -
@@ -209,7 +214,7 @@ intro_frame:
         bcc     @ret
 @dark:  lda     #VR_BLIND_ON            ; 3 s: the screen goes dark, and the
         jsr     API_GPU_VREG            ;   title streams in behind it
-        lda     #SC_TLOAD
+@tload: lda     #SC_TLOAD
         sta     SCR_STATE
         stz     SCR_PH
 @ret:   rts
@@ -270,16 +275,11 @@ tload_frame:
 @p2:    inc     SCR_T                   ; the last band's replay has landed...
         lda     SCR_T
         cmp     #SETTLE
-        bcc     @ret
-        lda     SCR_SKIP                ; ...and, unless FIRE skipped the intro,
-        bne     @show                   ;   it is the chords' frame
-        lda     FRAME+1
-        bne     @show
-        lda     FRAME
-        cmp     #TITLE_SHOW
-        bcc     @ret
-@show:  lda     #VR_BLIND_OFF
+        bcc     @ret                    ;   - it is shown, and the song starts
+        lda     #VR_BLIND_OFF
         jsr     API_GPU_VREG
+        jsr     API_VGM_STOP            ; the jingle's silence, or its chord if
+        jsr     music_start             ;   FIRE cut the intro short (music.s)
         lda     #<SC_MSG                ; the marquee from the top of its text
         sta     SC_PTRL
         lda     #>SC_MSG

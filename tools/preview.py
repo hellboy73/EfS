@@ -840,6 +840,11 @@ def boot_cart():
     always had, command for command."""
     call(cpu, CART_INIT)
     cpu_mem[SCR["SCR_STATE"]] = SCR["SC_PLAY"]
+    if MUSIC_ON:
+        # The song starts on the title now (screens.s), not in cart_init; the
+        # flight below is where its IRQ is measured (F5, the end of this
+        # bench), so start it as the title would. It touches no window.
+        call(cpu, _LBL["music_start"])
     cpu_mem[asm_consts("satn.s", "emp.s", "shield.s", "gate.s")["GTON"]] = 0
     # ...and without the human base level 0 now has (src/base.s): a wall and
     # eight squares in the way would be counted as their own by every rock,
