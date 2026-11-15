@@ -2,7 +2,7 @@
 """PNGs -> full-screen art for the background, RLE bands packed into banks.
 
     python tools/artgen.py src/screens_art.s \
-        LOGO=assets/png/bitmaps/MAD65_logo.png@22,160/128 \
+        LOGO=assets/png/bitmaps/MAD65_logo.png@22,158/128 \
         TITLE=assets/png/bitmaps/efs_title_scr.png@0,0/15
 
 Each argument is NAME=png@X0,Y0/BAND: the picture authored upright, placed at

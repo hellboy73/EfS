@@ -49,8 +49,8 @@ VR_BLIND_OFF = 4                ; API_GPU_VREG sub-ops (MAD65_CPU_OS.md)
 VR_BLIND_ON  = 5
 
 ; --- the intro, in the player's portrait view --------------------------------
-; The logo is 128 x 80 and the Makefile places it at portrait (22,160): its right
-; edge on the screen's centre line (x 150) and centred top to bottom (160..239).
+; The logo is 128 x 82 (the site's) and the Makefile places it at portrait (22,158): its right
+; edge on the screen's centre line (x 150) and flush to the bottom (158..239).
 ; The words start one cell right of that line: VTEXT puts cell X at 2 + 8X px.
 INTRO_COL   = 19                ; x 154
 INTRO_LINE  = 23                ; lines 23 / 25 / 27 = y 184..223, the logo's middle

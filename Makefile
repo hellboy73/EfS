@@ -92,7 +92,7 @@ assets/vgm/title_stream.bin: $(TITLE_VGM) tools/vgmstrip.py
 LOGO_PNG  = assets/png/bitmaps/MAD65_logo.png
 TITLE_PNG = assets/png/bitmaps/efs_title_scr.png
 src/screens_art.s: $(LOGO_PNG) $(TITLE_PNG) tools/artgen.py tools/bggen.py
-	python tools/artgen.py $@ LOGO=$(LOGO_PNG)@22,160/128 TITLE=$(TITLE_PNG)@0,0/15
+	python tools/artgen.py $@ LOGO=$(LOGO_PNG)@22,158/128 TITLE=$(TITLE_PNG)@0,0/15
 
 # The tunnel's HUD: the same tool, a second set - its bands in bank 8 (TUNART, behind LEVELS),
 # its tables in TUNCODE, TUN_ART_* names. The 300 x 300 cockpit is centred: portrait
