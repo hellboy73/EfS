@@ -65,6 +65,7 @@ IMG_END = 0xBA98
 # hardware register space on both sides and is never a jump target.
 SENTINEL = 0xBFFF
 
+API_CART_BANK = 0xFF03          # A = CART_EN | bank (loader benches)
 API_GPU_BEGIN = 0xFF09
 API_GPU_END = 0xFF0C
 
@@ -819,7 +820,7 @@ SCR = asm_consts("hud_game.s", "hiscore.s", "screens.s")
 # cartridge IMAGE that is patched - once, before the first boot - and gate_load
 # copies what it finds there into GTMIS / GTMPR as it would any level. The same
 # lookup checks that the bank the source names is the bank the linker filled.
-_LVL = asm_consts("levels.s")
+_LVL = asm_consts("loader.s", "levels.s")     # LVL_BANK = LDR_BANK (loader.s)
 # --quick: only the benches a tunnel change needs (the gate and the tunnel), not the
 # satn, pulsar, EMP, shield and base ones - minutes instead of eleven.
 QUICK = "--quick" in sys.argv
@@ -5333,9 +5334,14 @@ def base_bench():
         return bytes(cpu_mem[PPRAM + i] for i in range(end - PPRAM + 1))
 
     def timed(name, x=None):
-        """One cart routine inside the window bracket. -> (cycles, X on return)."""
+        """One cart routine inside the window bracket. -> (cycles, X on return).
+        A LOADER routine (loader.s: LDCODE, a window address) runs with the
+        window showing its own bank instead - the way ld_enter runs it."""
         call(cpu, API_GPU_BEGIN)
         call(cpu, LBL["win_off"])
+        if 0x8000 <= LBL[name] < 0xA000:
+            cpu.a = 0x80 | _LVL["LDR_BANK"]
+            call(cpu, API_CART_BANK)
         if x is not None:
             cpu.x = x
         c = call(cpu, LBL[name])

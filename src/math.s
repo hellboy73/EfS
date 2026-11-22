@@ -34,6 +34,8 @@
 ; Built by running sum, not by multiplying: f(x+1) - f(x) = floor((x+1)/2), so
 ; the whole page costs one add per entry.
 ; -----------------------------------------------------------------------------
+        .pushseg
+        .segment "LDCODE"               ; LOADER CODE (loader.s): power_on's alone
 init_qs:
         stz     T0
         stz     T1
@@ -58,6 +60,7 @@ init_qs:
         inc     T1
         bra     @lp
 @done:  rts
+        .popseg
 
 ; -----------------------------------------------------------------------------
 ; qmul — MQA * MQB, both MAGNITUDES 0..127, rounded >>7 -> A. Clobbers X, Y.

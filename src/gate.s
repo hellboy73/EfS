@@ -132,42 +132,48 @@ GATE_END    = GTMPR + 1
 ; -----------------------------------------------------------------------------
 ; gate_load - level_begin, after load_foes: the gate closed, where CURLEV says.
 ; -----------------------------------------------------------------------------
+; LOADER CODE (loader.s): run in the window, in the level tables' own bank, so
+; LVL_* is read straight and nothing under the window is read back - the
+; mission's two bytes come from the table again, not from GTMIS / GTMPR, the
+; gate's step from EN_GATE_AHOLD and not EN_AHOLD (SHAPES), and GTON is stored,
+; never inc'd.
+; -----------------------------------------------------------------------------
+        .pushseg
+        .segment "LDCODE"
 gate_load:
         ldx     CURLEV
-        jsr     lv_open                 ; levels.s is in its own bank: what is
-        lda     LVL_GTXL,x              ;   read from it is read here, and what
-        sta     GTXL                    ;   is written under the window stays a
-        lda     LVL_GTXH,x              ;   write (GTON's inc waits for the close)
+        lda     LVL_GTXL,x
+        sta     GTXL
+        lda     LVL_GTXH,x
         sta     GTXH
         lda     LVL_GTYL,x
         sta     GTYL
         lda     LVL_GTYH,x
         sta     GTYH
-        lda     LVL_MISN,x
-        sta     GTMIS
         lda     LVL_MPAR,x
         sta     GTMPR
-        jsr     lv_close
-        ldx     #$00                    ; the radar follows the mission: rocks
-        lda     GTMIS                   ;   only when it asks for them (MS_ROCKS,
+        lda     LVL_MISN,x
+        sta     GTMIS
+        ldy     #$00                    ; the radar follows the mission: rocks
+        cmp     #MS_ROCKS               ;   only when it asks for them (MS_ROCKS,
         beq     :+                      ;   MS_BOTH), and only classes 0..MPAR -
         cmp     #MS_BOTH                ;   see radar.s, RADCL
         bne     @rcl
-:       ldx     GTMPR
-        inx
-@rcl:   stx     RADCL
-        stz     GTON
+:       ldy     LVL_MPAR,x
+        iny
+@rcl:   sty     RADCL
         stz     GTAST
         stz     GTANL
         stz     GTANH
-        ldy     #EA_GATE
-        lda     EN_AHOLD,y
+        ldy     #$00                    ; closed...
+        cmp     #MS_OPEN                ; ...but MS_OPEN is open from the first
+        bne     :+                      ;   frame, quietly - the level's own line
+        iny                             ;   is on the bar
+:       sty     GTON
+        lda     #EN_GATE_AHOLD
         sta     GTACD
-        lda     GTMIS                   ; MS_OPEN: open from the first frame,
-        cmp     #MS_OPEN                ;   quietly - the level's own line is
-        bne     :+                      ;   on the bar
-        inc     GTON
-:       rts
+        rts
+        .popseg
 
 ; -----------------------------------------------------------------------------
 ; gate_open - the mission is done. Also the trainer's door (trainer.s).

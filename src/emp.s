@@ -82,7 +82,7 @@ EMP_END     = SATP_END + 5
 
 ; --- ...and one byte that is NOT under the window ------------------------------
 ; EMPRDY is the "the player has been told" latch for IM_EMP_RDY. It sits in the
-; always-mapped block behind pickup.s's, at the byte levels.s's LVSAVE left free,
+; always-mapped block behind pickup.s's, at the byte left free before loader.s's LDCNT (once levels.s's LVSAVE),
 ; and NOT on the end of the EMP_END chain above - which is where the first,
 ; reverted attempt at the spoken messages put it. That attempt shifted every
 ; symbol behind it by one and broke flight in a way that was never explained;
@@ -93,7 +93,7 @@ EMP_END     = SATP_END + 5
 ; do_emp of a new game takes the "below the price" path and clears this byte
 ; before anything can read it.
 EMPRDY      = $73B5             ; nonzero once the full hold has been announced
-        .assert EMPRDY = EMPHAVE + 1 && EMPRDY < LVSAVE, error, "emp.s: EMPRDY is not the free byte between pickup.s's block and levels.s's LVSAVE"
+        .assert EMPRDY = EMPHAVE + 1 && EMPRDY < LDCNT, error, "emp.s: EMPRDY is not the free byte between pickup.s's block and loader.s's LDCNT"
 
         .pushseg
         .segment "CODE6"

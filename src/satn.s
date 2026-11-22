@@ -1042,12 +1042,14 @@ satn_armour:
         .assert RAM_DMG * 8 + 7 < 256 && FSH_DMG * 8 + 7 < 256, error, "satn.s: satn_armour's product is one byte - a hit of at most 31"
 
 ; -----------------------------------------------------------------------------
-; satn_reset - game_start: an empty hold, an empty pool, and the ring's sparks
-; spread round the circle with their ages staggered, so it never starts in step.
+; satn_reset - level_begin: an empty pool, and the ring's sparks spread round
+; the circle with their ages staggered, so it never starts in step. NOT the hold:
+; SATN and SATARM are the ship's and a sector keeps them - game_start zeroes them
+; for a new game. (level_begin used to read them back round this call; it runs
+; in the cartridge window now and cannot read under it - loader.s.) Reads its
+; own state under the window, so the loader calls it through WCALL.
 ; -----------------------------------------------------------------------------
 satn_reset:
-        stz     SATN
-        stz     SATARM
         stz     EMPN                    ; ...and no EMP still growing (emp.s)
         stz     SATHMP
         stz     SATWC

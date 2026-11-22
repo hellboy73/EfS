@@ -208,6 +208,8 @@ voice_tick:
 ; voice_reset — every voice unclaimed. cart_init and game_start, so the first
 ; sound of a game is never refused by a claim left over from the last one.
 ; -----------------------------------------------------------------------------
+        .pushseg
+        .segment "LDCODE"               ; LOADER CODE (loader.s): level_begin's alone
 voice_reset:
         ldx     #VOICE_N-1
 @lp:    stz     VPRI,x
@@ -215,6 +217,7 @@ voice_reset:
         dex
         bpl     @lp
         rts
+        .popseg
 
 ; --- program pointer + voice tables, indexed by SE_* -------------------------
 sfx_lo: .byte   <se_shot, <se_rock_boom, <se_rock_hit, <se_klang

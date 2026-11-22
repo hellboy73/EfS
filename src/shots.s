@@ -1516,6 +1516,8 @@ expl_one:
 ; bullet from nowhere on the first frame - and, worse, integrate a world
 ; position out of whatever else was left in those bytes.
 ; -----------------------------------------------------------------------------
+        .pushseg
+        .segment "LDCODE"               ; LOADER CODE (loader.s): level_begin's alone
 shots_init:
         lda     #$00
         ldx     #SHOT_N-1
@@ -1528,6 +1530,7 @@ shots_init:
         bpl     :-
         stz     EXSEQ
         rts
+        .popseg
 
 ; -----------------------------------------------------------------------------
 ; rock_kill — X = the object. It is out of hit points; take it out of the game.

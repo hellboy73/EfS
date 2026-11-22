@@ -26,6 +26,8 @@
 ; LFSR is all zeroes and every star lands on the same spot), and a field that
 ; is measured should scatter the same way every time it is built.
 ; -----------------------------------------------------------------------------
+        .pushseg
+        .segment "LDCODE"               ; LOADER CODE (loader.s): power_on's alone
 init_stars:
         ldy     #$00
 @lp:    jsr     prng
@@ -48,6 +50,7 @@ init_motes:
         cpy     #MOTE_N
         bne     @lp
         rts
+        .popseg
 
 ; -----------------------------------------------------------------------------
 ; do_stars — scroll the field, rebuild it only when the heading moved, emit it.

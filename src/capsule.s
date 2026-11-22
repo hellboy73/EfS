@@ -50,7 +50,7 @@ CAP_HOLD    = 8                      ; game frames each animation frame is
                                       ;   6 (PK_HOLD's own pace) still too
                                       ;   quick
 
-; --- state: $73B7-$73BD, behind levels.s's LVSAVE ($73B6) and ahead of
+; --- state: $73B7-$73BD, behind loader.s's LDCNT ($73B6) and ahead of
 ;     window.s's WINSAVE ($73C0) - hand-placed RAM, like pickup.s's block on
 ;     the same page; see that file's note on why and the collision it costs to
 ;     get wrong ---
@@ -63,7 +63,7 @@ CAPXL       = $73BA             ; position: signed 16-bit full-res screen px,
 CAPXH       = $73BB             ;   added straight onto FLCXL/H
 CAPYL       = $73BC             ; ...and onto FLCYL/H
 CAPYH       = $73BD
-        .assert LVSAVE < CAPN && CAPYH < WINSAVE, error, "capsule.s: the block no longer fits between levels.s's LVSAVE and window.s's WINSAVE"
+        .assert LDCNT < CAPN && CAPYH < WINSAVE, error, "capsule.s: the block no longer fits between loader.s's LDCNT and window.s's WINSAVE"
 
         .pushseg
         .segment "CODE6"                ; DEMO_RAM/FIELDRAM, beside emp.s and

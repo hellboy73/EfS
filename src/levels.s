@@ -104,69 +104,20 @@
 ; is bounded by the bank (8 KB) and not by the 391 bytes DEMO_RAM had left
 ; when the tables lived in CODE6. A LABEL HERE IS ITS WINDOW ADDRESS.
 ;
-; The window shows the level bank only between lv_open and lv_close, and
-; level_begin runs INSIDE win_off (window.s) - the object pool and the enemies'
-; state are the RAM under that window. So, in every reader:
-;
-;   1. READ a level table only between lv_open and lv_close. Outside them the
-;      window shows the RAM under it and the read returns whatever the object
-;      pool left there, silently.
-;   2. Between them, WRITE the RAM under the window but never READ it: a write
-;      reaches the RAM whatever CART_EN says, a read returns the ROM. `inc GTON`
-;      is a read; `sta GTON` is not.
-;   3. A per-frame reader keeps its own RAM copy, taken once at load - gate.s
-;      GTMIS / GTMPR are the mission's.
-;   4. No nesting: there is one save byte, LVSAVE.
+; The code that reads them is the LOADER (loader.s, segment LDCODE), and since
+; 2026-11-22 it lives in THIS bank and runs in the window itself - so it reads
+; these tables with no lv_open / lv_close (both gone, with LVSAVE). Its one rule
+; is the one the old lv_open bracket had: while it runs the window shows ROM, so
+; it may WRITE the RAM under the window but never READ it (`sta GTON`, never
+; `inc GTON`); anything that reads that RAM is called through WCALL. A per-frame
+; reader keeps its own RAM copy, taken once at load - gate.s GTMIS / GTMPR are
+; the mission's.
 ;
 ; A pointer read from a table (LVL_ROCKLO/HI, LVL_FOELO/HI) is a window address
-; and is followed under the same rule.
+; and is followed the same way.
 ; =============================================================================
-LVL_BANK    = 8                 ; cart.cfg: the LEVELS segment's bank
-LVSAVE      = $73B6             ; the bank byte lv_open borrowed the window from.
-                                ;   IT WAS $73B4, AND $73B4 IS EMPHAVE'S:
-                                ;   pickup.s's block grew by one byte when the
-                                ;   EMP pickup landed and this equate did not
-                                ;   follow, so every lv_open wrote a bank byte
-                                ;   over "the player has an EMP" and every
-                                ;   pickup wrote a flag over the bank the window
-                                ;   is owed. Hand-placed RAM does not collide
-                                ;   loudly (design_technical 11.22); the assert
-                                ;   below is what makes it loud from here on.
-                                ;   $73B5 is left free on purpose - it is the
-                                ;   next byte of pickup.s's block, should that
-                                ;   one grow again. window.s's WINSAVE starts at
-                                ;   $73C0.
-        .assert EMPHAVE < LVSAVE && LVSAVE < WINSAVE, error, "levels.s: LVSAVE has landed inside pickup.s's block or past WINSAVE"
-
-        .pushseg
-        .segment "CODE6"
-
-; -----------------------------------------------------------------------------
-; lv_open / lv_close - show the level bank in the window, and hand it back.
-; -----------------------------------------------------------------------------
-; The same borrow as hud_game.s's msg_open / msg_close: save CART_BANK_MIR, select
-; the bank with CART_EN set, restore the whole saved byte. Clobber A only.
-; -----------------------------------------------------------------------------
-lv_open:
-        lda     CART_BANK_MIR
-        sta     LVSAVE
-        lda     #LVL_BANK | CART_EN
-        jmp     API_CART_BANK
-
-lv_close:
-        lda     LVSAVE
-        jmp     API_CART_BANK
-
-; lv_rec6 - the rock record at (T0) into LVREC, six bytes. Y, A clobbered.
-lv_rec6:
-        jsr     lv_open
-        ldy     #$05
-:       lda     (T0),y
-        sta     LVREC,y
-        dey
-        bpl     :-
-        jmp     lv_close                ; tail
-        .popseg
+LVL_BANK    = LDR_BANK          ; cart.cfg: the LEVELS segment's bank - the
+                                ;   loader's own, by design (loader.s)
 
         .segment "LEVELS"
 

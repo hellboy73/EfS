@@ -44,10 +44,11 @@ HOF_END     = HOF + NUM_HOF * HOF_REC
 ; swap (which overlay is resident, whether the intro has played).
 
         .pushseg
-        .segment "CODE5"
+        .segment "LDCODE"               ; LOADER CODE (loader.s): power_on's alone,
+                                        ;   and hof_def is read where it lies
 
 ; -----------------------------------------------------------------------------
-; hof_seed - the default board into KEEP. cart_init only; clobbers A and X.
+; hof_seed - the default board into KEEP. power_on only; clobbers A and X.
 ; -----------------------------------------------------------------------------
 ; KEEP holds the demo's bytes on entry, so this runs before anything reads it.
 ; -----------------------------------------------------------------------------

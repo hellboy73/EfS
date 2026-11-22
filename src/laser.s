@@ -182,11 +182,14 @@ wpn_toggle:
 ; lsr_reset - game_start: the gun is chosen and the beam is dark - and the
 ; shield is down (shield.s), a tail call so game_start, in DEMO_RAM, needs no
 ; byte for it. Nothing zeroes cartridge RAM for us.
+        .pushseg
+        .segment "LDCODE"               ; LOADER CODE (loader.s): level_begin's alone
 lsr_reset:
         stz     WEAPON
         stz     LSRN
         stz     LSRON
         jmp     shield_reset            ; tail
+        .popseg
 
 ; -----------------------------------------------------------------------------
 ; lsr_frame - one frame of the beam, from do_shots after the gun's hit pass.

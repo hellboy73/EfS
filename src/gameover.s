@@ -352,8 +352,10 @@ idle_tick:
         jmp     foe_spawn               ; tail
 @ret:   rts
 
-        .segment "CODE5"
-game_start:
+        .segment "LDCODE"               ; the loader: run in the cartridge window,
+                                        ;   bank 8 (loader.s). game_start and
+                                        ;   level_begin are its resident stubs
+ld_game_start:
         jsr     rumble_reset            ; no pulse carries over into a new game
         jsr     hud_init                ; the score, the lives, level 1 on the
         lda     #START_LEVEL            ;   board, the message bar - none of it
@@ -370,8 +372,34 @@ game_start:
 ; does above it - the score, the ships in hand, the Saturnium in the hold -
 ; which is the whole difference between flying into the exit gate (gate.s
 ; sector_frame calls this) and starting over.
+;
+; It is a TABLE OF STEPS, run back to back in this one call - the place a load
+; spread over several frames would be cut, should a sector ever need one
+; (loader.s says why it is not). Each step is free to clobber A, X and Y.
+; LOADER CODE: never read the RAM under the window here (loader.s).
 ; -----------------------------------------------------------------------------
-level_begin:
+ld_level_begin:
+        ldx     #$00
+@lp:    phx
+        jsr     @step
+        plx
+        inx
+        inx
+        cpx     #LD_NSTEPS * 2
+        bne     @lp
+        rts
+@step:  jmp     (ld_steps,x)
+
+ld_steps:
+        .addr   lb_state                ; the ship, the HUD's state, the guns
+        .addr   lb_field                ; the rocks and the sector grid
+        .addr   load_foes               ; ...then the enemies (foes.s)
+        .addr   gate_load               ; ...the exit, closed (gate.s)
+        .addr   base_load               ; ...the human base, if any (base.s)
+        .addr   lb_hud                  ; ...and the message bar
+LD_NSTEPS   = (* - ld_steps) / 2
+
+lb_state:
 .if DEMO
         lda     #<IDLE_FRAMES           ; the demo's idle clock (over_idle) starts
         sta     PF_WAITL                ;   full: nothing counts it down until
@@ -444,29 +472,24 @@ level_begin:
         jsr     shots_init              ; every gun and puff slot free - nothing
                                         ;   zeroes cartridge RAM for us
         jsr     lsr_reset               ; ...the gun chosen, the beam dark
-        lda     SATN                    ; ...no Saturnium in flight - but the
-        pha                             ;   hold and the armour's carry are
-        lda     SATARM                  ;   the ship's, and it keeps them
-        pha
-        jsr     satn_reset
-        pla
-        sta     SATARM
-        pla
-        sta     SATN
-        ldx     CURLEV                  ; ...and the field, the ship's place in
-        jsr     load_level              ;   it and the sector grid, all out of
-        jsr     radar_census            ;   levels.s. The radar's per-class rock
-                                        ;   count is taken here, once, off the
-                                        ;   field load_level just built - see
-                                        ;   radar_sens
-        jsr     load_foes               ; ...and then the enemies - AFTER
-                                        ;   load_level, because it falls through
-                                        ;   into init_cells and nothing may come
-                                        ;   between the two (see load_level)
-        jsr     gate_load               ; ...and the exit, closed (gate.s)
-        jsr     base_load               ; ...and the human base, if this sector
-                                        ;   has one (base.s)
-        jsr     indicate_reset          ; ...no message left over from the
+        WCALL   satn_reset              ; ...no Saturnium in flight - but the
+                                        ;   hold and the armour's carry are the
+                                        ;   ship's, and it keeps them: satn_reset
+                                        ;   leaves SATN/SATARM alone, and
+                                        ;   game_start zeroes them for a new game
+        rts
+
+lb_field:
+        ldx     CURLEV                  ; the field, the ship's place in it and
+        jsr     load_level              ;   the sector grid, all out of levels.s.
+        WCALL   radar_census            ;   The radar's per-class rock count is
+        rts                             ;   taken here, once, off the field
+                                        ;   load_level just built - see radar_sens.
+                                        ;   load_foes comes AFTER it: it places
+                                        ;   enemies on rocks (foe_mount)
+
+lb_hud:
+        jsr     indicate_reset          ; no message left over from the
         jsr     hud_reset               ;   last sector, and every row repaints
         lda     #HUD_PH_OVER - 1       ; ...and the paint schedule is wound to
         sta     HUD_PHASE               ;   just before the BANNER's two phases,
@@ -480,12 +503,13 @@ level_begin:
                                         ;   not urgent on the frame a game starts
         lda     #IM_LEVEL               ; ...and the bar opens with a word
 .if DEMO
-        jsr     indicate_msg            ;   then the sector's two goals
+        WCALL   indicate_msg            ;   then the sector's two goals
         lda     #IM_GOAL1
-        jsr     indicate_msg
+        WCALL   indicate_msg
         lda     #IM_GOAL2
 .endif
-        jmp     indicate_msg            ; tail
+        WCALL   indicate_msg
+        rts
 
         .segment "CODE2"                ; back to the segment main.s included
                                         ;   this file inside

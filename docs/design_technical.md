@@ -1026,6 +1026,29 @@ These are settled and should not be re-opened without a reason:
     back over it). It is also the page the screens' code overlays will leave
     alone when they are copied to `$C000` (`open_questions.md` H1).
 
+    **AMENDED, 2026-11-22 (the user): ONE thing executes out of the cartridge -
+    the SECTOR LOADER.** The rule above is about the per-frame path, where the
+    wait states cost a frame; it never paid for code that runs once a sector. So
+    `game_start`, `level_begin` and everything only they call (`load_level`,
+    `free_init`, `load_foes`, `gate_load`, `base_load`, the small `*_reset` /
+    `*_init`) and the power-on tables (`init_qs`, the star layers, `hof_seed`)
+    are segment `LDCODE`, stored in **ROM bank 8 beside the level tables and run
+    in place in the window** (`src/loader.s` has the rules). Measured: **+1,041
+    bytes of resident code room** - run area 225 -> 719, UPPER 62 -> 105,
+    FIELDRAM 559 -> 1,063 - for 1,093 bytes of bank 8 (3,255 left). The cost is
+    the wait states, once a sector: level 0's `level_begin` went from 232 k to
+    273 k cycles (py65 + 3 per cartridge read), in the transition frame. The RAM
+    it leaves behind is byte-identical to the old build's (ZP, `$0400-$0FFF`,
+    `$6000-$77FF`, `$8000-$97FF`, KEEP) after power-on, `game_start` and
+    `level_begin` of both levels, bar `rock_kin`'s scratch byte. Why: the room is
+    for the planned neutral freighters that dock at a station, and the UFOs'
+    raids on them.
+    The loader may WRITE the RAM under the window but never read it; a resident
+    routine that reads it is called through `WCALL`. `level_begin` is a table of
+    steps, which is where a load across several frames would be cut - not built,
+    because a transition must happen in its trigger's frame (the FIELD/SCREEN
+    overlay's lesson) unless it gets a LOADING state of its own.
+
 19. **There are FIVE places a byte can live, and access pattern decides which.**
     CPU1 has more RAM than one contiguous window suggests, and the five areas
     are not interchangeable — each is ruled out for something. Measured, in both

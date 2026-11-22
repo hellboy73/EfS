@@ -424,7 +424,8 @@ FESHY       = $9547
 FESQL       = $9548             ; a sum of squares
 FESQH       = $9549
 FEK         = $954A             ; a small count
-FELN        = $954B             ; load_foes' record countdown
+                                ; $954B was FELN, load_foes' countdown - it is
+                                ;   loader.s's LDCNT now: spare
 FEVEC       = $954C             ; fe_cells' callback, 2 bytes
 FEREC       = $9550             ; a level record, staged: FOE_REC bytes
 FEWI        = $9557             ; the wreck: which piece...
@@ -3906,7 +3907,14 @@ fw_centre:
 ; the wreck - because nothing zeroes cartridge RAM for us and game_start runs
 ; again on every restart. A record whose KIND nothing knows how to fly is
 ; skipped rather than loaded as a UFO in disguise.
+;
+; LOADER CODE (loader.s): run in the window, in the level tables' bank - it reads
+; LVL_* and the records straight, and may only WRITE under the window. So the
+; countdown is LDCNT, not the FE scratch, the kind is checked in the ROM record,
+; and foe_spawn - which reads FEREC back - goes through WCALL.
 ; -----------------------------------------------------------------------------
+        .pushseg
+        .segment "LDCODE"
 load_foes:
         stz     NFOE
         stz     FOEKILL
@@ -3926,40 +3934,37 @@ load_foes:
         dex
         bpl     :-
         ldx     LVLIX
-        jsr     lv_open                 ; the level's tables are in their own
-        lda     LVL_FOELO,x             ;   cartridge bank (levels.s), and FEREC
-        sta     T0                      ;   is under the window: written with
-        lda     LVL_FOEHI,x             ;   the bank showing, read after
+        lda     LVL_FOELO,x             ; the level's tables are this bank's
+        sta     T0
+        lda     LVL_FOEHI,x
         sta     T1
-        ldy     LVL_FOEN,x
-        jsr     lv_close
-        tya
+        lda     LVL_FOEN,x
         bne     :+
         rts
-:       sta     FELN
-@lp:    jsr     lv_open
-        ldy     #FOE_REC-1              ; stage the record
-:       lda     (T0),y
-        sta     FEREC,y
+:       sta     LDCNT
+@lp:    ldy     #FOE_REC-1              ; stage the record: FEREC is under the
+:       lda     (T0),y                  ;   window, so written here and read by
+        sta     FEREC,y                 ;   foe_spawn inside the bracket
         dey
         bpl     :-
-        jsr     lv_close
         lda     NFOE                   ; a level that authors more than there
         cmp     #FOE_MAX                ;   are slots loses the tail, quietly
         bcs     @skip
-        lda     FEREC+4
+        ldy     #4                      ; the KIND, out of the record in ROM -
+        lda     (T0),y                  ;   FEREC+4 can't be read back here
         cmp     #FK_N                   ; a kind nothing knows how to fly is
         bcs     @skip                   ;   still not loaded at all
-        jsr     foe_spawn
+        WCALL   foe_spawn
 @skip:  clc
         lda     T0
         adc     #FOE_REC
         sta     T0
         bcc     :+
         inc     T1
-:       dec     FELN
+:       dec     LDCNT
         bne     @lp
         rts
+        .popseg
 
 ; foe_spawn - FEREC into slot NFOE, on patrol, full of hit points.
 foe_spawn:

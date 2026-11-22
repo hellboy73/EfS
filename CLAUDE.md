@@ -36,9 +36,11 @@ through `msg_open`/`msg_close`, no RAM — the dedication is what keeps
 the GPU at power-on, no RAM); *vertex tables* (rocks, ship, enemies) → `SHAPES`
 (the RAM under the window at `$9800`, read only inside `win_off` brackets);
 *level data* (`levels.s`, the base's `BASE_*`) → `LEVELS` (ROM bank 8, read
-between `lv_open`/`lv_close`, once a sector, no RAM - the rules are in
-`levels.s`'s header). Do not put any of them in `RODATA`/`HIDATA`: upper RAM is
-for what the IRQ reads.
+by the sector loader, once a sector, no RAM - the rules are in `levels.s`'s
+header); *code that runs only at sector start or power-on* →
+`LDCODE` (ROM bank 8, executed in the window, `src/loader.s` - it may write the
+RAM under the window but never read it; resident readers go through `WCALL`). Do not put any of them in
+`RODATA`/`HIDATA`: upper RAM is for what the IRQ reads.
 
 `D:\GitHub\CETAS` is the sister project — the first MAD-65 game, and the
 structural template for this one (cart.cfg / Model B bootstrap / asset tooling /

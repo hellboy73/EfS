@@ -91,14 +91,19 @@ rock_kin:
 ; SHAPE_PICK, which gave the mix only in expectation; it is the pour below now,
 ; so a level that asks for four 192s gets four.
 ;
-; Velocity and spin stay out of the level data entirely — see rock_kin.
+; Velocity and spin stay out of the level data entirely — see rock_kin, which
+; is not called here: it reads the slot back, and this is LOADER CODE (loader.s)
+; - run in the cartridge window, in the level tables' own bank, so it reads
+; LVL_* straight but may only WRITE the object pool under the window.
+; field_settle, resident, does every rock's rock_kin and then init_cells, once
+; the field is placed. rock_kin reads only the slot and its class - no prng -
+; so doing them all afterwards lays out the same field the interleaved order did.
+; -----------------------------------------------------------------------------
+        .pushseg
+        .segment "LDCODE"
 load_level:
         stx     LVLIX
 
-        jsr     lv_open                 ; the level's tables are in their own
-                                        ;   cartridge bank (levels.s): read them
-                                        ;   between here and lv_close, and only
-                                        ;   write what is under the window
         lda     LVL_SHXL,x             ; the ship first: init_cells is about to
         sta     SHXL                    ;   bucket the field, and the very first
         lda     LVL_SHXH,x              ;   frame culls against the ship's own
@@ -127,7 +132,6 @@ load_level:
         sta     SCATN+3
         lda     LVL_N16,x
         sta     SCATN+4
-        jsr     lv_close
 
         stz     SLOT
         stz     SCATC                   ; pour class 0 (the 192s) first, one
@@ -157,7 +161,6 @@ load_level:
         tax                             ;   still a draw, because which variant
         lda     TYPE_PICK,x             ;   a rock wears is not something a level
         sta     OBJTYPE,y               ;   has an opinion about
-        jsr     rock_kin
         inc     SLOT
         bra     @clslp
 @clsnxt:
@@ -167,20 +170,20 @@ load_level:
         bne     @clslp
 
         ldx     LVLIX                   ; the hand-placed set-pieces, appended
-        jsr     lv_open                 ;   after the scatter. SCATC is done
-        lda     LVL_ROCKLO,x            ;   being a class index; it is the record
-        sta     T0                      ;   countdown now
-        lda     LVL_ROCKHI,x
+        lda     LVL_ROCKLO,x            ;   after the scatter. SCATC is done
+        sta     T0                      ;   being a class index; it is the record
+        lda     LVL_ROCKHI,x            ;   countdown now
         sta     T1
-        ldy     LVL_ROCKN,x
-        jsr     lv_close                ; (A only - Y is the count)
-        sty     SCATC
-        tya
+        lda     LVL_ROCKN,x
+        sta     SCATC
         beq     @done
 
-@plp:   jsr     lv_rec6                 ; stage the record first: Y has to be the
-        ldy     SLOT                    ;   record cursor there and the object
-                                        ;   slot here, and it cannot be both
+@plp:   ldy     #$05                    ; stage the record first (LVREC, not under
+:       lda     (T0),y                  ;   the window): Y has to be the record
+        sta     LVREC,y                 ;   cursor there and the object slot
+        dey                             ;   below, and it cannot be both
+        bpl     :-
+        ldy     SLOT
         lda     LVREC+0
         sta     OBJXL,y
         lda     LVREC+1
@@ -193,7 +196,6 @@ load_level:
         sta     OBJSHP,y
         lda     LVREC+5
         sta     OBJTYPE,y
-        jsr     rock_kin
         inc     SLOT
         clc                             ; ...and on to the next six bytes
         lda     T0
@@ -204,15 +206,70 @@ load_level:
 :       dec     SCATC
         bne     @plp
 
-@done:  lda     SLOT                    ; what the two passes came to. Enemies
-        sta     NROCK                   ;   are authored in levels.s but not read
-                                        ;   here yet — see radar.s load_foes.
+@done:  lda     SLOT                    ; what the two passes came to
+        sta     NROCK
         jsr     free_init               ; ...and every slot it did not fill goes
                                         ;   on the free stack, for the split to
                                         ;   draw on
-        ; fall through: the field is placed, so bucket it. NOTHING may be put
-        ; between this and init_cells - rock_kin sits ABOVE load_level for
-        ; exactly that reason.
+        WCALL   field_settle            ; ...and the field is placed: each rock's
+        rts                             ;   motion, then the grid - both read the
+                                        ;   pool back, so resident (loader.s)
+
+; -----------------------------------------------------------------------------
+; free_init / rock_alloc / rock_free — which slots are not carrying a rock.
+; -----------------------------------------------------------------------------
+; A STACK, not a scan. The split needs a slot at the moment a rock is destroyed,
+; inside a frame that is already doing the most work it ever does, and walking
+; 255 slots looking for a hole is not a thing to pay for there.
+;
+; free_init pushes every slot the level did NOT place, HIGHEST first, so the
+; first allocations come out in ascending order and the field stays packed low -
+; which matters because the radar's flat scan walks NROCK, the high-water mark,
+; rather than NOBJ. It is loader code (load_level's alone): it reads NFREE,
+; NROCK and FREEL, none of them under the window.
+;
+;   rock_alloc   A = a free slot, carry CLEAR. Carry SET = none left.
+;   rock_free    A = the slot to give back. Clobbers X.
+; -----------------------------------------------------------------------------
+free_init:
+        stz     NFREE
+        stz     NRECYC
+        stz     NBLOCK
+        stz     RECYCI                  ; (shots.s's own cursor - it is
+                                        ;  self-correcting if it is garbage, but
+                                        ;  a level should start the same way
+                                        ;  twice)
+        ldx     NROCK
+        cpx     #NOBJ
+        bcs     @none
+@lp:    lda     #NOBJ-1                 ; push NOBJ-1 down to NROCK, so the TOP
+        sec                             ;   of the stack is the lowest slot
+        sbc     NFREE
+        ldx     NFREE
+        sta     FREEL,x
+        inc     NFREE
+        lda     #NOBJ
+        sec
+        sbc     NFREE
+        cmp     NROCK
+        bne     @lp
+@none:  lda     NFREE
+        sta     NFREEMIN
+        rts
+        .popseg
+
+; -----------------------------------------------------------------------------
+; field_settle — load_level's resident half: rock_kin for every placed slot,
+; then fall into init_cells. Inside the window bracket (WCALL from the loader).
+; -----------------------------------------------------------------------------
+field_settle:
+        ldy     NROCK                   ; count down: Y is rock_kin's slot, and
+        beq     init_cells              ;   the count can exceed 128
+:       dey
+        jsr     rock_kin                ; (keeps Y)
+        cpy     #$00
+        bne     :-
+        ; fall through
 
 ; -----------------------------------------------------------------------------
 ; init_cells — bucket the whole field into the sector grid, once.
@@ -249,47 +306,8 @@ init_cells:
         bne     @lp                     ;  the compare, not bpl on the dex)
 @none:  rts
 
+; rock_alloc / rock_free - see free_init above (the loader's half).
 ; -----------------------------------------------------------------------------
-; free_init / rock_alloc / rock_free — which slots are not carrying a rock.
-; -----------------------------------------------------------------------------
-; A STACK, not a scan. The split needs a slot at the moment a rock is destroyed,
-; inside a frame that is already doing the most work it ever does, and walking
-; 255 slots looking for a hole is not a thing to pay for there.
-;
-; free_init pushes every slot the level did NOT place, HIGHEST first, so the
-; first allocations come out in ascending order and the field stays packed low -
-; which matters because the radar's flat scan walks NROCK, the high-water mark,
-; rather than NOBJ.
-;
-;   rock_alloc   A = a free slot, carry CLEAR. Carry SET = none left.
-;   rock_free    A = the slot to give back. Clobbers X.
-; -----------------------------------------------------------------------------
-free_init:
-        stz     NFREE
-        stz     NRECYC
-        stz     NBLOCK
-        stz     RECYCI                  ; (shots.s's own cursor - it is
-                                        ;  self-correcting if it is garbage, but
-                                        ;  a level should start the same way
-                                        ;  twice)
-        ldx     NROCK
-        cpx     #NOBJ
-        bcs     @none
-@lp:    lda     #NOBJ-1                 ; push NOBJ-1 down to NROCK, so the TOP
-        sec                             ;   of the stack is the lowest slot
-        sbc     NFREE
-        ldx     NFREE
-        sta     FREEL,x
-        inc     NFREE
-        lda     #NOBJ
-        sec
-        sbc     NFREE
-        cmp     NROCK
-        bne     @lp
-@none:  lda     NFREE
-        sta     NFREEMIN
-        rts
-
 rock_alloc:
         lda     NFREE
         beq     @empty

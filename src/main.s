@@ -1133,6 +1133,46 @@ cart_init:
                                         ;   reads the cartridge: the four
                                         ;   cart_loads are bootstrap.s's and are
                                         ;   long finished by the time this runs.
+        jsr     power_on                ; the session's one-time state and the
+                                        ;   first game_start: the LOADER, run in
+                                        ;   the cartridge window (loader.s,
+                                        ;   ld_power_on below). FIELD (CODE5/
+                                        ;   CODE6) is resident by now - bootstrap.s
+                                        ;   loads it at boot - for what it calls
+        jsr     win_on                  ; ...and the window is a cartridge again
+                                        ;   before init can return - the OS jumps
+                                        ;   to boot_frame THROUGH it (window.s)
+        jsr     ovl_load_screen         ; FIELD was resident for hof_seed/
+                                        ;   game_start above; frame 1 is
+                                        ;   SC_INTRO and needs SCREEN instead
+                                        ;   (overlay.s)
+        jsr     scr_boot                ; ...and power-on is the intro, not the
+                                        ;   flight (screens.s, resident now)
+        jsr     spr_arm                 ; ...and every sprite the game has goes
+                                        ;   to the GPU in bulk, from the first
+                                        ;   frames on (sprites.s)
+                                        ; (No song here any more: the intro
+                                        ;   plays the jingle from the logo's
+                                        ;   reveal, the title starts the song -
+                                        ;   screens.s, music.s)
+.if HUD_ON
+        jmp     init_strings            ; ...and the tuning readout's RAM copies
+.else                                   ;   last, since it is the only thing that
+        rts                             ;   patches a string in place
+.endif
+
+
+; -----------------------------------------------------------------------------
+; ld_power_on - cart_init's own work, in the loader (loader.s): what a SESSION
+; does once - the tables, the two backdrop layers, the seed, the settled
+; flight-model dials - and then the first game. Everything a NEW GAME resets -
+; the ship, the field, the HUD - is game_start (gameover.s), because FIRE on the
+; game-over screen has to do exactly the same thing and a second copy of this
+; list would drift from the first the day either changed.
+; -----------------------------------------------------------------------------
+        .pushseg
+        .segment "LDCODE"
+ld_power_on:
         stz     FRAME
         stz     FRAME+1
         stz     BGDONE
@@ -1165,31 +1205,8 @@ cart_init:
         ; drift from the first the day either changed. What stays above is only
         ; what a SESSION does once: the tables, the two backdrop layers, the
         ; seed, the settled flight-model dials.
-        jsr     game_start              ; CODE5 - still resident: bootstrap.s
-                                        ;   loads FIELD (CODE5/CODE6) at boot,
-                                        ;   before this routine even runs
-        jsr     win_on                  ; ...and the window is a cartridge again
-                                        ;   before init can return - the OS jumps
-                                        ;   to boot_frame THROUGH it (window.s)
-        jsr     ovl_load_screen         ; FIELD was resident for hof_seed/
-                                        ;   game_start above; frame 1 is
-                                        ;   SC_INTRO and needs SCREEN instead
-                                        ;   (overlay.s)
-        jsr     scr_boot                ; ...and power-on is the intro, not the
-                                        ;   flight (screens.s, resident now)
-        jsr     spr_arm                 ; ...and every sprite the game has goes
-                                        ;   to the GPU in bulk, from the first
-                                        ;   frames on (sprites.s)
-                                        ; (No song here any more: the intro
-                                        ;   plays the jingle from the logo's
-                                        ;   reveal, the title starts the song -
-                                        ;   screens.s, music.s)
-.if HUD_ON
-        jmp     init_strings            ; ...and the tuning readout's RAM copies
-.else                                   ;   last, since it is the only thing that
-        rts                             ;   patches a string in place
-.endif
-
+        jmp     ld_game_start           ; tail, in the loader
+        .popseg
 
 ; THE KERNEL (CODE8): cart_frame and frame_body stay resident when the tunnel
 ; overwrites the run area (open_questions.md H1, the tunnel memory audit).
@@ -1462,6 +1479,10 @@ frame_body:
                                         ; their frames. See that file and
                                         ; tools/enemy_editor.py
 
+        .include "loader.s"             ; the sector loader: LDCODE, run in the
+                                        ;   cartridge window (bank 8), and the
+                                        ;   WCALL macro every loader file uses -
+                                        ;   so before any of them
         .include "math.s"               ; the quarter-square multiply, the LFSR,
                                         ; and the shifts every transform is
                                         ; built out of. Nothing here knows what

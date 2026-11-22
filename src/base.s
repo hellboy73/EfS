@@ -175,11 +175,12 @@ BASE_END    = BSB + 55
 ; -----------------------------------------------------------------------------
 ; base_load - level_begin, after gate_load: this sector's base, or none.
 ; -----------------------------------------------------------------------------
-base_load:
-        ldx     CURLEV
-        jsr     lv_open                 ; LVL_BASE_* is levels.s's, alongside
-        lda     LVL_BASE_ON,x           ;   GTX/GTY - read it here, and only
-        sta     BSON                    ;   write what is under the window
+        .pushseg
+        .segment "LDCODE"               ; LOADER CODE (loader.s): LVL_BASE_* is
+base_load:                              ;   this bank's, read straight; nothing
+        ldx     CURLEV                  ;   under the window is read back - the
+        lda     LVL_BASE_ON,x           ;   step is EN_BASE_AHOLD, not EN_AHOLD
+        sta     BSON
         lda     LVL_BASE_XL,x
         sta     BSXL
         lda     LVL_BASE_XH,x
@@ -188,14 +189,13 @@ base_load:
         sta     BSYL
         lda     LVL_BASE_YH,x
         sta     BSYH
-        jsr     lv_close
         lda     #(1 << BS_N) - 1        ; every segment standing
         sta     BSLIVE
         stz     BSAST
-        ldy     #EA_BASE
-        lda     EN_AHOLD,y
+        lda     #EN_BASE_AHOLD
         sta     BSACD
         rts
+        .popseg
 
 ; -----------------------------------------------------------------------------
 ; do_base - once a frame, inside the bracket, before do_stars: the playlist, the

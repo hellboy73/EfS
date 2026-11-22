@@ -51,12 +51,15 @@ frame_services:
 
 ; rumble_reset - a new game starts from rest. From game_start (gameover.s), which
 ; cart_init also calls, so nothing here is ever read before it has been written.
+        .pushseg
+        .segment "LDCODE"               ; LOADER CODE (loader.s): game_start's alone
 rumble_reset:
         stz     RUMBLE
         stz     RUMHP
         stz     RUMLV
         stz     RUMSH
         rts
+        .popseg
 
 ; rumble_pulse - A = frames. Extends the running pulse, never shortens it.
 rumble_pulse:

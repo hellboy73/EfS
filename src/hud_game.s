@@ -383,6 +383,8 @@ dbg_hex:
 .endif
 
 ; -----------------------------------------------------------------------------
+        .pushseg
+        .segment "LDCODE"               ; LOADER CODE (loader.s): game_start's alone
 hud_init:
         ldx     #SCORE_DIGITS-1         ; "000000": the score IS these digits
         lda     #'0'
@@ -394,7 +396,8 @@ hud_init:
         stz     CURLEV
         stz     BGTEXT_GAP
         jsr     indicate_reset
-        ; fall through to hud_reset
+        jmp     hud_reset               ; tail: resident, it is not the loader's
+        .popseg
 
 ; -----------------------------------------------------------------------------
 ; hud_reset - make every cached input impossible, so every row repaints.
