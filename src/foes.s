@@ -1445,7 +1445,7 @@ foe_integrate:
         tya
         adc     FOEYH,x
         sta     FOEYH,x
-        jmp     base_foe                ; the human base is a wall: an enemy in it
+        jmp     WS_FOE                  ; the human base is a wall: an enemy in it
                                         ;   is put back on it, X kept (base.s)
 
 ; =============================================================================
@@ -2429,7 +2429,7 @@ fsh_all:
         cmp     #$FF
         beq     :+
         inc     FSAGE,x
-:       jsr     base_shot_f             ; the human base stops it (base.s)
+:       jsr     WS_SHOTF                ; the human base stops it (base.s)
         bcs     @kill
         jsr     fsh_ship                ; the ship first: it is what they are for
         bcs     @kill

@@ -643,3 +643,36 @@ A near lifepod (z 150, off the axis, hatch and window) adds ~73 k CPU and ~65 k 
 ~133 k CPU (56%) and ~76 k GPU (32%) with nothing else near (py65, `tunnel_pod.s`, 2026-10-13).
 The worst frame seen in a natural run, a pod and seven rocks, is ~194 k CPU (82%); seven rocks
 alone ~136 k. Most of the difference is the stars' occlusion test (three more, larger discs).
+
+## 13. The force field - a wall both ways (`src/ffield.s`)
+
+`design_technical.md` 11.51 is the design; these are its numbers. The edge is
+`f = (D - VTX[k]).n`, the signed distance from a 256-gon on `FF_R`, and every
+mover keeps the side its centre was on before its step.
+
+| Parameter | Meaning | Value |
+|---|---|---|
+| `FF_R` | the radius, world units - fixed for the game (`FF_SIN` is generated from it) | 16384 (1,024 px) |
+| `FF_PM` | the band, pages either side of the edge, inside which `f` is computed | 9 |
+| `FF_RIN` | `ff_far`: high bytes both under this are deep inside, no test | 36 |
+| `FF_SHIPR` | the ship's radius at the edge - past its own muzzle, or a shot fired with the nose on the edge is born on the far side and never crosses (the user's madsim run) | `SHOT_MUZZ` + 32 = 544 |
+| `FF_FOER` | an enemy's, past ITS muzzle for the same reason | `FOE_MUZZ` + 32 = 416 |
+| a rock's | `BODY_R` of its shape, x32 | 96 .. 1,248 |
+| `FF_SNAP` | units past the radius a mover is put out to | 2 |
+| `FF_HURTCD` | frames after a hurt before the edge hurts the ship again (TBM) | 20 |
+| `FF_FLASH` | frames the invisible field's flash lasts: a strobe every other frame, one in four for the second half, crawling a brad | 36 |
+| `SE_ZAP` | the hit's sound: two buzz bursts on the noise voice, `PRI_KLANG`, 18 frames | (sfx.s, program in ffield.s) |
+| `FF_ARCB` / `FF_STEP` | a drawn piece's half-span / the step between pieces, brad | 10 / 20 |
+| `FF_NIZ` | `ZEASH` below which five pieces are drawn, not three | 96 |
+
+The ship's response is the EMP mine's: `P = 1.75 vn` against an immovable
+wall, the ship's share `EMPM_FI` through `ship_kick`, and `RAM_DMG`. A rock's
+normal velocity is reflected (`v - 2 vn n`), an enemy's removed (`v - vn n`).
+
+**Measured** (py65, `tools/ffield_bench.py`, 2026-11-23): `f` against the true
+circle worst 23 units (1.4 px), mean 5; no crossing and no centre nearer than
+its radius in 300 rocks, 200 enemies and 160 ships flown at the edge from both
+sides (the closest: 9 units inside the radius); 1,126 bullet steps decided
+right. `ff_rock` 61 cycles far from the edge, ~5,000 in the band, ~8,500
+bouncing; `ff_frame` ~8,600 visible at the edge (three pieces), ~2,400 a flash,
+~140 otherwise. The GPU's share is not measured yet (11.49).

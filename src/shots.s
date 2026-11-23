@@ -591,7 +591,7 @@ shot_move:
         lda     SHTYH,x
         adc     SHTVYT,x
         sta     SHTYH,x
-        jsr     base_shot_p             ; the human base takes it (base.s)
+        jsr     WS_SHOTP                ; the human base takes it (base.s)
         bcc     :+
         jmp     @next
 :

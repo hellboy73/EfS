@@ -124,6 +124,8 @@ GATE_COLOR = "#e070ff"
 GATE_R_PX = 123                         # the gate's reach from its centre, full-res
                                         #   px - src/enemies.s EN_GATE, for the map
 BASE_COLOR = "#ffd25a"
+FF_COLOR = "#c070ff"                    # the force field (ffield.s)
+FF_R = 16384                            # its radius, world units - ffield.s FF_R
 BASE_R_PX = 154                         # the hexagon's own reach, full-res px -
                                         #   base.s's header note
 MISSIONS = ["0 clear rocks", "1 kill enemies", "2 open", "3 rocks and enemies"]   # gate.s MS_*
@@ -227,7 +229,8 @@ class Level:
     def __init__(self, name="LEVEL", counts=None, seed=0x3CA5,
                  shx=0x8000, shy=0x8000, shhd=0, rocks=None, foes=None,
                  misn=0, mpar=0, gtx=0xB000, gty=0x5000,
-                 base_on=0, base_x=0x8000, base_y=0x5800):
+                 base_on=0, base_x=0x8000, base_y=0x5800,
+                 ff_on=0, ff_x=0x8000, ff_y=0x8000, ff_vis=1):
         self.name = name
         self.counts = list(counts or [0, 0, 0, 0, 0])   # per size class
         self.seed = seed                                 # the scatter's LFSR word
@@ -239,6 +242,9 @@ class Level:
         self.base_on = base_on                            # the human base
         self.base_x, self.base_y = base_x, base_y        # (base.s) - optional,
                                                           #   one per level
+        self.ff_on = ff_on                                # the force field
+        self.ff_x, self.ff_y = ff_x, ff_y                # (ffield.s) - its centre;
+        self.ff_vis = ff_vis                              #   never with the base
 
     @property
     def total(self):
@@ -248,7 +254,8 @@ class Level:
         return Level(name, self.counts, self.seed, self.shx, self.shy, self.shhd,
                      [dict(r) for r in self.rocks], [dict(f) for f in self.foes],
                      self.misn, self.mpar, self.gtx, self.gty,
-                     self.base_on, self.base_x, self.base_y)
+                     self.base_on, self.base_x, self.base_y,
+                     self.ff_on, self.ff_x, self.ff_y, self.ff_vis)
 
     def scatter(self, type_pick):
         """Exactly what load_level's first pass produces, in its own order:
@@ -324,7 +331,9 @@ class Model:
                 k(i, "SHX", 0x8000), k(i, "SHY", 0x8000), k(i, "SHHD"),
                 rocks, foes,
                 k(i, "MISN"), k(i, "MPAR"), k(i, "GTX", 0xB000), k(i, "GTY", 0x5000),
-                k(i, "BASE_ON", 0), k(i, "BASE_X", 0x8000), k(i, "BASE_Y", 0x5800)))
+                k(i, "BASE_ON", 0), k(i, "BASE_X", 0x8000), k(i, "BASE_Y", 0x5800),
+                k(i, "FF_ON", 0), k(i, "FF_X", 0x8000), k(i, "FF_Y", 0x8000),
+                k(i, "FF_VIS", 1)))
         return cls(levels)
 
 
@@ -373,6 +382,10 @@ def render_generated(model):
     out.append(";         built")
     out.append(";   BASE_X   where it stands, world 16-bit - fixed, it never moves; unread")
     out.append(";         while BASE_ON is 0")
+    out.append(";   FF_ON    whether this sector has the force field (ffield.s): 0 = none,")
+    out.append(";         1 = there - never with the base (the wall slots, slots.s)")
+    out.append(";   FF_X     its centre, world 16-bit; the radius is ffield.s's FF_R, fixed")
+    out.append(";   FF_VIS   1 = drawn, 0 = invisible (flashed where it is hit)")
     out.append("; -----------------------------------------------------------------------------")
     for i, l in enumerate(lv):
         out.append(f'; level {i} - "{l.name}"')
@@ -391,6 +404,10 @@ def render_generated(model):
         out.append(const("BASE_ON", l.base_on))
         out.append(const("BASE_X", f"${l.base_x:04X}"))
         out.append(const("BASE_Y", f"${l.base_y:04X}"))
+        out.append(const("FF_ON", l.ff_on))
+        out.append(const("FF_X", f"${l.ff_x:04X}"))
+        out.append(const("FF_Y", f"${l.ff_y:04X}"))
+        out.append(const("FF_VIS", l.ff_vis))
         out.append("")
 
     out.append("; The hand-placed blocks, and the counts DERIVED from their own length - so a")
@@ -453,6 +470,13 @@ def render_generated(model):
     out.append(_row("LVL_BASE_YL", [f"<L{i}_BASE_Y" for i in range(n)]))
     out.append(_row("LVL_BASE_YH", [f">L{i}_BASE_Y" for i in range(n)]))
     out.append("")
+    out.append(_row("LVL_FF_ON", [f"L{i}_FF_ON" for i in range(n)]))
+    out.append(_row("LVL_FF_XL", [f"<L{i}_FF_X" for i in range(n)]))
+    out.append(_row("LVL_FF_XH", [f">L{i}_FF_X" for i in range(n)]))
+    out.append(_row("LVL_FF_YL", [f"<L{i}_FF_Y" for i in range(n)]))
+    out.append(_row("LVL_FF_YH", [f">L{i}_FF_Y" for i in range(n)]))
+    out.append(_row("LVL_FF_VIS", [f"L{i}_FF_VIS" for i in range(n)]))
+    out.append("")
     out.append(_row("LVL_ROCKN", [f"L{i}_ROCKN" for i in range(n)]))
     out.append(_row("LVL_ROCKLO", [f"<LVL{i}_ROCKS" for i in range(n)]))
     out.append(_row("LVL_ROCKHI", [f">LVL{i}_ROCKS" for i in range(n)]))
@@ -466,6 +490,8 @@ def render_generated(model):
     for i, l in enumerate(lv):
         out.append(f'        .assert L{i}_TOTAL <= NOBJ, error, '
                    f'"level {i} ({l.name}) asks for more rocks than NOBJ slots"')
+        out.append(f'        .assert !(L{i}_BASE_ON && L{i}_FF_ON), error, '
+                   f'"level {i} ({l.name}) has the base AND the force field - the wall slots hold one"')
     return "\n".join(out)
 
 
@@ -578,6 +604,7 @@ class LevelEditor(tk.Tk):
         self._build_ship_panel(side)
         self._build_gate_panel(side)
         self._build_base_panel(side)
+        self._build_ff_panel(side)
 
         self.warn = tk.Label(side, text="", bg=BG, fg="#ff6666", wraplength=310,
                               justify="left")
@@ -725,6 +752,9 @@ class LevelEditor(tk.Tk):
     def _commit_base_on(self):
         lv = self._lvl()
         lv.base_on = 1 if self.base_on_var.get() else 0
+        if lv.base_on and lv.ff_on:
+            lv.ff_on = 0
+            self.ff_on_var.set(False)
         if not lv.base_on and self.sel == ("base", 0):
             self.sel = None
             self._refresh_sel()
@@ -740,6 +770,53 @@ class LevelEditor(tk.Tk):
             return
         setattr(lv, k, v)
         self.base_vars[k].set(str(v))
+        self._touch()
+        self._draw()
+
+    def _build_ff_panel(self, side):
+        """The force field (src/ffield.s): optional, one per level and never with
+        the base - ticking one unticks the other (the wall slots hold one)."""
+        f = self._section(side, "Force field")
+        self.ff_on_var = tk.BooleanVar()
+        self.ff_vis_var = tk.BooleanVar()
+        for r, (t, v) in enumerate([("Present this sector", self.ff_on_var),
+                                    ("Visible (else flashed)", self.ff_vis_var)]):
+            tk.Checkbutton(f, text=t, variable=v, bg=BG, fg=TEXT, selectcolor="#333",
+                            activebackground=BG, command=self._commit_ff_on).grid(
+                                row=r, column=0, columnspan=2, sticky="w")
+        self.ff_vars = {}
+        for i, (k, lab) in enumerate([("ff_x", "Centre X"), ("ff_y", "Centre Y")], 2):
+            tk.Label(f, text=lab, bg=BG, fg=TEXT, width=14,
+                      anchor="w").grid(row=i, column=0, sticky="w", pady=1)
+            v = tk.StringVar()
+            e = tk.Entry(f, textvariable=v, width=8)
+            e.grid(row=i, column=1, padx=4)
+            e.bind("<Return>", lambda ev, k=k: self._commit_ff(k))
+            e.bind("<FocusOut>", lambda ev, k=k: self._commit_ff(k))
+            self.ff_vars[k] = v
+
+    def _commit_ff_on(self):
+        lv = self._lvl()
+        lv.ff_on = 1 if self.ff_on_var.get() else 0
+        lv.ff_vis = 1 if self.ff_vis_var.get() else 0
+        if lv.ff_on and lv.base_on:
+            lv.base_on = 0
+            self.base_on_var.set(False)
+        if not lv.ff_on and self.sel == ("ff", 0):
+            self.sel = None
+            self._refresh_sel()
+        self._touch()
+        self._draw()
+
+    def _commit_ff(self, k):
+        lv = self._lvl()
+        try:
+            v = int(self.ff_vars[k].get(), 0) & 0xFFFF
+        except ValueError:
+            self.ff_vars[k].set(str(getattr(lv, k)))
+            return
+        setattr(lv, k, v)
+        self.ff_vars[k].set(str(v))
         self._touch()
         self._draw()
 
@@ -924,6 +1001,10 @@ class LevelEditor(tk.Tk):
             self.gate_vars[k].set(str(getattr(lv, k)))
         self.misn_var.set(MISSIONS[min(lv.misn, len(MISSIONS) - 1)])
         self.base_on_var.set(bool(lv.base_on))
+        self.ff_on_var.set(bool(lv.ff_on))
+        self.ff_vis_var.set(bool(lv.ff_vis))
+        for k in ("ff_x", "ff_y"):
+            self.ff_vars[k].set(str(getattr(lv, k)))
         for k in ("base_x", "base_y"):
             self.base_vars[k].set(str(getattr(lv, k)))
         self._scatter_cache = None
@@ -1008,6 +1089,8 @@ class LevelEditor(tk.Tk):
         self._draw_gate(lv, SEL_COLOR if self.sel == ("gate", 0) else GATE_COLOR)
         if lv.base_on:
             self._draw_base(lv, SEL_COLOR if self.sel == ("base", 0) else BASE_COLOR)
+        if lv.ff_on:
+            self._draw_ff(lv, SEL_COLOR if self.sel == ("ff", 0) else FF_COLOR)
         self._draw_frames()
 
     def _draw_frames(self):
@@ -1136,6 +1219,23 @@ class LevelEditor(tk.Tk):
         self.map.create_text(x, y - r - 9, text="BASE", fill=color,
                               anchor="s", font=("Consolas", 8))
 
+    def _draw_ff(self, lv, color):
+        """The circle at its true radius - and again one world over on each side
+        of every seam it is near, because on the torus that is where the rest of
+        it is - with a cross on the centre to grab."""
+        x, y = self._to_canvas(lv.ff_x, lv.ff_y)
+        r = FF_R * self.ppu
+        d = WORLD * self.ppu
+        dash = () if lv.ff_vis else (4, 4)
+        for ox in (-d, 0, d):
+            for oy in (-d, 0, d):
+                self.map.create_oval(x + ox - r, y + oy - r, x + ox + r, y + oy + r,
+                                      outline=color, width=2, dash=dash)
+        self.map.create_line(x - 8, y, x + 8, y, fill=color, width=2)
+        self.map.create_line(x, y - 8, x, y + 8, fill=color, width=2)
+        self.map.create_text(x, y - 11, text="FIELD" + ("" if lv.ff_vis else " (invisible)"),
+                              fill=color, anchor="s", font=("Consolas", 8))
+
     # ---- picking ------------------------------------------------------------
     def _hit(self, cx, cy):
         """Placed items first, then the ship. The scatter is never hit-tested -
@@ -1165,6 +1265,10 @@ class LevelEditor(tk.Tk):
             x, y = self._to_canvas(lv.base_x, lv.base_y)
             if (x - cx) ** 2 + (y - cy) ** 2 <= 18 ** 2:
                 best = ("base", 0)
+        if best is None and lv.ff_on:
+            x, y = self._to_canvas(lv.ff_x, lv.ff_y)
+            if (x - cx) ** 2 + (y - cy) ** 2 <= 18 ** 2:
+                best = ("ff", 0)
         return best
 
     def _press(self, ev):
@@ -1191,6 +1295,10 @@ class LevelEditor(tk.Tk):
             lv.base_x, lv.base_y = wx, wy
             self.base_vars["base_x"].set(str(wx))
             self.base_vars["base_y"].set(str(wy))
+        elif kind == "ff":
+            lv.ff_x, lv.ff_y = wx, wy
+            self.ff_vars["ff_x"].set(str(wx))
+            self.ff_vars["ff_y"].set(str(wy))
         else:
             item = lv.rocks[i] if kind == "rock" else lv.foes[i]
             item["x"], item["y"] = wx, wy
@@ -1206,7 +1314,7 @@ class LevelEditor(tk.Tk):
         self._add_at(wx, wy)
 
     def _delete_selected(self, _ev=None):
-        if self.sel is None or self.sel[0] in ("ship", "gate", "base"):
+        if self.sel is None or self.sel[0] in ("ship", "gate", "base", "ff"):
             return
         kind, i = self.sel
         lv = self._lvl()
@@ -1334,6 +1442,9 @@ class LevelEditor(tk.Tk):
         elif kind == "base":
             self.sel_label.configure(text="Human base")
             x, y = lv.base_x, lv.base_y
+        elif kind == "ff":
+            self.sel_label.configure(text="Force field centre")
+            x, y = lv.ff_x, lv.ff_y
         elif kind == "rock":
             r = lv.rocks[i]
             self.sel_label.configure(
@@ -1382,6 +1493,10 @@ class LevelEditor(tk.Tk):
             lv.base_x, lv.base_y = x, y
             self.base_vars["base_x"].set(str(x))
             self.base_vars["base_y"].set(str(y))
+        elif kind == "ff":
+            lv.ff_x, lv.ff_y = x, y
+            self.ff_vars["ff_x"].set(str(x))
+            self.ff_vars["ff_y"].set(str(y))
         elif kind == "rock":
             r = lv.rocks[i]
             r["x"], r["y"] = x, y

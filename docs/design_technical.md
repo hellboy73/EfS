@@ -1054,7 +1054,9 @@ These are settled and should not be re-opened without a reason:
     are not interchangeable — each is ruled out for something. Measured, in both
     simulators, before any of it was relied on. (It was four until 2026-09-11,
     when the MAD-65 CPU OS handed `$C000-$DFFF` to the cartridge — see
-    `DEMO_RAM` below.)
+    `DEMO_RAM` below.) **Since 2026-11-23 the tails of `UPPER` (`$B960-$BEFF`)
+    and of FIELD's `DEMO_RAM` (`$DA60-$DEFF`) are the wall slots (52)**: the
+    base's code or the force field's, per sector - nothing else goes there.
 
     | area | size | free | what belongs there |
     |---|---|---|---|
@@ -2437,3 +2439,117 @@ These are settled and should not be re-opened without a reason:
       docked freighter on screen beside the base: **~27.6 k GPU cycles** (its
       12-vertex hull and 4-vertex box - a UFO's price, so it counts against 49's
       budget) and ~7.5 k CPU (3%). Off screen it is a few hundred cycles.
+
+51. **The force field: a fixed circle that nothing crosses but a teleport, a
+    wall from both sides, swapped into RAM in place of the base.** Decided
+    2026-11-23 (the user, after a discussion of the drawing and the collision)
+    and **built the same day** (`src/ffield.s`, its parameters in `physics.md`
+    13, its bench `tools/ffield_bench.py`); the missions that use it are not
+    decided (`open_questions.md` E13).
+    * **What it is.** The aliens' shield round an area. One circle per sector,
+      centre placed by the level, **radius fixed for the whole game: 16,384
+      world units** (1,024 px at reference zoom, a diameter of half the world,
+      19.6% of its area). Nothing crosses the edge in either direction - the
+      ship, rocks, enemies and bullets all start on a side and stay there -
+      except by the teleport, which is a jump of position and never meets the
+      test. Rocks and enemies are on both sides. Whether the player has to go
+      in, out or both is the level's map. The centre may be anywhere: the
+      signed 16-bit difference is the distance, so the seam means nothing
+      (3.1); only the level EDITOR has to draw the circle again at +-W on each
+      axis when it is near an edge.
+    * **One function decides the side, for everything.** The edge is the
+      256-gon of `VTX[k] = (R cos k, R sin k)` (16-bit, k in brads; a quarter
+      of it, ~128 B in ROM, by symmetry), which misses the true circle by about
+      one world unit. For a point, `D` = point - centre (signed), `k` =
+      `foe_atan(D)`, `E = D - VTX[k]` (small), and **`f = E.x cos k + E.y sin k`**
+      - two 8 x 16 quarter-square products, no `mul16` - the signed distance
+      from the edge, `> 0` outside. Its two properties are what make the test
+      safe: **consistency** (every test uses the same `f`, so "f < 0" and
+      "f >= 0" partition the world with no gap; a step whose ends have
+      different signs crossed it, at any speed) and **second-order angle
+      error** (a brad off in `k` moves `f` by about one unit).
+    * **The side is the CENTRE's, before the step.** A mover with radius `r`
+      is outside if `f(old centre) >= 0`; it touches the edge when, after the
+      step, `f - r < 0` (from outside) or `f + r > 0` (from inside). The
+      response always leaves the centre a full radius from the edge, so no
+      rounding and no push from another collision can carry it across; the
+      side needs no bit of state. A mover that is ALREADY straddling the edge
+      (a teleport, a spawn, a rock's fragment) is put out on the side its
+      centre is on. Fragments may cross; that is fine (the user).
+    * **What the edge does** (the normal is `n_k`, not an axis - at this size
+      the base's axis approximation would show):
+      - **the ship**: put back on its side, `v' = v - 2(v.n)n`, and hurt as by
+        a rock. The bounce turns it away, so one contact is one hit.
+      - **a rock**: put back and bounced, a wall of infinite mass (as 11.46).
+      - **an enemy**: put back and the velocity into the edge taken away - it
+        slides along it (the user: for simplicity). Enemies see the ship
+        through the field and may shoot at it.
+      - **a bullet**, the player's or an enemy's: ends in a puff on the edge,
+        as on a rock. **The laser and the EMP ring pass through.**
+    * **Cost, kept small by a filter on the high bytes**: as built, not the
+      sector mask first proposed - `ff_far` rejects a mover outside the band's
+      box or deep in its inner square (61 cycles a rock), then `d^2` in pages^2
+      against `(R +- FF_PM)^2`, and only inside that band the atan and `f`
+      (~5 k; ~8.5 k for a bounce). Measured, `physics.md` 13.
+    * **The test level** is level 2, FORCE FIELD TEST (`levels.s`), and `make
+      run-fftest` builds an image whose new game starts there. The trainer's
+      FIRE2 on the other pad turns the field visible / invisible. The level
+      editor draws the circle (again one world over at every seam it is near)
+      and keeps the base and the field from one level.
+    * **Drawing, two variants.** `DOT_CIRCLE` (byte radius, centre on screen)
+      and `CIRCLE16` (radius <= 255, solid) cannot draw it, and a tangent
+      `DOT_LINE` misses the true edge by ~30 px across a screen at reference
+      zoom (sagitta of a 250 half-res px chord on R = 512) while costing the
+      GPU nearly as much - the price is the pixels, not the vertices.
+      - **visible**: ONE OPEN `DOT_POLYGON` ($4C) - a fixed TEMPLATE of 5-7
+        vertices along the arc, +-127 half-res, whose anchor is `VTX[k]` for
+        the `k` nearest the screen's middle, projected like a rock's centre,
+        and `ANGLE = k - HEAD`: a piece of the circle is the same shape
+        wherever it is, only turned, so the GPU does the turning. One template
+        per zoom octave (`SCALE` only shrinks). CPU1 ~1.5 k, GPU ~20 k a frame
+        (~9%, TBM, counted against 49's budget).
+      - **invisible**: nothing is drawn, except a short arc (3-4 vertices,
+        ~0.5 s) FLASHED where something hits it (the user).
+      As built: three pieces of the five-vertex template (+-10 brad each, 20
+      apart), five when zoomed out past `ZEASH` 96; the flash is the middle three
+      vertices, lit by the ship, a rock that strikes it and a bullet. Each piece
+      is culled on its anchor like the base. Measured CPU1 ~8.6 k a frame
+      visible at the edge; the GPU's share is still owed a measurement.
+      Not on the radar for now (the user: look again later).
+    * **Where it lives: an alternative to the base, never with it.** A sector
+      has the base (and freighters) OR the field. Their code shares two SLOTS
+      that the sector loader fills with one tenant or the other: slot A in
+      UPPER (the walls' code) and slot B at the end of FIELDRAM (the frame's
+      code: drawing, the radar mark, the freighters, and the vector table the
+      movers call through). See 52.
+
+52. **The wall slots: the base's code and the force field's take turns in
+    two fixed slots, filled by the sector loader.** Built 2026-11-23
+    (`src/slots.s`, cart.cfg's `SLOTA_*`/`SLOTB_*`), the user's call that a
+    sector never has both (51), so neither has to be resident beside the
+    other.
+    * **The two slots.** **A** = `$B960-$BEFF` (1,440 B), the tail of upper
+      RAM: the walls' code, `BSWALL` (base.s's `bs_*`, from bank 7) or
+      `FFWALL`. Upper RAM is never overlaid, so A is copied only when the
+      tenant changes. **B** = `$DA60-$DEFF` (1,184 B), the tail of DEMO_RAM:
+      the frame's code, `BSFRAME` (do_base and freight.s, from bank 2) or
+      `FFFRAME`, and FIRST in it the **vector table**. DEMO_RAM is the
+      overlay's (screens, tunnel), so B's row in `ovl_field_segs` is the
+      current tenant's and `ovl_load_field` brings it back with FIELD.
+      `UPPER` and `FIELDRAM` end where the slots begin: move both together.
+    * **Every caller goes through the vectors** - `WS_FRAME` (frame_body,
+      before do_stars), `WS_ROCK`, `WS_FOE`, `WS_BRAKE`, `WS_SHOTP`,
+      `WS_SHOTF`, the base's contracts unchanged - and never a tenant's
+      routine by name. Both tables are asserted to one address.
+    * **The swap**: the loader writes `WSKIND` (base_load: the base, until a
+      level asks for the field); `ld_enter` calls `ws_sync` once the loader is
+      out of the window. It copies A, patches B's row, and copies B only while
+      FIELD is the DEMO_RAM tenant. The base is the power-on tenant
+      (bootstrap.s). Verified in py65 (a scratch test on preview.py's boot):
+      both swaps byte-exact against the ROM, B surviving the screens and the
+      tunnel, B left alone and only its row patched while SCREEN is up.
+    * **Room** (2026-11-23): the base tenant uses A 1,414 / 1,440 and B
+      1,027 / 1,184; the field A 1,083 and B 950 (its side function and atan
+      sit in B, which both slots call). Fixed UPPER keeps 29 B spare, fixed
+      FIELDRAM 168 B. The base tenant's growth (its bullets, the
+      siege - 48) must fit its slots or move a boundary.

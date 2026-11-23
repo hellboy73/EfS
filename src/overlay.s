@@ -80,7 +80,11 @@ ovl_field_segs:
         .word   __CODE6_LOAD__, __CODE6_RUN__, __CODE6_SIZE__
         .byte   CODE9_BANK
         .word   __CODE9_LOAD__, __CODE9_RUN__, __CODE9_SIZE__
-        .byte   $FF
+ovl_slotb_row:                          ; ...and slot B, the wall slots' tenant
+        .byte   BSFRAME_BANK            ;   in this sector - the base at power-on;
+        .word   __BSFRAME_LOAD__, __BSFRAME_RUN__, __BSFRAME_SIZE__ ; slots.s
+        .byte   $FF                     ;   ws_sync patches the row. LAST, so it
+                                        ;   can be walked on its own
 ovl_screen_segs:
         .byte   UICODE_BANK
         .word   __UICODE_LOAD__, __UICODE_RUN__, __UICODE_SIZE__

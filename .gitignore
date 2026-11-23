@@ -17,6 +17,8 @@ cart.bin
 cart.lbl
 tunnel.bin
 tunnel.lbl
+fftest.bin
+fftest.lbl
 proto/*/*.bin
 assets/*.bin
 assets/vgm/*_stream.bin

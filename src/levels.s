@@ -123,13 +123,14 @@ LVL_BANK    = LDR_BANK          ; cart.cfg: the LEVELS segment's bank - the
         .segment "LEVELS"
 
 ; === GENERATED (tools/level_editor.py) - rewritten whole on Save =============
-NLEVELS     = 2
+NLEVELS     = 3
 
 ; Level names. A comment, not a table - no level has anything to print them
 ; on yet, and a string per level is ROM with nothing to spend it on. The editor
 ; reads and rewrites these lines, so keep the format.
 ;   NAME 0 "MINING ZONE"
 ;   NAME 1 "SECTOR ZERO"
+;   NAME 2 "FORCE FIELD TEST"
 
 ; -----------------------------------------------------------------------------
 ; What each level asks for. THIS is the source: the tables further down are
@@ -149,6 +150,10 @@ NLEVELS     = 2
 ;         built
 ;   BASE_X   where it stands, world 16-bit - fixed, it never moves; unread
 ;         while BASE_ON is 0
+;   FF_ON    whether this sector has the force field (ffield.s): 0 = none,
+;         1 = there - never with the base (the wall slots, slots.s)
+;   FF_X     its centre, world 16-bit; the radius is ffield.s's FF_R, fixed
+;   FF_VIS   1 = drawn, 0 = invisible (flashed where it is hit)
 ; -----------------------------------------------------------------------------
 ; level 0 - "MINING ZONE"
 L0_N192     = 15
@@ -167,6 +172,10 @@ L0_GTY      = $5130
 L0_BASE_ON  = 1
 L0_BASE_X   = $8000
 L0_BASE_Y   = $5800
+L0_FF_ON    = 0
+L0_FF_X     = $8000
+L0_FF_Y     = $8000
+L0_FF_VIS   = 1
 
 ; level 1 - "SECTOR ZERO"
 L1_N192     = 8
@@ -185,6 +194,32 @@ L1_GTY      = $5130
 L1_BASE_ON  = 0
 L1_BASE_X   = $8000
 L1_BASE_Y   = $5800
+L1_FF_ON    = 0
+L1_FF_X     = $8000
+L1_FF_Y     = $8000
+L1_FF_VIS   = 1
+
+; level 2 - "FORCE FIELD TEST"
+L2_N192     = 4
+L2_N128     = 6
+L2_N64      = 12
+L2_N32      = 12
+L2_N16      = 10
+L2_SEED     = $5A17
+L2_SHX      = $8000
+L2_SHY      = $3000
+L2_SHHD     = 128
+L2_MISN     = 2
+L2_MPAR     = 0
+L2_GTX      = $8000
+L2_GTY      = $1000
+L2_BASE_ON  = 0
+L2_BASE_X   = $8000
+L2_BASE_Y   = $5800
+L2_FF_ON    = 1
+L2_FF_X     = $8000
+L2_FF_Y     = $8000
+L2_FF_VIS   = 1
 
 ; The hand-placed blocks, and the counts DERIVED from their own length - so a
 ; record added or deleted by hand needs nothing else changed.
@@ -237,48 +272,74 @@ L1_ROCKN    = (LVL1_ROCKS_END - LVL1_ROCKS) / 6
 L1_FOEN     = (LVL1_FOES_END - LVL1_FOES) / 7
 L1_TOTAL    = L1_N192 + L1_N128 + L1_N64 + L1_N32 + L1_N16 + L1_ROCKN
 
+; level 2 - "FORCE FIELD TEST"
+; rocks: XL, XH, YL, YH, class, type - 6 bytes each, class 0..4 = 192..16
+LVL2_ROCKS:
+LVL2_ROCKS_END:
+; enemies: XL, XH, YL, YH, kind, heading, speed - 7 bytes each
+LVL2_FOES:
+        .byte   $00, $80, $00, $80, 0, 0, 0       ; UFO at 32768, 32768, holding its post
+        .byte   $00, $98, $00, $80, 0, 0, 60       ; UFO at 38912, 32768, course 0 at 60 px/s
+        .byte   $00, $20, $00, $20, 0, 64, 60       ; UFO at 8192, 8192, course 64 at 60 px/s
+        .byte   $00, $98, $00, $2C, 0, 0, 0       ; UFO at 38912, 11264, holding its post
+LVL2_FOES_END:
+L2_ROCKN    = (LVL2_ROCKS_END - LVL2_ROCKS) / 6
+L2_FOEN     = (LVL2_FOES_END - LVL2_FOES) / 7
+L2_TOTAL    = L2_N192 + L2_N128 + L2_N64 + L2_N32 + L2_N16 + L2_ROCKN
+
 ; -----------------------------------------------------------------------------
 ; The tables load_level indexes by level. Nothing here is a number: every cell
 ; is one of the constants above, so this half of the file cannot drift from it.
 ; -----------------------------------------------------------------------------
-LVL_N192:   .byte   L0_N192, L1_N192
-LVL_N128:   .byte   L0_N128, L1_N128
-LVL_N64:    .byte   L0_N64, L1_N64
-LVL_N32:    .byte   L0_N32, L1_N32
-LVL_N16:    .byte   L0_N16, L1_N16
+LVL_N192:   .byte   L0_N192, L1_N192, L2_N192
+LVL_N128:   .byte   L0_N128, L1_N128, L2_N128
+LVL_N64:    .byte   L0_N64, L1_N64, L2_N64
+LVL_N32:    .byte   L0_N32, L1_N32, L2_N32
+LVL_N16:    .byte   L0_N16, L1_N16, L2_N16
 
-LVL_SEEDL:  .byte   <L0_SEED, <L1_SEED
-LVL_SEEDH:  .byte   >L0_SEED, >L1_SEED
+LVL_SEEDL:  .byte   <L0_SEED, <L1_SEED, <L2_SEED
+LVL_SEEDH:  .byte   >L0_SEED, >L1_SEED, >L2_SEED
 
-LVL_SHXL:   .byte   <L0_SHX, <L1_SHX
-LVL_SHXH:   .byte   >L0_SHX, >L1_SHX
-LVL_SHYL:   .byte   <L0_SHY, <L1_SHY
-LVL_SHYH:   .byte   >L0_SHY, >L1_SHY
-LVL_SHHD:   .byte   L0_SHHD, L1_SHHD
+LVL_SHXL:   .byte   <L0_SHX, <L1_SHX, <L2_SHX
+LVL_SHXH:   .byte   >L0_SHX, >L1_SHX, >L2_SHX
+LVL_SHYL:   .byte   <L0_SHY, <L1_SHY, <L2_SHY
+LVL_SHYH:   .byte   >L0_SHY, >L1_SHY, >L2_SHY
+LVL_SHHD:   .byte   L0_SHHD, L1_SHHD, L2_SHHD
 
-LVL_MISN:   .byte   L0_MISN, L1_MISN
-LVL_MPAR:   .byte   L0_MPAR, L1_MPAR
-LVL_GTXL:   .byte   <L0_GTX, <L1_GTX
-LVL_GTXH:   .byte   >L0_GTX, >L1_GTX
-LVL_GTYL:   .byte   <L0_GTY, <L1_GTY
-LVL_GTYH:   .byte   >L0_GTY, >L1_GTY
+LVL_MISN:   .byte   L0_MISN, L1_MISN, L2_MISN
+LVL_MPAR:   .byte   L0_MPAR, L1_MPAR, L2_MPAR
+LVL_GTXL:   .byte   <L0_GTX, <L1_GTX, <L2_GTX
+LVL_GTXH:   .byte   >L0_GTX, >L1_GTX, >L2_GTX
+LVL_GTYL:   .byte   <L0_GTY, <L1_GTY, <L2_GTY
+LVL_GTYH:   .byte   >L0_GTY, >L1_GTY, >L2_GTY
 
-LVL_BASE_ON: .byte   L0_BASE_ON, L1_BASE_ON
-LVL_BASE_XL: .byte   <L0_BASE_X, <L1_BASE_X
-LVL_BASE_XH: .byte   >L0_BASE_X, >L1_BASE_X
-LVL_BASE_YL: .byte   <L0_BASE_Y, <L1_BASE_Y
-LVL_BASE_YH: .byte   >L0_BASE_Y, >L1_BASE_Y
+LVL_BASE_ON: .byte   L0_BASE_ON, L1_BASE_ON, L2_BASE_ON
+LVL_BASE_XL: .byte   <L0_BASE_X, <L1_BASE_X, <L2_BASE_X
+LVL_BASE_XH: .byte   >L0_BASE_X, >L1_BASE_X, >L2_BASE_X
+LVL_BASE_YL: .byte   <L0_BASE_Y, <L1_BASE_Y, <L2_BASE_Y
+LVL_BASE_YH: .byte   >L0_BASE_Y, >L1_BASE_Y, >L2_BASE_Y
 
-LVL_ROCKN:  .byte   L0_ROCKN, L1_ROCKN
-LVL_ROCKLO: .byte   <LVL0_ROCKS, <LVL1_ROCKS
-LVL_ROCKHI: .byte   >LVL0_ROCKS, >LVL1_ROCKS
+LVL_FF_ON:  .byte   L0_FF_ON, L1_FF_ON, L2_FF_ON
+LVL_FF_XL:  .byte   <L0_FF_X, <L1_FF_X, <L2_FF_X
+LVL_FF_XH:  .byte   >L0_FF_X, >L1_FF_X, >L2_FF_X
+LVL_FF_YL:  .byte   <L0_FF_Y, <L1_FF_Y, <L2_FF_Y
+LVL_FF_YH:  .byte   >L0_FF_Y, >L1_FF_Y, >L2_FF_Y
+LVL_FF_VIS: .byte   L0_FF_VIS, L1_FF_VIS, L2_FF_VIS
 
-LVL_FOEN:   .byte   L0_FOEN, L1_FOEN
-LVL_FOELO:  .byte   <LVL0_FOES, <LVL1_FOES
-LVL_FOEHI:  .byte   >LVL0_FOES, >LVL1_FOES
+LVL_ROCKN:  .byte   L0_ROCKN, L1_ROCKN, L2_ROCKN
+LVL_ROCKLO: .byte   <LVL0_ROCKS, <LVL1_ROCKS, <LVL2_ROCKS
+LVL_ROCKHI: .byte   >LVL0_ROCKS, >LVL1_ROCKS, >LVL2_ROCKS
+
+LVL_FOEN:   .byte   L0_FOEN, L1_FOEN, L2_FOEN
+LVL_FOELO:  .byte   <LVL0_FOES, <LVL1_FOES, <LVL2_FOES
+LVL_FOEHI:  .byte   >LVL0_FOES, >LVL1_FOES, >LVL2_FOES
 
 ; The one thing a level cannot be allowed to get wrong, checked by the
 ; assembler rather than discovered in the simulator.
         .assert L0_TOTAL <= NOBJ, error, "level 0 (MINING ZONE) asks for more rocks than NOBJ slots"
+        .assert !(L0_BASE_ON && L0_FF_ON), error, "level 0 (MINING ZONE) has the base AND the force field - the wall slots hold one"
         .assert L1_TOTAL <= NOBJ, error, "level 1 (SECTOR ZERO) asks for more rocks than NOBJ slots"
+        .assert !(L1_BASE_ON && L1_FF_ON), error, "level 1 (SECTOR ZERO) has the base AND the force field - the wall slots hold one"
+        .assert L2_TOTAL <= NOBJ, error, "level 2 (FORCE FIELD TEST) asks for more rocks than NOBJ slots"
+        .assert !(L2_BASE_ON && L2_FF_ON), error, "level 2 (FORCE FIELD TEST) has the base AND the force field - the wall slots hold one"
 ; === END GENERATED ===

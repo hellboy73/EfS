@@ -434,6 +434,19 @@ ship, enemies stopped and sliding). What is still open:
   py65 at about 121 k GPU cycles, half a frame, when the hexagon fills the screen
   (11.48); the F3 meter is owed a look.
 
+**E13. Force field - the missions (the engine is settled: `design_technical.md` 11.51).**
+The user's idea of 2026-11-23: the aliens shield an area with a circle that nothing
+crosses but the teleport (B1), the payoff for teaching the teleport early. How it
+draws, collides and lives in RAM is decided (11.51, the slots 11.52). What is still open:
+
+* **The missions.** Which sectors have it, and whether the player has to go in, out or
+  both - the level's map decides (the user); a rescue from inside and back out is the
+  first candidate. How the teleport's charge is kept for the way back.
+* **Visible or invisible per level** - both are built; which level gets which.
+* **The radar** - not shown for now; look again once a level is flown.
+* **Enemies at the edge** - they slide along it (11.51); whether a hunter that keeps
+  grinding there needs steering round it is the base's E11 again.
+
 **F1. Mission types (TBD).** ~~Number of levels~~ — **settled: 5 levels**
 (MINING ZONE / CONTACT / HUNT / RESCUE / ESCAPE, re-cut 2026-09-18, see `story.md`). What
 remains open is the implementation of the three mission types the script needs:

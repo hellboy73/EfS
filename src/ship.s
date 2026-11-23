@@ -315,7 +315,7 @@ do_ship:
         BUILD_ROT ZSI, ZSF, ZOOMH, #$00 ;  @-scope this sits in)
 :
 
-        jsr     base_brake              ; the human base's field: the velocity
+        jsr     WS_BRAKE                ; the human base's field: the velocity
                                         ;   that would enter it is not taken
                                         ;   (base.s)
         clc                             ; position += velocity, 16.8 + 16.8.

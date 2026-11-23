@@ -95,6 +95,8 @@ ld_enter:
         lda     #LDR_BANK | CART_EN     ; (cart_bank keeps X and Y)
         jsr     API_CART_BANK
         jsr     ld_disp                 ; ...in the window from here
+        jsr     ws_sync                 ; ...then the wall slots' tenant the
+                                        ;   sector asked for (slots.s), out of it
         pla
         jsr     API_CART_BANK           ; the caller's window, CART_EN as it was
         pla

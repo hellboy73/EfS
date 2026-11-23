@@ -27,7 +27,8 @@ MODULES = src/math.s src/input.s src/camera.s src/ship.s src/thrust.s \
           src/pulsar.s src/emp.s src/shield.s src/trainer.s src/gate.s \
           src/pickup.s src/capsule.s src/sprites.s src/base.s src/empmine.s \
           src/speech.s src/tunnel.s src/tunnel_pod.s src/tunnel_art.s \
-          src/tunnel_hud.s src/loader.s src/freight.s
+          src/tunnel_hud.s src/loader.s src/freight.s \
+          src/slots.s src/ffield.s
 DATA    = src/shapes.s src/enemies.s src/levels.s src/radar_bg.s \
           src/flames.s src/arrows.s src/screens_art.s src/scroller_text.s \
           src/pickups_art.s src/capsule_art.s src/repair_art.s
@@ -58,6 +59,15 @@ $(CART): $(DEPS)
 # cart.lbl are left as they were. `make run-tunnel`, or run_tunnel.bat.
 tunnel.bin: $(DEPS)
 	cl65 -g -t none -C cart.cfg -o $@ -Ln tunnel.lbl --asm-define DEMO=0 --asm-define TUNTEST=1 $(UNITS)
+
+# THE FORCE FIELD'S TEST LEVEL: a third image whose new game starts in level 2,
+# FORCE FIELD TEST (levels.s) - the trainer's FIRE2 on the other pad turns the
+# field visible / invisible. `make run-fftest`.
+fftest.bin: $(DEPS)
+	cl65 -g -t none -C cart.cfg -o $@ -Ln fftest.lbl --asm-define DEMO=0 --asm-define TUNTEST=0 --asm-define FFTEST=1 $(UNITS)
+
+run-fftest: fftest.bin
+	./madsim.exe --tate --gpu roms/gpu_os.bin --cpu1 roms/cpu_os.bin --cart fftest.bin
 
 # The tunnel's own bench (tools/tunnel_bench.py): seconds, on the tunnel image.
 tunnel-test: tunnel.bin

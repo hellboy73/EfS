@@ -47,8 +47,8 @@
 ; is drawn for nothing yet.
 ;
 ; WHERE IT LIVES: state under the window behind empmine.s's (read only inside
-; cart_frame's bracket, written by the loader); code in CODE9 (FIELDRAM, ROM
-; bank 2 - bank 6 behind CODE6 had no room), frt_add in LDCODE (loader.s).
+; cart_frame's bracket, written by the loader); code in BSFRAME (slot B of the
+; WALL SLOTS, the base tenant - slots.s), frt_add in LDCODE (loader.s).
 ; =============================================================================
 FK_FREIGHT  = 4                 ; the KIND a levels.s enemy record carries for
                                 ;   one. Not one of foes.s's FK_* - nothing flies
@@ -99,7 +99,7 @@ LDFRT       = $73BE             ; the loader's count while it fills the list - N
         .assert CAPYH < LDFRT && LDFRT < WINSAVE, error, "freight.s: LDFRT is not the free byte between capsule.s's block and WINSAVE"
 
         .pushseg
-        .segment "CODE9"
+        .segment "BSFRAME"
 
 ; -----------------------------------------------------------------------------
 ; do_freight - once a frame, inside the bracket, after do_base and before

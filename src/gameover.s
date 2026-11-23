@@ -396,6 +396,8 @@ ld_steps:
         .addr   load_foes               ; ...then the enemies (foes.s)
         .addr   gate_load               ; ...the exit, closed (gate.s)
         .addr   base_load               ; ...the human base, if any (base.s)
+        .addr   ff_load                 ; ...or the force field (ffield.s), which
+                                        ;   then asks the wall slots for itself
         .addr   lb_hud                  ; ...and the message bar
 LD_NSTEPS   = (* - ld_steps) / 2
 
@@ -482,6 +484,12 @@ lb_state:
 lb_field:
         ldx     CURLEV                  ; the field, the ship's place in it and
         jsr     load_level              ;   the sector grid, all out of levels.s.
+        lda     HEAD                    ; ...and the rotation tables and the star
+        eor     #$80                    ;   bases owed to the LEVEL's heading:
+        sta     ROTHEAD                 ;   lb_state's $80 is itself a heading a
+        sta     BASEHEAD                ;   level can start on (128, FORCE FIELD
+                                        ;   TEST), and then nothing was built and
+                                        ;   the whole field drew on the ship
         WCALL   radar_census            ;   The radar's per-class rock count is
         rts                             ;   taken here, once, off the field
                                         ;   load_level just built - see radar_sens.

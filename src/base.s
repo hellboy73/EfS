@@ -85,8 +85,11 @@
 ; its circle, and ends in a puff on its tip; the base has no hit points yet, so it
 ; is not hurt. The laser's beam (laser.s) still goes through.
 ;
-; WHERE IT LIVES. The place, the discs and the mark are CODE6 (DEMO_RAM); the
-; wall is CODE7, stored in bank 6 and run in upper RAM. State is under the
+; WHERE IT LIVES. In the WALL SLOTS (slots.s, design_technical 11.52), as the
+; BASE TENANT, which the force field replaces in a sector that has one: the
+; place, the discs and the mark are BSFRAME (slot B, the tail of DEMO_RAM, from
+; bank 2); the wall is BSWALL (slot A, the tail of upper RAM, from bank 7). The
+; movers call it through slots.s's vectors (WS_*), never by name. State is under the
 ; window behind gate.s's, so all of it runs inside cart_frame's win_off bracket:
 ; do_base from frame_body just before do_stars (the disc must be in the list
 ; before the stars are walked), base_brake from do_ship, base_rock from
@@ -176,7 +179,7 @@ BASE_END    = BSB + 58
         .assert BASE_END <= SHAPES_AT, error, "base.s: past the RAM under the window"
 
         .pushseg
-        .segment "CODE6"
+        .segment "BSFRAME"
 
 ; -----------------------------------------------------------------------------
 ; base_load - level_begin, after gate_load: this sector's base, or none.
@@ -205,6 +208,8 @@ base_load:                              ;   this bank's, read straight; nothing
         stz     BSAST
         lda     #EN_BASE_AHOLD
         sta     BSACD
+        lda     #WK_BASE                ; the wall slots' tenant (slots.s): the
+        sta     WSKIND                  ;   base, until a level asks for the field
         rts
         .popseg
 
@@ -383,16 +388,16 @@ bs_disc:
 BR_DX:  .byte   <-2, <-2, <-1, <-1, 0, 0, 1, 1
 BR_DY:  .byte   0, <-1, 1, <-2, 1, <-2, 0, <-1
 
-        .segment "CODE6"
+        .segment "BSFRAME"
         .assert BR_DY - BR_DX = BR_N && GTR_N >= BR_N, error, "base.s: the mark's dots go through gate.s's GTRB, which holds GTR_N"
 
         .popseg
 
 ; =============================================================================
-; The wall. CODE7: stored in bank 6, run in upper RAM (cart.cfg).
+; The wall. BSWALL: stored in bank 7, run in slot A (upper RAM; cart.cfg).
 ; =============================================================================
         .pushseg
-        .segment "CODE7"
+        .segment "BSWALL"
 
 ; -----------------------------------------------------------------------------
 ; bs_keep - put a mover back on the circles of the live segments, if it is in one.

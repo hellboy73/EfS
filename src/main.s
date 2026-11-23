@@ -133,7 +133,14 @@ NOBJ        = 255               ; asteroid SLOTS. How many rocks a level puts
                                 ;   whole pages. Going past it means widening
                                 ;   every index in do_objects, physics.s and the
                                 ;   grid to 16 bits.
+.ifndef FFTEST
+FFTEST        = 0               ; 1: a new game starts in the force field's test
+.endif                          ;   level (make run-fftest)
+.if FFTEST
+START_LEVEL = 2                 ; FORCE FIELD TEST (levels.s)
+.else
 START_LEVEL = DEMO              ; (0 = MINING ZONE, 1 = SECTOR ZERO - the demo's)
+.endif
                                 ; was 0                 ; which of levels.s's levels cart_init loads.
                                 ;   One level exists; the campaign is five
                                 ;   (design_technical 9), and picking between
@@ -1381,13 +1388,11 @@ frame_body:
                                         ; ...the pixel puffs its hits threw off,
                                         ;   which outlive the bullet that made
                                         ;   them by a few frames
-        jsr     do_freight              ; the freighters (freight.s): moved, and
-                                        ;   their discs in before the stars, as
-                                        ;   the base's below
-        jsr     do_base                 ; the human base, if the sector has one:
-                                        ;   its squares and, above all, their
-                                        ;   discs - do_stars reads the list, so
-                                        ;   this is the last place (base.s)
+        jsr     WS_FRAME                ; the wall slots' tenant (slots.s): the
+                                        ;   freighters and the human base, or the
+                                        ;   force field - moved, drawn and, above
+                                        ;   all, their discs in: do_stars reads
+                                        ;   the list, so this is the last place
         jsr     do_stars
         jsr     do_motes
         jsr     emit_ship
@@ -1600,15 +1605,21 @@ frame_body:
                                         ; it, and SECTOR COMPLETED. CODE6, after
                                         ; shield.s (its state follows that
                                         ; file's) and screens.s (SC_SECTOR)
+        .include "slots.s"              ; the wall slots: the base's code or the
+                                        ; force field's, swapped per sector, and
+                                        ; the vectors every caller goes through.
+                                        ; FIRST in BSFRAME/FFFRAME (the tables)
         .include "base.s"               ; the human base: fifteen squares drawn
                                         ; by a rule, their star-occlusion discs,
                                         ; and the field the ship cannot enter.
-                                        ; CODE6, its state behind gate.s's
+                                        ; Slots A/B (base tenant), its state
+                                        ; behind gate.s's
         .include "empmine.s"            ; the EMP mine: a static trap that
                                         ; spins up and discharges. CODE7 (UPPER),
                                         ; its state behind base.s's
         .include "freight.s"            ; the freighter: a neutral transport, a
                                         ; base that drifts - its walls are base.s's
+        .include "ffield.s"             ; the force field: the slots' other tenant
         .include "pickup.s"             ; the laser, the shield and the EMP,
                                         ; dropped by a kill and homing like
                                         ; Saturnium. CODE6, its art in SPRART

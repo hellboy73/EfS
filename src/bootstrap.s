@@ -64,6 +64,8 @@
         .import __CODE9_LOAD__, __CODE9_RUN__, __CODE9_SIZE__
         .import __CODE8_LOAD__, __CODE8_RUN__, __CODE8_SIZE__
         .import __CODE7_LOAD__, __CODE7_RUN__, __CODE7_SIZE__
+        .import __BSWALL_LOAD__, __BSWALL_RUN__, __BSWALL_SIZE__
+        .import __BSFRAME_LOAD__, __BSFRAME_RUN__, __BSFRAME_SIZE__
         .import __SHAPES_LOAD__, __SHAPES_RUN__, __SHAPES_SIZE__
         .import cart_init, cart_frame
 
@@ -99,12 +101,14 @@ CODE6_BANK    = 6               ; ...and the pulsar (+ gate/emp/trainer/base)
                                  ;   packed into FIELDRAM after CODE5
 CODE9_BANK    = 2               ; ...and the EMP mine's hull behind SHAPES in
                                  ;   bank 2, FIELDRAM again, after CODE6
-CODE7_BANK    = 7               ; ...and the base's code behind SPRART in bank 7,
+CODE7_BANK    = 7               ; ...and the EMP mine's code behind SPRART in bank 7,
                                  ;   running in upper RAM, after HIDATA
 CODE8_BANK    = 7               ; ...and behind CODE7, overlay.s - the FIELD/
                                  ;   SCREEN swap dispatcher, run area, after
                                  ;   CODE4 (it must never be what it swaps -
                                  ;   see overlay.s's header)
+BSWALL_BANK   = 7               ; the wall slots' base tenant (slots.s, which has
+BSFRAME_BANK  = 2               ;   the same two numbers): slot A, slot B
 SHAPES_BANK   = 2               ; ...and the vertex tables behind RODATA in bank
                                  ;   2, running in the RAM under the window at
                                  ;   $9800 - a write there reaches the RAM whatever
@@ -169,6 +173,10 @@ boot_segs:
         .word   __SHAPES_LOAD__, __SHAPES_RUN__, __SHAPES_SIZE__
         .byte   CODE7_BANK
         .word   __CODE7_LOAD__, __CODE7_RUN__, __CODE7_SIZE__
+        .byte   BSWALL_BANK             ; the wall slots' power-on tenant, the
+        .word   __BSWALL_LOAD__, __BSWALL_RUN__, __BSWALL_SIZE__ ; base (slots.s)
+        .byte   BSFRAME_BANK
+        .word   __BSFRAME_LOAD__, __BSFRAME_RUN__, __BSFRAME_SIZE__
         .byte   CODE8_BANK
         .word   __CODE8_LOAD__, __CODE8_RUN__, __CODE8_SIZE__
 boot_segs_end:
