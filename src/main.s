@@ -1381,6 +1381,9 @@ frame_body:
                                         ; ...the pixel puffs its hits threw off,
                                         ;   which outlive the bullet that made
                                         ;   them by a few frames
+        jsr     do_freight              ; the freighters (freight.s): moved, and
+                                        ;   their discs in before the stars, as
+                                        ;   the base's below
         jsr     do_base                 ; the human base, if the sector has one:
                                         ;   its squares and, above all, their
                                         ;   discs - do_stars reads the list, so
@@ -1604,6 +1607,8 @@ frame_body:
         .include "empmine.s"            ; the EMP mine: a static trap that
                                         ; spins up and discharges. CODE7 (UPPER),
                                         ; its state behind base.s's
+        .include "freight.s"            ; the freighter: a neutral transport, a
+                                        ; base that drifts - its walls are base.s's
         .include "pickup.s"             ; the laser, the shield and the EMP,
                                         ; dropped by a kill and homing like
                                         ; Saturnium. CODE6, its art in SPRART

@@ -46,7 +46,8 @@ pixels a second, 0..175, where 0 holds its post. The arrow on an enemy is that
 course, as long as the speed; the dashed circle ("show enemy sight") is how far
 it SEES - the resting screen's height, foes.s FOE_SEE - so which patrols will
 spot the ship where is judged here. KIND 0 is the UFO, 1 the spider, 2 the
-pulsar, 3 the EMP mine (foes.s FK_*, KIND_NAMES here); a kind nothing knows how
+pulsar, 3 the EMP mine (foes.s FK_*, KIND_NAMES here), 4 a FREIGHTER (freight.s:
+not an enemy - heading 0 north or 128 south, speed 0 docked); a kind nothing knows how
 to fly is skipped at load, not drawn as a UFO in disguise.
 
 The human base (base.s) is placed the same way as the ship and the gate - one
@@ -88,7 +89,7 @@ HALF = WORLD // 2                       #   bits: the wrap IS the overflow
 UNITS_PER_PX = 16                       # world units to one full-res pixel
 FOE_KINDS = 8                           # what fits in the editor's spinbox; the
                                         #   roster itself is open_questions E6
-KIND_NAMES = {0: "UFO", 1: "SPIDER", 2: "PULSAR", 3: "EMP MINE"}  # ...and the ones foes.s can fly
+KIND_NAMES = {0: "UFO", 1: "SPIDER", 2: "PULSAR", 3: "EMP MINE", 4: "FREIGHTER"}  # ...and the ones foes.s can fly
 FOE_REC = 7                             # bytes an enemy record takes: XL XH YL YH
                                         #   kind heading speed (levels.s header)
 FOE_SPD_MAX = 175                       # px/s - the pursuit speed, foes.s FOE_SPD;

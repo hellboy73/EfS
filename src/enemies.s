@@ -394,8 +394,8 @@ EN_EMP_MINE_S1: .byte     3,   <-6,     0,     3,     5,   <-8,    14
 EN_EMP_MINE_S2: .byte     3,     3,   <-5,    16,     0,     3,     5
 
 ; ---- TRANSPORTER ----
-EN_TRANSPORTER_PN     = 2      ; parts, the same in every frame
-EN_TRANSPORTER_PW     = 2      ; ...of which the LEADING ones become wreck pieces
+EN_TRANSPORTER_PN     = 1      ; parts, the same in every frame
+EN_TRANSPORTER_PW     = 1      ; ...of which the LEADING ones become wreck pieces
 EN_TRANSPORTER_FN     = 1      ; authored frames
 EN_TRANSPORTER_AN     = 1      ; playlist steps - any number
 EN_TRANSPORTER_AHOLD  = 8      ; game frames one step lasts
@@ -403,13 +403,9 @@ EN_TRANSPORTER_R      = 21      ; collision circle, collision units: radius 42 f
 EN_TRANSPORTER_RBASE  = 129      ; its first row in EN_PLO/EN_PHI...
 EN_TRANSPORTER_ABASE  = 33      ; ...and its first step in EN_ANIM
 ; f0p0
-EN_TRANSPORTER_S0: .byte    12,    45,    30,   <-45,    30,   <-45,    15,   <-40
-               .byte    15,   <-40,   <-15,   <-45,   <-15,   <-45,   <-30,    45
-               .byte   <-30,    45,   <-15,    40,   <-15,    40,    15,    45
-               .byte    15
-; f0p1
-EN_TRANSPORTER_S1: .byte     4,   <-20,    14,   <-20,   <-15,    20,   <-15,    20
-               .byte    14
+EN_TRANSPORTER_S0: .byte     9,    45,    30,   <-35,    30,   <-48,     0,   <-35
+               .byte   <-30,    45,   <-30,    45,   <-15,    40,   <-15,    40
+               .byte    15,    45,    15
 
 ; ---- TRANSPORTER_DAMAGED ----
 EN_TRANSPORTER_DAMAGED_PN     = 2      ; parts, the same in every frame
@@ -418,13 +414,12 @@ EN_TRANSPORTER_DAMAGED_FN     = 1      ; authored frames
 EN_TRANSPORTER_DAMAGED_AN     = 1      ; playlist steps - any number
 EN_TRANSPORTER_DAMAGED_AHOLD  = 8      ; game frames one step lasts
 EN_TRANSPORTER_DAMAGED_R      = 21      ; collision circle, collision units: radius 42 full-res px
-EN_TRANSPORTER_DAMAGED_RBASE  = 131      ; its first row in EN_PLO/EN_PHI...
+EN_TRANSPORTER_DAMAGED_RBASE  = 130      ; its first row in EN_PLO/EN_PHI...
 EN_TRANSPORTER_DAMAGED_ABASE  = 34      ; ...and its first step in EN_ANIM
 ; f0p0
-EN_TRANSPORTER_DAMAGED_S0: .byte    13,    45,    30,   <-45,    30,   <-45,    15,   <-40
-               .byte    15,   <-40,   <-4,    20,   <-15,   <-45,   <-23,   <-43
-               .byte   <-38,    47,   <-27,    45,   <-12,    40,   <-12,    40
-               .byte    15,    45,    15
+EN_TRANSPORTER_DAMAGED_S0: .byte    11,    45,    30,   <-35,    30,   <-48,     0,    20
+               .byte   <-15,   <-39,   <-24,   <-33,   <-38,    47,   <-27,    45
+               .byte   <-12,    40,   <-12,    40,    15,    45,    15
 ; f0p1
 EN_TRANSPORTER_DAMAGED_S1: .byte   132,   <-39,   <-4,     1,    30,    40,    15,    20
                .byte   <-15
@@ -496,8 +491,7 @@ EN_PLO:        .byte <EN_UFO_S0, <EN_UFO_S1, <EN_UFO_S2, <EN_UFO_S3, <EN_UFO_S4,
                .byte <EN_BASE_S6, <EN_BASE_S1, <EN_BASE_S2, <EN_BASE_S9, <EN_BASE_S4, <EN_BASE_S5
                .byte <EN_BASE_S6, <EN_BASE_S1, <EN_BASE_S2, <EN_BASE_S3, <EN_BASE_S10, <EN_BASE_S5
                .byte <EN_BASE_S6, <EN_BASE_S1, <EN_BASE_S2, <EN_BASE_S3, <EN_BASE_S4, <EN_BASE_S11
-               .byte <EN_EMP_MINE_S0, <EN_EMP_MINE_S1, <EN_EMP_MINE_S2, <EN_TRANSPORTER_S0, <EN_TRANSPORTER_S1, <EN_TRANSPORTER_DAMAGED_S0
-               .byte <EN_TRANSPORTER_DAMAGED_S1
+               .byte <EN_EMP_MINE_S0, <EN_EMP_MINE_S1, <EN_EMP_MINE_S2, <EN_TRANSPORTER_S0, <EN_TRANSPORTER_DAMAGED_S0, <EN_TRANSPORTER_DAMAGED_S1
 EN_PHI:        .byte >EN_UFO_S0, >EN_UFO_S1, >EN_UFO_S2, >EN_UFO_S3, >EN_UFO_S4, >EN_UFO_S0
                .byte >EN_UFO_S1, >EN_UFO_S5, >EN_UFO_S6, >EN_UFO_S4, >EN_UFO_S0, >EN_UFO_S1
                .byte >EN_UFO_S7, >EN_UFO_S8, >EN_UFO_S4, >EN_UFO_S0, >EN_UFO_S1, >EN_UFO_S9
@@ -519,8 +513,7 @@ EN_PHI:        .byte >EN_UFO_S0, >EN_UFO_S1, >EN_UFO_S2, >EN_UFO_S3, >EN_UFO_S4,
                .byte >EN_BASE_S6, >EN_BASE_S1, >EN_BASE_S2, >EN_BASE_S9, >EN_BASE_S4, >EN_BASE_S5
                .byte >EN_BASE_S6, >EN_BASE_S1, >EN_BASE_S2, >EN_BASE_S3, >EN_BASE_S10, >EN_BASE_S5
                .byte >EN_BASE_S6, >EN_BASE_S1, >EN_BASE_S2, >EN_BASE_S3, >EN_BASE_S4, >EN_BASE_S11
-               .byte >EN_EMP_MINE_S0, >EN_EMP_MINE_S1, >EN_EMP_MINE_S2, >EN_TRANSPORTER_S0, >EN_TRANSPORTER_S1, >EN_TRANSPORTER_DAMAGED_S0
-               .byte >EN_TRANSPORTER_DAMAGED_S1
+               .byte >EN_EMP_MINE_S0, >EN_EMP_MINE_S1, >EN_EMP_MINE_S2, >EN_TRANSPORTER_S0, >EN_TRANSPORTER_DAMAGED_S0, >EN_TRANSPORTER_DAMAGED_S1
 ; === END GENERATED ===
 
         .popseg

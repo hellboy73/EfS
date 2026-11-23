@@ -3917,6 +3917,8 @@ fw_centre:
         .segment "LDCODE"
 load_foes:
         stz     NFOE
+        stz     LDFRT                   ; no freighter yet (freight.s) - the
+        stz     FRTN                    ;   count is written, never read, here
         stz     FOEKILL
         ldx     #FOE_MAX-1
 :       stz     FOEST,x
@@ -3947,11 +3949,15 @@ load_foes:
         sta     FEREC,y                 ;   foe_spawn inside the bracket
         dey
         bpl     :-
-        lda     NFOE                   ; a level that authors more than there
-        cmp     #FOE_MAX                ;   are slots loses the tail, quietly
-        bcs     @skip
         ldy     #4                      ; the KIND, out of the record in ROM -
         lda     (T0),y                  ;   FEREC+4 can't be read back here
+        cmp     #FK_FREIGHT             ; a FREIGHTER is not an enemy: it goes to
+        bne     :+                      ;   freight.s's own list, and takes no
+        jsr     frt_add                 ;   slot
+        bra     @skip
+:       ldx     NFOE                    ; a level that authors more than there
+        cpx     #FOE_MAX                ;   are slots loses the tail, quietly
+        bcs     @skip
         cmp     #FK_N                   ; a kind nothing knows how to fly is
         bcs     @skip                   ;   still not loaded at all
         WCALL   foe_spawn

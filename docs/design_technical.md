@@ -2397,3 +2397,43 @@ These are settled and should not be re-opened without a reason:
        its shape (the enemy editor), so that a new enemy is priced when it is drawn.
        An enemy that is dear for what it shows - parts that are a few pixels, parts
        that are absent in most frames - is redrawn, not budgeted around.
+
+50. **The freighter: a neutral human transport, built as a base that drifts - not
+    an enemy.** Decided 2026-11-22 (the user); built in `src/freight.s`.
+    * **What it is.** A levels.s enemy record with KIND 4 (`FK_FREIGHT`), which
+      `load_foes` diverts into freight.s's own list (`FR_MAX` = 4 a sector): it
+      takes no enemy slot, so nothing that hunts, frames, counts or kills enemies
+      (cam.s, the radar, the EMP, the mine, the laser, the pulsar, foe_alarm,
+      gate_check) sees one, with no line added to any of them. Indestructible for
+      now; a scenario may make it destructible (`EA_TRANSPORTER_DAMAGED` is
+      authored) or a mission's target ("find and defend the transport"). On the
+      radar it is four dots in a square, the middle of the base's 4x4 ring, while
+      in reach (gate.s `gr_pos`, as the base's mark; the user, 2026-11-23).
+    * **Two states.** ADRIFT (SPEED > 0, 120 px/s in level 0): it flies along the
+      world's Y axis only, HEADING 0 north / 128 south, forever, wrapping, seen or
+      not; a level keeps the base off its line. DOCKED (SPEED 0): it stands where
+      the level put it - no docking manoeuvre, placement is all of it: stern to
+      the base's bottom edge, the triangles' 16-unit gap away (level 0's sits at
+      (0x8000, 0x6550), facing south). Y only is what keeps its geometry free of
+      rotation.
+    * **Like the base, in everything it does to others.** Its wall is base.s's
+      (48): two circles of `FR_CR` 15 units on its long axis, 8 units fore and aft
+      (BS_OFF's last two rows) - rocks bounce off, enemies slide, the ship is
+      braked by the field (against where the freighter WILL be: it moves after
+      do_ship - by the EXACT whole-unit step, its fraction's carry included: a
+      unit short let a ship chasing it from the stern end a unit inside, where
+      the brake lets it go, and fly through) and never hurt, and every bullet ends on it in a puff, tested
+      against the hull's rectangle. base.s's wall routines read a BODY (BSB+0..9:
+      BSON, the anchor, BSLIVE, the circles' radius and first row, the body's y
+      velocity); `fr_each` swaps each freighter near a mover into it and runs the
+      base's own routine. The movers' calls (`base_rock` ...) did not change.
+    * **Drawn in solid lines** - POLYGON16 at full-res, like the rocks and the
+      UFOs, not the base's dots (the user) - through gate.s's `gb_draw`
+      (`GBSH` = 2), with one star-occlusion disc. Its nozzles leave a trail of the
+      bullet-hit puffs (`expl_at`) born 8 full-res px behind the stern, one every
+      8 frames while it moves.
+    * **Measured** (py65, 2026-11-22): ~610 B of resident code (FIELDRAM 564 +
+      47 in gb_draw, UPPER 47, run area 3); 47 B of state under the window. A
+      docked freighter on screen beside the base: **~27.6 k GPU cycles** (its
+      12-vertex hull and 4-vertex box - a UFO's price, so it counts against 49's
+      budget) and ~7.5 k CPU (3%). Off screen it is a few hundred cycles.

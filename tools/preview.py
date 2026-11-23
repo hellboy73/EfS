@@ -851,6 +851,10 @@ def boot_cart():
     # eight squares in the way would be counted as their own by every rock,
     # star and radar check below. base_bench turns it on.
     cpu_mem[asm_consts("satn.s", "emp.s", "shield.s", "gate.s", "base.s")["BSON"]] = 0
+    # ...and without its two freighters (src/freight.s): moving walls in the field
+    # would be counted as their own by every rock, shot and radar check below.
+    cpu_mem[asm_consts("radar.s", "satn.s", "emp.s", "shield.s", "gate.s", "base.s",
+                       "empmine.s", "freight.s")["FRTN"]] = 0
 # The OS boot leaves the cartridge ENABLED on bank 0 (cart_bank <- $80, see the
 # Boot Procedure) and CART_BANK_MIR holding that byte. This bench skips OS boot and
 # calls the cartridge directly, so it has to stand in for that step: cart_load

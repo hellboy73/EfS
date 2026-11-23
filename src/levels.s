@@ -72,8 +72,9 @@
 ;
 ;   XL, XH, YL, YH   the world position, 16-bit per axis
 ;   KIND             0 = the UFO, 1 = the spider, 2 = the pulsar, 3 = the EMP
-;                    mine (empmine.s). A kind nothing knows how to fly is not
-;                    loaded at all
+;                    mine (empmine.s), 4 = a FREIGHTER (freight.s) - not an
+;                    enemy and not in an enemy slot: HEADING 0 north / 128
+;                    south, SPEED 0 docked. A kind nothing knows is not loaded
 ;   HEADING          the patrol course, brad, the ship's own convention - 0 flies
 ;                    toward -Y, "up" in the editor, and 64 toward +X. Unread by
 ;                    a mine, which never turns to a heading - HEADING and SPEED
@@ -206,6 +207,8 @@ LVL0_FOES:
         .byte   $75, $50, $6C, $2A, 2, 0, 0       ; PULSAR at 20597, 10860, holding its post
         .byte   $00, $C0, $00, $C0, 3, 0, 0       ; EMP MINE at 49152, 49152, holding its post
         .byte   $00, $40, $00, $40, 3, 0, 0       ; EMP MINE at 16384, 16384, holding its post
+        .byte   $00, $80, $50, $65, 4, 128, 0       ; FREIGHTER at 32768, 25936, docked: stern to the base
+        .byte   $00, $94, $00, $90, 4, 0, 120       ; FREIGHTER at 37888, 36864, course 0 at 120 px/s
 LVL0_FOES_END:
 L0_ROCKN    = (LVL0_ROCKS_END - LVL0_ROCKS) / 6
 L0_FOEN     = (LVL0_FOES_END - LVL0_FOES) / 7

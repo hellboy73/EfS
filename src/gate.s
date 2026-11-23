@@ -116,6 +116,8 @@ GBAP        = GTRB + 1 + 2 * GTR_N  ; gb_draw's appearance (EA_*)...
 GBST        = GBAP + 1              ; ...the playlist step it shows...
 GBAN        = GBAP + 2              ; ...its own angle, brad...
 GBSH        = GBAP + 3              ; ...and 1 to halve the scale (the gate's
+                                    ;   ...or 2: SOLID - POLYGON16 at full-res, as
+                                    ;   the rocks are drawn (freight.s's freighter)
                                     ;   numbers are full-res px), 0 not (the
                                     ;   base's are half-res units)
 GBMK        = GBAP + 4              ; ...and which parts to draw, bit j = part j:
@@ -416,6 +418,9 @@ gb_draw:                                ; ...and base.s comes in here with its o
         lda     EN_PHI,y
         sta     SHPH
 .if GATE_DOT
+        lda     GBSH                    ; GBSH 2: SOLID, full-res - POLYGON16 as
+        cmp     #$02                    ;   the rocks are drawn (freight.s)
+        beq     @full
         lda     FXH                     ; the centre and the scale halved:
         cmp     #$80                    ;   DOT_POLYGON is half-res, and its
         ror     a                       ;   offsets are half-res px
@@ -434,8 +439,9 @@ gb_draw:                                ; ...and base.s comes in here with its o
         ldx     GBSH
         beq     :+
         lsr     a
-:
-.else
+:       bra     @scl
+@full:
+.endif
         lda     FXL
         sta     PBUF+0
         lda     FXH
@@ -445,8 +451,7 @@ gb_draw:                                ; ...and base.s comes in here with its o
         lda     FYH
         sta     PBUF+3
         lda     ZEASH
-.endif
-        sta     PBUF+5                  ; SCALE
+@scl:   sta     PBUF+5                  ; SCALE
         lda     GBAN                    ; ANGLE: its own, and the camera's
         sec
         sbc     HEAD
@@ -468,16 +473,21 @@ gb_draw:                                ; ...and base.s comes in here with its o
         lda     #>PBUF
         sta     OS_ARG+1
 .if GATE_DOT
+        lda     GBSH
+        cmp     #$02
+        beq     :+
         jsr     API_GPU_DOTPOLYGON
-.else
-        jsr     API_GPU_POLYGON16
+        bra     @next
+:
 .endif
+        jsr     API_GPU_POLYGON16
 @next:  inc     GTJ
         ldy     GBAP
         lda     GTJ
         cmp     EN_PN,y
-        bcc     @part
-        rts
+        bcs     :+
+        jmp     @part
+:       rts
 
 ; -----------------------------------------------------------------------------
 ; gate_radar - a triangle on the radar where the gate is, while it is in reach.

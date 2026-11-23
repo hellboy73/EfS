@@ -134,38 +134,44 @@ BSXL        = BSB + 1           ; the anchor - the middle of the hexagon -
 BSXH        = BSB + 2           ;   world 16-bit, fixed
 BSYL        = BSB + 3
 BSYH        = BSB + 4
-BSAST       = BSB + 5           ; its playlist step, like GTAST...
-BSACD       = BSB + 6           ; ...and the frames left on it, like GTACD
-                                ; BSB + 7 is spare
-BSLIVE      = BSB + 8           ; the live segments, bit j = triangle j
-BP          = BSB + 9           ; do_base: anchor - ship, kept: xl xh yl yh
+BSLIVE      = BSB + 5           ; the live segments, bit j = triangle j
+BSCR        = BSB + 6           ; the circles' radius, collision units: BS_CR
+BSRB        = BSB + 7           ; ...their first row in BS_OFF: 0
+BSVYL       = BSB + 8           ; ...and the body's own velocity, world units a
+BSVYH       = BSB + 9           ;   frame, y only, 16-bit: 0. BSON..BSVYH is the
+                                ;   BODY the wall routines read - 10 bytes, in this
+                                ;   order, which freight.s swaps a freighter into
+BSAST       = BSB + 10          ; its playlist step, like GTAST...
+BSACD       = BSB + 11          ; ...and the frames left on it, like GTACD
+BP          = BSB + 12          ; do_base: anchor - ship, kept: xl xh yl yh
 ; the wall's workspace. BW_D..BW_V is one run of eight bytes, in the order
 ; BS_ARR names the arrays that hold them
-BW_D        = BSB + 13          ; the mover's centre minus the anchor: xl xh yl yh
-BW_V        = BSB + 17          ; its velocity, signed 16 an axis: xl xh yl yh
-BW_D0       = BSB + 21          ; ...and where it started, for the ship's correction
-BW_R        = BSB + 25          ; its radius, collision units
-BW_M        = BSB + 26          ; what to do with its velocity: 0 zero, 1 reflect,
+BW_D        = BSB + 16          ; the mover's centre minus the anchor: xl xh yl yh
+BW_V        = BSB + 20          ; its velocity, signed 16 an axis: xl xh yl yh
+BW_D0       = BSB + 24          ; ...and where it started, for the ship's correction
+BW_R        = BSB + 28          ; its radius, collision units
+BW_M        = BSB + 29          ; what to do with its velocity: 0 zero, 1 reflect,
                                 ;   2 leave
-BW_I        = BSB + 27          ; the mover's slot...
-BW_TB       = BSB + 28          ; ...and its table in BS_ARR
-BW_W        = BSB + 29          ; 0 read the mover in, 1 write it out
-BW_K        = BSB + 30          ; bs_xfer's byte
-BW_DX       = BSB + 31          ; bs_circle: d = the mover - the centre, 16-bit an
+BW_I        = BSB + 30          ; the mover's slot...
+BW_TB       = BSB + 31          ; ...and its table in BS_ARR
+BW_W        = BSB + 32          ; 0 read the mover in, 1 write it out
+BW_K        = BSB + 33          ; bs_xfer's byte
+BW_DX       = BSB + 34          ; bs_circle: d = the mover - the centre, 16-bit an
                                 ;   axis, then its magnitude
-BW_MG       = BSB + 35          ; ...that magnitude in units (x at +0, y at +2)
-BW_SN       = BSB + 39          ; ...and its signs, bit 7 (x at +0, y at +2)
-BW_Q        = BSB + 43          ; (41 + the mover's radius)^2, 16-bit
-BW_AX       = BSB + 45          ; the axis a push is along, 0 x / 2 y...
-BW_OT       = BSB + 46          ; ...the other one...
-BW_AC       = BSB + 47          ; ...the unit the search has reached...
-BW_T        = BSB + 48          ; ...and 16-bit scratch
-BW_L        = BSB + 50          ; the live bits, being walked
-BW_S        = BSB + 51          ; the segment
-BW_PS       = BSB + 52          ; a push happened this pass, and ever
-BW_ANY      = BSB + 53
-BW_PASS     = BSB + 54          ; passes left
-BASE_END    = BSB + 55
+BW_MG       = BSB + 38          ; ...that magnitude in units (x at +0, y at +2)
+BW_SN       = BSB + 42          ; ...and its signs, bit 7 (x at +0, y at +2)
+BW_Q        = BSB + 46          ; (41 + the mover's radius)^2, 16-bit
+BW_AX       = BSB + 48          ; the axis a push is along, 0 x / 2 y...
+BW_OT       = BSB + 49          ; ...the other one...
+BW_AC       = BSB + 50          ; ...the unit the search has reached...
+BW_T        = BSB + 51          ; ...and 16-bit scratch
+BW_L        = BSB + 53          ; the live bits, being walked
+BW_S        = BSB + 54          ; the segment
+BW_PS       = BSB + 55          ; a push happened this pass, and ever
+BW_ANY      = BSB + 56
+BW_PASS     = BSB + 57          ; passes left
+BASE_END    = BSB + 58
+        .assert BSACD = BSAST + 1, error, "base.s: preview.py reads BSACD as BSAST + 1"
         .assert BW_V = BW_D + 4 && BW_D0 = BW_V + 4, error, "base.s: the workspace's runs"
         .assert BASE_END <= SHAPES_AT, error, "base.s: past the RAM under the window"
 
@@ -191,6 +197,11 @@ base_load:                              ;   this bank's, read straight; nothing
         sta     BSYH
         lda     #(1 << BS_N) - 1        ; every segment standing
         sta     BSLIVE
+        lda     #BS_CR                  ; ...and the rest of the BODY the wall
+        sta     BSCR                    ;   reads: the base's own circles, from
+        stz     BSRB                    ;   BS_OFF's first row, standing still
+        stz     BSVYL                   ;   (freight.s swaps a freighter in)
+        stz     BSVYH
         stz     BSAST
         lda     #EN_BASE_AHOLD
         sta     BSACD
@@ -411,7 +422,7 @@ bs_keep:
         bpl     @fr
         lda     BW_R                    ; rsum = a circle's radius and the mover's,
         clc                             ;   and rsum^2 off the quarter-squares
-        adc     #BS_CR
+        adc     BSCR
         asl     a
         tax
         lda     QSL,x
@@ -456,9 +467,10 @@ bs_keep:
 ; one place the circles leave free - has no way out of it by their walls.
 ; -----------------------------------------------------------------------------
 bs_eject:
-        lda     BW_R
-        clc
-        adc     #BS_ER
+        lda     BW_R                    ; BS_ER for the base: the body's circle
+        clc                             ;   radius and the 48 its farthest centre
+        adc     BSCR                    ;   is out
+        adc     #BS_ER - BS_CR
         cmp     #128                    ; rsum^2 is looked up by 2*rsum, a byte: a
         bcc     :+                      ;   mover of the biggest class is a unit
         lda     #127                    ;   short, and the next frame finishes it
@@ -469,6 +481,8 @@ bs_eject:
         lda     QSH,x
         sta     BW_Q+1
         lda     #BS_N                   ; the row after the segments' in BS_OFF: 0, 0
+        sec                             ;   - bs_circle adds the body's row base
+        sbc     BSRB
         sta     BW_S
         jmp     bs_circle               ; tail
 
@@ -478,6 +492,8 @@ bs_eject:
 ; -----------------------------------------------------------------------------
 bs_circle:
         lda     BW_S
+        clc
+        adc     BSRB                    ; the body's first row: 0 for the base
         asl     a
         asl     a
         tay                             ; this segment's row of BS_OFF
@@ -650,14 +666,17 @@ BS_OFF: .word   0, 1536
         .word   1323, $10000 - 768
         .word   1323, 768
         .word   0, 0                    ; ...and the anchor itself, for bs_eject
-        .assert * - BS_OFF = (BS_N + 1) * 4, error, "base.s: a row of BS_OFF a segment, and the anchor's"
+        .word   0, $10000 - FR_COFF     ; ...and a FREIGHTER's two (freight.s): bow
+        .word   0, FR_COFF              ;   and stern circles, on its long axis
+        .assert * - BS_OFF = (BS_N + 3) * 4, error, "base.s: a row of BS_OFF a segment, the anchor's, and the freighter's two"
+        .assert FR_RB = BS_N + 1, error, "base.s: freight.s's FR_RB is not the freighter's first row of BS_OFF"
 
 ; -----------------------------------------------------------------------------
 ; base_shot_p / base_shot_f - a bullet against the base: X = the player's bullet's
 ; slot / an enemy bullet's (kept). Carry SET = it hit a live segment and was spent
 ; (the puff on its tip; the player's slot is freed here, the enemy's by the caller).
 ; -----------------------------------------------------------------------------
-base_shot_p:
+bs_shotp1:
         lda     BSON
         beq     bs_none
         phx
@@ -677,7 +696,7 @@ base_shot_p:
         sec
         rts
 
-base_shot_f:
+bs_shotf1:
         lda     BSON
         beq     bs_none
         phx
@@ -739,7 +758,10 @@ bs_shot:
         adc     #BS_WIN
         cmp     #2 * BS_WIN
         bcs     @miss
-        lda     BSLIVE
+        lda     BSRB                    ; a FREIGHTER: its hull is a rectangle
+        beq     :+                      ;   on the world axes (freight.s)
+        jmp     fr_rect
+:       lda     BSLIVE
         sta     BW_L
         stz     BW_S
 @seg:   lsr     BW_L
@@ -838,7 +860,7 @@ bs_tri:
 ; base_rock - do_objects, after a rock has moved and BEFORE its cell is looked
 ; up, X = its slot (kept). A rock inside a circle is put back on it and turned.
 ; -----------------------------------------------------------------------------
-base_rock:
+bs_rock1:
         lda     BSON
         beq     @r
         lda     OBJXH,x                 ; the coarse reject: nearly every rock
@@ -868,7 +890,7 @@ base_rock:
 ; -----------------------------------------------------------------------------
 ; base_foe - foe_integrate's last word, X = the enemy's slot (kept).
 ; -----------------------------------------------------------------------------
-base_foe:
+bs_foe1:
         lda     BSON
         beq     @r
         lda     FOEXH,x
@@ -978,7 +1000,7 @@ BS_FOE: .word   FOEXL, FOEXH, FOEYL, FOEYH, FOEVXL, FOEVXH, FOEVYL, FOEVYH
 ; the part of what it took off that lay along the heading is also taken off TRAV,
 ; the stars' travel: without it the ship stands at the base and the stars flow on.
 ; -----------------------------------------------------------------------------
-base_brake:
+bs_brake1:
         lda     BSON
         bne     :+
         rts
@@ -1019,6 +1041,13 @@ base_brake:
         sta     BW_D+2
         lda     BW_D+3
         adc     VELYT
+        sta     BW_D+3
+        sec                             ; ...against where the BODY will be: a
+        lda     BW_D+2                  ;   freighter moves on y this frame
+        sbc     BSVYL                   ;   (freight.s), after the ship. 0 for
+        sta     BW_D+2                  ;   the base
+        lda     BW_D+3
+        sbc     BSVYH
         sta     BW_D+3
         lda     #$02
         jsr     bs_keep
