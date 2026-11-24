@@ -293,34 +293,160 @@ not forgotten if a split cascade (E9) or a content-heavy level ever sustains
 real overload in play — at which point this needs an actual flying pass, the
 same way B1-B8 did, not just picked numbers.
 
-**E12. CPU1 overload from a split cascade — a mid-frame deadline signal
-(TBD, the user, 2026-09-22).** E10/cam_rockbrake (`cam.s`) now gives the GPU
-side a brake: ABUDGET nearly spent pulls ZCAP in, regardless of what the
-enemy servo wants. **That is a different failure than this one.** Sweeping
-the laser through a big rock or a cluster splits many rocks in a few frames
-— E9's cascade — and the cost lands on CPU1 (`do_objects`' precise pass,
-`do_collide`'s pair walk), not the GPU, so it is not something ZCAP or any
-zoom lever touches: pulling the camera in shrinks what the GPU draws, not
-how many rocks `do_collide` has to test.
+**E12. CPU1 overload — a degraded mode driven by `FRAME_POS` (TBD; raised
+by the user 2026-09-22, plan agreed 2026-11-24, nothing built).** Some scenes
+cannot be prevented: the player multiplies rocks (E9's split cascade) or
+otherwise makes a frame CPU1 cannot finish. The GPU side already degrades
+gracefully (the list below). CPU1 does not: **a CPU1 frame overrun is not
+something to recover from, it must not happen.** The goal is to see the
+deadline coming, close the frame's list normally, and make the next frames
+cheaper.
 
-The idea on the table: a MAD-65 hardware register CPU1 could read mid-frame
-— how much of this frame's cycle budget is already spent — so code doing
-uncertain-cost work (a split cascade, future enemy behaviours) could check
-its OWN remaining room instead of a static per-call budget, and defer or
-skip past a threshold. That is a real deadline signal, not an estimate, but
-it is a MAD-65 change (hardware + firmware, the separate repo — rebuild and
-recopy the ROMs after) — a heavier lever than anything CPU1-only.
+**The governing rule: smoothness above everything** (the user, 2026-11-24).
+Every visible cost of degrading - a missing starfield, a closer camera, a
+rock that pops to a simpler outline, rocks passing through each other, a
+split with one child - is preferred to a single skipped frame, on either
+CPU. Weigh every fuse and threshold below against that, not against how
+the degradation looks.
 
-Cheaper, and worth ruling out first: a work-counter in ABUDGET's own shape,
-spent by `do_collide`/`rock_split` instead of GPU vertices — no new
-hardware, but it is its own constant to price and calibrate (E9 has not
-measured what a cascade actually costs per split, only per frame overall).
+*The signal.* `FRAME_POS`, `$BF80`, a proposed MAD-65 hardware register
+(MAD-65 `docs/MAD65_future_features.md`, not built): PHI2 cycles since the
+frame edge ÷ 1024, reads 0..231, one step ~0.43% of a frame, saturates at
+`$FF`. It restarts at every edge, so after an overrun it reads LOW - always
+read it FIRST and `VSYNC_FLAG` second (the doc's trap). madsim must model it
+(`min(255, cycles >> 10)`) and preview.py/py65 need an I/O hook returning a
+deterministic value before any cartridge reads it.
 
-Not attempted, nothing measured: not the register's shape, not the
-counter's price per split, not even which of the two is worth building
-first. Filed here next to E9 and E10 so it is not lost — an actual flying
-pass (soak a laser through a packed field, dump it, see which CPU1 phase
-grows) is what should decide between them, not a guess now.
+*The frame order: a cuttable tail.* `do_stars` and `do_motes` sit in the
+middle today (after `WS_FRAME`, main.s) only because they need the occluder
+list complete; their output goes out in `emit_stars`/`emit_motes` at the end.
+Their compute moves to after `do_hud`, still inside the `win_off` bracket.
+Then:
+
+```
+[fixed]           frame_services, ring, hud_tick, state, input, camera, ship
+[simulation]      do_objects, emit_asteroids, shots, foes, explosions, WS_FRAME
+[mandatory tail]  emit_ship .. do_shield, do_hud
+-- CHECKPOINT: FRAME_POS (then VSYNC_FLAG) >= threshold -> skip below, set DEGR
+[cuttable]        do_radar, do_stars, do_motes
+[emit, always]    emit_radar, win_on, emit_stars, emit_motes
+```
+
+Cutting is nearly free: `DOTBUF`, `MOTEBUF` and the radar pages (`$68xx`,
+`RADN`) survive the frame, so a skipped compute re-emits last frame's result
+(stars still one frame, radar one frame late) - no hole, no extra code past
+the skipped `jsr`s. The threshold is `231 - (cost of the emit block) -
+margin`, measured. One checkpoint, inline (~11 B: `lda FRAME_POS / ldx
+VSYNC_FLAG / bne / cmp # / bcs`), no shared routine - code space is short.
+
+*The guarantee's condition.* The checkpoint only saves what stands after it.
+Worst case of everything before it plus the mandatory tail must fit the
+frame: the degraded mode below is what keeps the next frames there, and the
+worst case is a measurement (a laser soak through a packed field, F2 dump,
+per-phase profile - `efs_dump_profiling`), not a guess.
+
+*`DEGR`: how long degraded lasts.* A counter, not a bit. Every cut sets it to
+H; every frame without a cut decrements it. H starts ~60 frames (1 s); a cut
+that comes back soon after leaving doubles H, up to ~4 s, so the mode does
+not flap (stars blinking on and off each second would be worse than four
+seconds without them). A degraded frame measures the DEGRADED load, so a low
+reading is not proof a full frame would fit - hence time, not load, decides
+the exit.
+
+*What a degraded frame does (each test is a few bytes where it is used):*
+
+| fuse | where | cost |
+|---|---|---|
+| checkpoint + `DEGR` with hysteresis | end of frame | ~20 B |
+| no stars at all: skip `do_stars`, `STARN = 0`; on exit zero `BASEHEAD` so the first frame back does `star_rebase_full` | stars.s | ~5 B |
+| zoom in: `bit DEGR` into `cam_rockbrake`'s brake branch | cam.s | ~4 B |
+| **a split makes ONE smaller rock, not two** - population stops growing, the cascade is defused at its source | shots.s | ~12 B |
+| no rock-rock collisions (ship-rock and bullet-rock stay) | physics.s `do_collide` | TBM |
+
+- *Stars*: their occlusion pass is the part that grows with objects on
+  screen; dropping the layer removes it entirely.
+- *Zoom*: the cull window follows the zoom and rocks outside it are frozen,
+  so zooming in cuts what CPU1 moves, collides and emits - not only what the
+  GPU draws. It does not shrink a cascade at the ship, which is what the
+  split fuse is for.
+- *One-child split*: in `rock_destroy` skip `rock_alloc` (and so
+  `rock_recycle`) and mark `SPL_S = $FF`; `rock_split` skips the second
+  `spl_one`. The reward is unchanged (`rock_score` runs before the split).
+  The lone child is the "+" one, so it keeps `SPLIT_OFF`/`SPLIT_V`'s sideways
+  kick with nothing to balance it - judge in madsim whether that reads as
+  recoil or needs zeroing. The smallest class already turns to dust (that
+  IS the reward) and is untouched.
+- *No rock-rock collisions*: rocks pass through each other briefly in a busy
+  scene; on exit the separation push (`n >> PHYS_SEP_SH`) parts the pairs
+  that overlap - check it does not pop. Price `do_collide` in the heavy-scene
+  dump first.
+- Rocks OFF screen do not matter here: the cost is in the ones on screen
+  (emit, occlusion, collision).
+
+*Rejected:* radar every other frame as a standing rule (only spreads the
+average unless something else uses the freed frames; skipping it on a cut
+frame is what helps); reduced rock shapes as a CPU fuse - a vertex costs
+CPU1 ~30 cycles of copying, so ~200 a big rock, nothing for CPU1.
+
+*GPU-initiated degradation draws simpler rocks (the user, 2026-11-24).*
+The reduced shapes ARE a GPU lever, so they belong to the GPU's own
+degradation, not `DEGR`: when the GPU side trips - the same signal as
+`cam_rockbrake`, `ABUDGET` nearly spent last frame - `one_asteroid` draws a
+rock's authored reduced outline (`SHAPE_LODLO`/`SHAPE_LODHI`) wherever
+`SHAPE_LODN` is non-zero, instead of the full one. 5-6 vertices fewer is
+~9-11 k GPU cycles a 192/128 rock, and every vertex saved is budget the
+rocks after it in the visible list get, so fewer of them are dropped. The
+data is already there (shapes.s; retired from the flight code by 11.9, still
+used by the tunnel's far rocks); the switch is ~15-20 B. Only the 192 and 128
+classes have reduced outlines - authoring them for 64 (9-11 vertices) is what
+would extend it to a cascade's mid-size rocks. It runs **alongside the zoom
+brake, on the same trip** (the user, 2026-11-24) - not first with zoom held
+back for later. A rock changing outline as the mode switches is a visible
+pop, and it is **accepted, not hidden** (the user, 2026-11-24): it is far
+better than a skipped frame, and hiding it would cost code for nothing.
+
+*A second GPU trip: the GPU's real overrun, `GPU_LAST` (the user,
+2026-11-24; needs a MAD-65 OS change, proposed in MAD-65
+`docs/MAD65_future_features.md`, not built).* `ABUDGET` is an estimate made
+in advance - the rocks' vertices against a fixed `AST_NONROCK` for everything
+else - so a GPU frame lost to enemies, the base, explosions or anything the
+constant under-prices never trips it, and CPU1 cannot see the GPU's own
+`OVERRUN_CNT` (GPU RAM). The fact itself is in PPRAM: the GPU writes
+`GPU_WORKING` (`$B1`) into `PP_STATUS` when it starts a list and `GPU_READY`
+(`$B2`) at its `WAI`, so a chip handed back to CPU1 still holding `$B1` is a
+list the GPU did not finish (a frame with no `CPU_READY` leaves `$B2`, so the
+two never mix). Today `gpu_begin` overwrites that byte with `CPU_WORKING`
+before `cart_frame` runs; the proposal is that it first copies it to a
+published byte, `GPU_LAST`. Then the zoom brake and the simpler rocks trip on
+EITHER `ABUDGET` nearly spent (ahead of time) OR `GPU_LAST = $B1` (measured,
+two frames late: list N comes back to CPU1 in frame N+2) - ~6 B in
+`cam_rockbrake`, and the measured trip holds the brake for a while, like
+`DEGR`, instead of releasing it the next frame. It cannot save the first lost
+GPU frame; it stops a run of them for as long as a heavy scene lasts.
+
+*The GPU's existing protection, for reference:* the rock vertex budget
+`AST_BUDGET`/`ABUDGET` with the `AST_MAX` count cap (objects.s
+`emit_asteroids`); the zoom brake `cam_rockbrake`/`ZCAP` off `ABUDGET`; list
+order as priority under "the new frame wins" (background commands first,
+stars and motes last); the radar's own priority and `RAD_MAX` truncation; the
+HUD's 6-frame stagger; `OVRCNT` counting overruns without repairing them; the
+tunnel's budgets; the OS's `pp_room`/`gpu_end` never publishing a straddling
+list. Enemy density (11.49) is decided but its mechanism, F9, is not built.
+
+*Two signals, one per CPU (the user, 2026-11-24).* **CPU1's fuses are
+steered by `FRAME_POS`** - it measures the load where a counter could only
+guess it, and smoothness outranks everything. **The GPU's are steered by
+`ABUDGET`**, the deterministic vertex budget, because the GPU has no such
+register: CPU1 cannot read the GPU's position in its frame. Both run, each
+guarding its own side. The cost, accepted: with `FRAME_POS` changing the
+game (zoom changes which rocks are simulated; splits and collisions are
+physics), recordings and the attract demo (`tools/recorder`) stay bit-exact
+in madsim and are only as exact on hardware as madsim's cycle accuracy.
+Open: every threshold and H (all TBM).
+
+*Before the hardware exists:* move `do_stars`/`do_motes`, build every fuse
+behind `DEGR`, and drive `DEGR` from the trainer pad to check each one in
+madsim; the checkpoint is the only piece that waits for `FRAME_POS`.
 
 **E4. Restitution, spin gain, split impulse, break-up threshold (TBM).** The whole
 tuning surface, and still largely open — the physics *runs* now, which means the
@@ -375,6 +501,13 @@ and what a kill does. Shape representation is 11.20 and simulation lifetime
 also non-collidable and non-targetable? Different answers make level 2 either eerie
 or lethal. Also: what triggers decloaking — a timer, proximity, or the player
 shooting.
+
+*One variant proposed (2026-11-24, F10 "GHOSTS"):* an **inactive** craft under
+camouflage - stationary, powered down, invisible, not collidable, not targetable and
+off the radar - whose cloak only SHIMMERS (a dotted strobe) while the ship passes
+close; it decloaks when the sector's scenario wakes it (`A_WAKE`), not by itself.
+It is the cheap end of E7: it does not cover a cloaked enemy that MOVES and is
+simulated while unseen (`story.md` 2), which stays open here.
 
 **E8. Instrument deception model (TBD).** The story requires the radar/HUD to
 degrade across the campaign: missing contacts, ghost contacts, wrong bearings.
@@ -467,7 +600,9 @@ the level editor. Three kinds so far: `MS_ROCKS` — every rock of classes
 `MS_FOES` — every placed enemy dead, `MS_OPEN` — open from the start ("reach
 the exit alive"). Still open: **survive / traverse** (a clock, or a distance),
 what the HUD shows of the mission's progress beyond CLEAR THE SECTOR and EXIT
-GATE OPEN, and whether a level ever needs two conditions at once.
+GATE OPEN, and whether a level ever needs two conditions at once. A time limit and
+chained events are proposed as one rule list in **F10**, which would also replace
+`MS_*`.
 
 **F2. Bank map (TBD — but the SIZE is settled: 256 KB).** The draft in
 `design_technical.md` section 10 is a guess. Real allocation follows real asset
@@ -633,6 +768,8 @@ and run.
   empty **and** none alive. An ambush that waits for "the mission is done" cannot be
   part of the mission it waits for: which enemies are the mission's and which are the
   ambush's (a flag on the record)?
+* **The scenario rules (F10)** propose the same condition vocabulary for the whole
+  sector, and `A_WAKE` as the first, cheapest spawn; this pool would extend it.
 * **The editor.** `tools/level_editor.py` writes the cap and the conditions and flags a
   level whose cap times its dearest appearance is over the budget; that needs the
   cost table below.
@@ -652,6 +789,142 @@ and run.
 * **Cheaper enemies.** Not part of the mechanism but of the same budget: do not emit a
   part that is absent in its frame (one vertex, 1.4 k a command); fold the UFO's
   few-pixel detail parts into its hull. Together about a fifth of a UFO's cost.
+
+---
+
+**F10. Sector scenarios - time limits and a chain of events (TBD, a proposal, 2026-11-24).**
+The user's idea: missions that must be done within a time, after which something
+happens - the base is destroyed if it is not defended in time; enemies attack the
+freighters and two of three must be saved; get out of the force field before many
+enemies appear there. That needs a small **scenario engine**: a chain of events
+conditioned on time or on a task done. Nothing is decided - the user is still writing
+the level scenarios (`level_design.md`) and they will say what it has to cover. The
+proposal, built for the smallest code:
+
+* **One mechanism, not three.** `gate.s`'s `GTMIS`/`GTMPR` (a condition that opens the
+  gate, F1) and F9's spawn conditions are the same idea. A sector carries a list of
+  **rules, "condition -> action", each firing once**, and the `MS_*` missions become
+  rules (today's levels get one: `C_ROCKS 0 -> A_OPEN`), so `gate_check` goes.
+* **The record: 4 bytes** - condition, its parameter, action, its parameter - in
+  `levels.s` (bank 8), copied to RAM by the loader at sector start as `GTMIS` is now.
+  Up to 8 a sector (32 B). RAM besides: a "fired" mask (1 B, one bit a rule), the sector
+  clock (seconds + a 60-frame divider) and a countdown (~36 B in all).
+* **Chains without a state machine.** The condition byte's top bit is SEQ: the rule is
+  checked only once the rule before it has fired - sequences, and a poor man's AND.
+  Several actions on one event are several rules with the same condition. Rule order
+  matters: an earlier rule that wins (`A_OPEN`) stops the clock a later one waits for.
+* **Conditions, a first set:** `C_TIME s` (s seconds of the sector), `C_CLOCK0` (the
+  countdown reached zero), `C_FOES n` (n or fewer enemies alive - `MS_FOES`),
+  `C_ROCKS k` (classes 0..k cleared - `MS_ROCKS`), `C_FRLOST n` (n freighters lost),
+  `C_BASE` (the base destroyed), `C_GATE` (the mission is done). Later perhaps the ship
+  within R of a point (F9's *place*).
+* **Actions:** `A_MSG id` (message bar + voice, `indicate_msg`), `A_CLOCK s` (start the
+  countdown, shown on the HUD; 0 stops it), `A_OPEN` (mission done, `gate_open`),
+  `A_FAIL` (mission lost), `A_KILLBASE` (the base falls - also 4-3's scripted fall),
+  `A_WAKE g` (wake a group of enemies the level placed DORMANT - a bit in the record's
+  KIND; loaded, but not alive until woken. The cheapest "spawn" before F9's pool, which
+  then only extends it).
+* **The user's examples, written out.** *Defend the base 90 s:* `C_TIME 0 -> A_CLOCK 90`,
+  `C_TIME 0 -> A_MSG`, `C_BASE -> A_FAIL`, `C_CLOCK0 -> A_OPEN`; or the base falls when
+  time runs out: `C_FOES 0 -> A_OPEN`, `C_CLOCK0 -> A_KILLBASE`. *Convoy, save 2 of 3:*
+  `C_FRLOST 2 -> A_FAIL`, `C_FOES 0 -> A_OPEN`. *Out of the force field:*
+  `C_TIME 0 -> A_CLOCK 60`, `C_CLOCK0 -> A_WAKE 1`.
+* **Cost (an estimate, TBM).** The interpreter - a loop over 8 rules, jump tables of
+  conditions and actions, each 5-20 B since nearly all call what exists - ~200-250 B
+  resident (CODE6), less ~60 B of `gate_check`/`MS_*`; the HUD countdown, two digits,
+  ~40-60 B. The rules cost no resident RAM beyond the 36 B. CPU: a few hundred cycles a
+  frame. It cannot run out of the window (F5): it reads the enemy state under it.
+* **GHOSTS - dormant enemies that strobe as the ship passes (the user, 2026-11-24).** A
+  UFO or a pulsar that is there but inactive: it does not move and does not react, and
+  is shown only as a STROBE, dotted, while the ship is within a short distance of it -
+  as the invisible force field flashes where it is hit (`ffield.s`, `FF_FLASH`). **In
+  the story they are inactive alien craft under camouflage**: powered down and
+  cloaked, the strobe is the cloak shimmering as the ship passes close - not a
+  hologram, not a wreck, but a real ship waiting. `A_WAKE` drops the camouflage and
+  turns a ghost into the real enemy, which makes the ghosts F10's dormant groups
+  rather than a mechanism of their own.
+  - **Nothing but a picture (the user, 2026-11-24): no hits, no collision.** Shots pass
+    through a ghost, the ship flies through it, and so do rocks and enemy bullets.
+    It is a warning - "something is parked here" - and nothing can be done to it until
+    it is woken. (An earlier version had shots and ramming hit it with the field's
+    `SE_ZAP` and hull damage; dropped, as it cost ~110-140 B more and hooks in
+    `shots.s` and the ship's collision.)
+  - **Not a `FOEST` state.** `FOEST` is read in ~45 places in 8 files (radar, the
+    enemy arrow, `MS_FOES`, hits, laser, EMP, pulsar). A ghost is a separate small list
+    instead, which none of them sees: off the radar, out of every hit test, and it
+    does not hold up a mission. The loader fills it from enemy records carrying a
+    DORMANT bit in KIND (bank 8, not resident). `A_WAKE` copies a ghost into a free
+    enemy slot.
+  - **The draw is `gate.s gb_draw`**, which already draws the gate, the base and the
+    freighter from any `enemies.s` appearance: `GBSH = 1` is a `$4C DOT_POLYGON` a
+    part, half-res, so the ghost is the enemy's own WHOLE shape, frame 0 only - never
+    animated. No starfield disc. Per ghost per frame: a 16-bit delta from the ship and
+    the "within R" test on the high bytes (tens of cycles); when near and on a strobe
+    frame, `view_xform` + `gb_draw`.
+  - **The GPU cost**, from MAD-65's `carts/cost_bench` (2026-11-24, madsim's core).
+    A `DOT_POLYGON` is ~600 a command + ~800 a vertex (transform 646 + the segment) +
+    ~74 a half-res step - which reproduces the bench's 12-vertex figure (26,995) to 4 %.
+    Small enemies are paid for by VERTICES, not pixels:
+
+    | ghost, frame 0, dotted | commands / vertices | estimate | of a frame |
+    |---|---|---|---|
+    | UFO, the hull only (part 0) | 1 / 6 | ~7-8 k | ~3 % |
+    | UFO, all five parts | 5 / 15 | ~17-20 k | ~8 % |
+    | pulsar, all three parts | 3 / 8 | ~13-15 k | ~6 % |
+
+    So dotting saves only about A FIFTH against the solid `POLYGON16` (the UFO's solid
+    hull is ~9 k in the dump, F9). What bounds the cost is the rule **at most one ghost
+    drawn a frame** (round-robin on `FRAME`): the peak is one ghost, and with a 1-in-4
+    strobe the average is a quarter of it, ~1-2 %. A zoomed-out camera is cheaper
+    still (`SCALE` 100 is -12 %).
+  - **`$45 DOT_LINES` instead** would halve the GPU side of the hull (~4 k: ~240 a
+    joint, ~74 a step, no transform) but moves the rotation by the camera and the zoom
+    onto CPU1 (four products a vertex) and needs the figure wholly on the screen or
+    a clip, i.e. a second draw path of ~100 B beside `gb_draw`, which is free. Worth
+    it only if the GPU turns out to be the tight side where ghosts are used.
+  - **Decided (the user, 2026-11-24):**
+    * **R = 150 screen px, or whatever approximation is fastest to compute.** The
+      fastest is a square on the delta's high bytes, in world units at 1:1 (16 units a
+      full-res px): |dx_hi| and |dy_hi| <= 9 is +/-2304 units = 144 px at 1:1. A square,
+      not a circle, and in WORLD units, so it shrinks on the screen as the camera
+      zooms out - the proposed approximation unless a flight says otherwise.
+    * **The strobe is the force field's** (`ffield.s @flash`: every other frame while
+      fresh, one in four as it dies away, `FF_FLASH` frames) and is **ONE routine
+      shared by both** - the pattern taken out of `ffield.s` into a subroutine both
+      call, so that a change to it changes both. Within R the ghost's timer is held at
+      its fresh value; out of R it dies away as the field's does (1 B a ghost; without
+      it the strobe would simply stop).
+    * **The whole shape, frame 0, not animated.**
+    * **No hits, no collision** (above).
+  - **Cost (estimate, TBM; free space measured on the build of 2026-11-24, a73a65e).**
+
+    | | where | bytes |
+    |---|---|---|
+    | the frame loop: delta, square, timer, strobe, one ghost a frame, `gb_draw`'s setup | resident | ~110-130 |
+    | the shared strobe, out of `ffield.s` | resident | ~+5 net |
+    | the call in `frame_body` | resident | 3 |
+    | **resident code** | | **~120-145** |
+    | 4 ghosts x (position 4 + appearance + timer) + a count | under the window | 25 |
+    | the DORMANT bit in `load_foes` | bank 8, LDCODE | ~25 |
+
+    **Where it lives: shared, not a level slot.** The wall slots (`slots.s`) hold the
+    base OR the force field, and ghosts are wanted WITH either (escape a field where
+    camouflaged craft wait; an ambush at the base) - and slot A has 26 B left with the
+    base in it. Of the shared areas, the run area has 618 B free (CODE8 ends `$5D95`)
+    against FIELDRAM's 168 (CODE9 to `$DA60`) and UPPER's 23. Proposed: the run area,
+    as flight code before the kernel (the tunnel lays over it; `overlay.s` brings it
+    back). The 25 B of data fit the ~34 left under the window (`FF_END` to `$9800`) but
+    take nearly all of it; the reserve is that the freighters and the field never
+    share a sector, so their state could share bytes (~47 B).
+  - **Still open:** whether 4 ghosts a sector are enough. The GPU estimates above are a
+    model fitted to the bench - measure a ghost in a dump.
+* **The editor.** At first `tools/level_editor.py` carries the `RULE` block through
+  untouched; text macros are enough to write it by hand.
+* **Open:** what `A_FAIL` does (replay the sector - `design_technical.md` already has
+  the "fly the same sector again" countdown -, lose a ship, or only a branch in the
+  story: no reward, no pilot); whether 8 rules a sector are enough; whether the HUD
+  needs more than the countdown (freighters left, the base's hull). Settle by filling
+  the script/triggers column of `level_design.md` for two or three sectors first.
 
 ## G. HUD & radar
 

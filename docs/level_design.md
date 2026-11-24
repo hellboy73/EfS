@@ -33,6 +33,23 @@ Only L4 has a settled per-sector breakdown so far (`design_technical.md`
   scripted arrival, a condition on an enemy's spawn (F9), a flag the tunnel's
   debrief reads afterward (H5). Blank until we decide EfS needs one here.
 
+## The picture between sectors (the user, 2026-11-23; not built)
+
+Decided, for the art and the texts that go with each board:
+
+- **One picture before each sector**, shown with text. It serves as both the
+  *debrief* of what just happened and the *brief* of what is about to - it shows the
+  context, either what has just occurred or what is about to.
+- **Size: about 300 x 300 px**, so the text under it is short. If more is needed: a
+  scroll, or pages of text overwriting one another that explain what is to be done.
+- **A sector with no distinctive story beat gets a neutral space scene**, which may be
+  reused by several sectors, so the count is 15 at most and probably fewer.
+- **Order of work:** write each sector's scenario first (the row below), then decide
+  what the picture shows and what the text says; the art follows.
+- Budget: a 300 x 300 picture is a bitmap of the kind `story.md`'s budget note prices
+  (about 2 banks of a 32-bank cart for a full screen) - the real cost of 300 x 300 and the
+  colour depth are still to be measured (`open_questions.md` F2/F3, H5/H6).
+
 ---
 
 ## LEVEL 1 — MINING ZONE (clear the field)
@@ -100,3 +117,7 @@ picture.
 - **A sector needing two mission conditions at once** (F1) — e.g. "keep the
   laser before the gate opens" — is unresolved; the mission field above is
   one value today (`GTMIS`/`GTMPR`, `gate.s`).
+- **A proposal for both** (2026-11-24): `open_questions.md` F10 - one list of
+  "condition -> action" rules a sector, each firing once, with a sector clock and a
+  HUD countdown (time limits, defend/escort/escape missions). Not built; this
+  table's script/triggers column is what will say if its vocabulary is enough.
