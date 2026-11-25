@@ -205,6 +205,13 @@ GPU_LAST          = $0279       ; the GPU's last PP_STATUS, kept by gpu_begin
                                 ;   means the GPU did not finish the list CPU1
                                 ;   built two frames ago. Read-only, not sticky
 GPU_WORKING       = $B1         ; ...that value (PP_STATUS codes, GPU OS)
+FRAME_LOAD        = $027A       ; FRAME_POS as gpu_end closed the LAST list:
+                                ;   0..231 on time, $FF late (not published)
+VSYNC_FLAG        = $02         ; set by the IRQ at every VSYNC, cleared by
+                                ;   gpu_begin: read it AFTER FRAME_POS, never
+                                ;   before (MAD65_CPU_OS.md, the one trap)
+FRAME_POS         = $BF80       ; hardware, read-only: PHI2 cycles since the
+                                ;   frame edge / 1024 - 0..231, $FF = no VSYNC
 SPK_BUSY          = $024D       ; the speech engine: 0 = idle, non-zero = still
                                 ;   speaking. PUBLISHED, and it is the whole
                                 ;   mechanism - hud_game.s's message bar holds

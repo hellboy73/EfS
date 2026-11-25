@@ -167,12 +167,17 @@ cam_rockbrake:
         lda     #RB_HOLD                ; the GPU overran: a rung in, and hold
         sta     RBHOLD
         bra     rb_brake
-:       lda     ABUDGET
+:       lda     DEGR                    ; CPU1's fuse (fuse.s) cut LAST frame's
+        cmp     #DEGR_HOLD              ;   tail: a rung in too - a smaller view
+        beq     rb_brake                ;   is fewer rocks moved and collided
+        lda     ABUDGET
         cmp     #RB_HI+1
         bcc     rb_brake                ; rock budget nearly spent: a rung in
         dec     RBHOLD                  ; comfortably inside budget: release -
         bpl     rb_done                 ;   once the hold has run out. 0 goes
         inc     RBHOLD                  ;   to $FF and straight back: idle
+        lda     DEGR                    ; ...and not while CPU1 is still
+        bne     rb_done                 ;   degraded
         lda     ZCAP
         beq     rb_done
         dec     ZCAP
@@ -189,7 +194,7 @@ rb_done:
 ; -----------------------------------------------------------------------------
 ; dbg_brake - TEMPORARY: the brake's state as one letter on the background.
 ; -----------------------------------------------------------------------------
-; G = holding after a real GPU overrun (RBHOLD), Z = ZCAP above 0 for any other
+; C = CPU1 degraded (DEGR), G = holding after a real GPU overrun (RBHOLD), Z = ZCAP above 0 for any other
 ; reason, blank = off. Emitted only when the letter changes, and through
 ; bgtext_claim like every background emitter, so it joins the replay schedule
 ; instead of breaking it - which is why it is called from here, AFTER
@@ -210,6 +215,9 @@ dbg_brake:
 :       ldx     RBHOLD
         beq     :+
         lda     #'G'
+:       ldx     DEGR                    ; C: CPU1 degraded (fuse.s) - first
+        beq     :+
+        lda     #'C'
 :       cmp     DBGBRK
         beq     @done
         pha

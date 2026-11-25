@@ -209,11 +209,17 @@ DEMO          = 0
 .endif
 TRAINER       = 1 - DEMO
 
-; TEMPORARY, likewise: one letter on the BACKGROUND at line 3, cell 36 - G while
+; TEMPORARY, likewise: one letter on the BACKGROUND at line 3, cell 36 - C while CPU1 is degraded (fuse.s DEGR), G while
 ; the zoom brake holds after a real GPU overrun (GPU_LAST), Z while ZCAP is
 ; above 0 for any reason, blank when the brake is off. cam.s dbg_brake. Off in
 ; the demo build; 0 takes every byte of it out.
 DBG_BRAKE     = TRAINER
+
+; TEMPORARY, likewise: the CPU load's high-water marks, kept in RAM at
+; $70CB-$70CE for an F2 dump - the highest FRAME_LOAD, that frame's checkpoint,
+; the highest tail cost, the late-frame count (fuse.s dbg_load). Nothing on
+; screen. Off in the demo build.
+DBG_LOAD      = TRAINER
 
 ; Which opcode draws a rock. All three are the SAME command - one closed figure
 ; per outline, with the centre, the angle, the scale and the RAW shape sent as
@@ -1398,9 +1404,7 @@ frame_body:
                                         ;   freighters and the human base, or the
                                         ;   force field - moved, drawn and, above
                                         ;   all, their discs in: do_stars reads
-                                        ;   the list, so this is the last place
-        jsr     do_stars
-        jsr     do_motes
+                                        ;   the list - in frame_tail, below
         jsr     emit_ship
         jsr     do_flames                ; the side thruster flames, riding the
                                         ; screen centre emit_ship just placed
@@ -1433,13 +1437,17 @@ frame_body:
                                         ;   ring, about FLCX/FLCY too (emp.s)
         jsr     do_shield               ; ...and the shield's circle and clock
                                         ;   (shield.s)
-        jsr     do_radar               ; the contact lists - built BEFORE the HUD
-                                        ;   because the HUD reads the count, and
-                                        ;   emitted AFTER it because the list
-                                        ;   order is the priority order
 .if HUD_ON
-        jsr     do_hud
+        jsr     do_hud                  ; (the tuning readout: with the radar's
+                                        ;   compute in frame_tail it reads last
+                                        ;   frame's contact count)
 .endif
+        jsr     frame_tail              ; THE CHECKPOINT, then the work that may
+                                        ;   be cut: the radar's contact lists,
+                                        ;   the starfield and the motes. Their
+                                        ;   buffers survive the frame, so a cut
+                                        ;   re-emits last frame's (fuse.s,
+                                        ;   open_questions E12)
         ; The radar goes in ahead of the backdrop and behind everything else.
         ; It is information, not decoration: if the GPU runs out of frame, a
         ; missing contact is a worse loss than a missing star, and a better one
@@ -1593,6 +1601,8 @@ frame_body:
         .include "cam.s"                ; the camera frames the nearest enemy,
                                         ; and an edge arrow points at one it
                                         ; cannot. CODE4, after laser.s.
+        .include "fuse.s"               ; the CPU load fuse: frame_tail's
+                                        ; checkpoint and DEGR (E12). CODE4
         .include "hiscore.s"            ; the hiscore table in KEEP, the page
                                         ; of DEMO_RAM a new game never
                                         ; resets. CODE5, after cam.s.

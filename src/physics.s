@@ -305,6 +305,9 @@ do_collide:
         sta     COL_CI                  ;   or BODY_SPIDER, a spider's carrier
 
         jsr     ship_test
+        lda     DEGR                    ; DEGRADED (fuse.s, E12): the ship test
+        bne     @nosw                   ;   and nothing else - rocks pass through
+                                        ;   one another until the frame recovers
 
         ldx     COL_I                   ; its own cell's list, from the
         lda     OBJNXT,x                ;   SUCCESSOR on - the pair (a,b) is

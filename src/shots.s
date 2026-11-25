@@ -1739,6 +1739,13 @@ rock_destroy:
         lda     OBJSHP,x
         cmp     #SPLIT_LAST
         bcs     @gone
+        lda     DEGR                    ; DEGRADED (fuse.s, E12): every second
+        beq     :+                      ;   split makes ONE smaller rock, so the
+        inc     SPLALT                  ;   field grows at half the pace. By
+        lda     SPLALT                  ;   split, not by frame: a laser sweep
+        lsr     a                       ;   breaking five in one frame still
+        bcc     @one                    ;   gets them half and half. Bit 0
+:                                       ;   only - RAM is not cleared at boot
         jsr     rock_alloc              ; room for the second fragment?
         bcc     @got
         jsr     rock_recycle            ; no - so make some
@@ -1772,6 +1779,8 @@ rock_destroy:
                                         ;   and stayed whole. NOT the boom: the
                                         ;   HP came straight back and nothing
                                         ;   exploded
+@one:   lda     #$FF                    ; no slot for B: rock_split builds A
+        bra     @got                    ;   alone ($FF is no slot - NOBJ is 255)
 
 ; -----------------------------------------------------------------------------
 ; rock_boom - a rock really is coming apart. The boom and the one-frame screen
@@ -1855,13 +1864,15 @@ rock_split:
 
         lda     OBJSHP,x                ; the census: one of the parent's class
         tax                             ;   goes, two of the next one down arrive
-        dec     RKLIVE,x
+        dec     RKLIVE,x                ;   - or ONE, degraded (SPL_S = $FF)
         inx
         stx     SPL_C
-        lda     RKLIVE,x
-        clc
-        adc     #$02
-        sta     RKLIVE,x
+        inc     RKLIVE,x                ; A
+        lda     SPL_S
+        cmp     #$FF
+        beq     :+
+        inc     RKLIVE,x                ; ...and B
+:
 
         lda     SPL_HD                  ; the SHOT'S WORLD heading. rock_spin
         sta     SPL_T                   ;   wanted the screen one because it was
@@ -1992,8 +2003,11 @@ rock_split:
         jsr     spl_one
         inc     SPL_I
         lda     SPL_S
+        cmp     #$FF                    ; degraded: one child, A, and no B
+        beq     :+
         sta     SPL_T
         jsr     spl_one
+:
 
         ; ---- one more puff, exactly between them ----------------------------
         ; The parent's own centre, which is where neither child is any more.

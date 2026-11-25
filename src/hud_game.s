@@ -395,6 +395,17 @@ hud_init:
         sta     LIVES
         stz     CURLEV
         stz     BGTEXT_GAP
+        stz     DEGR                    ; fuse.s: a new game starts undegraded
+.if DBG_LOAD
+        stz     HWL                     ; ...and its load marks start afresh
+        stz     HWC
+        stz     HWT
+        stz     NLATE
+        stz     HWF
+        stz     NCKL
+        stz     NCUT
+        stz     NCUT+1
+.endif
         jsr     indicate_reset
         jmp     hud_reset               ; tail: resident, it is not the loader's
         .popseg

@@ -462,9 +462,76 @@ physics), recordings and the attract demo (`tools/recorder`) stay bit-exact
 in madsim and are only as exact on hardware as madsim's cycle accuracy.
 Open: every threshold and H (all TBM).
 
-*Before the hardware exists:* move `do_stars`/`do_motes`, build every fuse
-behind `DEGR`, and drive `DEGR` from the trainer pad to check each one in
-madsim; the checkpoint is the only piece that waits for `FRAME_POS`.
+*Built (2026-11-25): the structure, not yet a cut.* `FRAME_POS` exists
+(madsim 1.0.6, PCB1 v22) and the OS publishes `FRAME_LOAD` (`$027A`, its
+own `FRAME_POS` sample at `gpu_end`). `src/fuse.s`, CODE4 (FIELDRAM had no
+room): `cart_frame` calls `frame_tail` after `do_shield` (and after `do_hud`
+when HUD_ON), and it reads `FRAME_POS` then `VSYNC_FLAG`, then runs
+`do_radar`, `do_stars`, `do_motes` - or skips them and sets `DEGR`
+(`$70C9`, `DEGR_HOLD` = 60 frames, counted down by every frame that makes
+it; cleared by `game_start`). **`TAIL_CUT` = 232, which is never reached on
+time, so only a frame already past its edge is cut** and the game is
+unchanged. Nothing reads `DEGR` yet. Moving the two star passes changed
+nothing they depend on: every occluder (rocks, foes, the wall slots) and
+every write to the ship's position comes before the old spot. Cost: CODE4
++36 B (the demo build), +115 B with the readout.
+
+TEMPORARY, `DBG_LOAD` (= TRAINER): high-water marks kept in RAM, nothing on
+screen (a readout would cost both CPUs every frame and move what it
+measures): `$70CB` the highest on-time `FRAME_LOAD`, `$70CC` that frame's
+checkpoint, `$70CD` the highest tail cost (LL - CC, any frame), `$70CE` late
+frames. Fly, press F2, run `python tools/loadmarks.py`. game_start clears
+them. A scripted headless run (level 1, shooting) gave a heaviest frame of
+175 (75%), its checkpoint at 125, a tail of **50 - 22% of a frame**, and one
+late frame. **The threshold** is `TAIL_CUT = 232 - TAIL_MAX - TAIL_MARGIN`:
+`TAIL_MAX` is the measured worst tail (0 = not measured, fuse off),
+`TAIL_MARGIN` the safety buffer (the user, 2026-11-25), 16 to start (~7%).
+The user's two heavy runs (dumps 00003693, 00003331): the heaviest on-time
+frames at 231 of 232, their checkpoints at 186 and **208 - the front alone
+near 90%**; the worst tail 51 (22%) both times, but as low as 23 in another
+heavy frame; **53 and 173 late frames**. So `TAIL_MAX` = 51 is set and the
+cut is ON at **165** (2026-11-25). Two marks were added: `$70CF` the highest
+on-time checkpoint (the worst front) and `$70D0` frames already late AT the
+checkpoint - the ones no tail cut can save.
+
+The first run with the cut on (dump 00005143): the heaviest on-time frame
+reached its checkpoint at 225, was cut, and closed at 231 - **the emits alone
+cost ~6**. But the front itself reached 231, 38 frames were late and **18 of
+them already at the checkpoint**: what is left is the FRONT. So the three
+front fuses were built behind `DEGR` (2026-11-25):
+
+- **one-child split** (shots.s `rock_destroy`/`rock_split`): degraded, a
+  split takes no second slot (`SPL_S = $FF`, no `rock_alloc`, no
+  `rock_recycle`) and builds child A alone; the census `RKLIVE` counts one,
+  not two. Checked in py65 on a dump: a 192 becomes one 128 (15/15 ->
+  14/16, against 14/17 undegraded). The lone child keeps the "+" side's
+  sideways kick, and must (the user): without it the rock stays in the
+  laser's beam and is broken again at once, all the way to dust. +17 B CODE2.
+  **Then halved** (the user, 2026-11-25, after a flight - lone rocks catch
+  the eye): only every SECOND degraded split makes one rock - counted by
+  split (`SPLALT`, `$70D3`, its bit 0), not by frame, so a laser sweep
+  breaking many in one frame still gets half and half; the field grows at
+  half the pace instead of not at all. Checked in py65: four degraded
+  splits gave +2, +1, +2, +1. +9 B CODE2. Note the reasoning against plain
+  doubling: with rock-rock collisions off an extra rock costs only linearly,
+  but the rocks OUTLIVE the degraded second - collisions come back on a
+  doubled field.
+- **no rock-rock collisions** (physics.s `do_collide`): degraded, the ship
+  test only. +5 B CODE.
+- **zoom** (cam.s `cam_rockbrake`): a rung for each frame whose tail was cut
+  (`DEGR = DEGR_HOLD` at the next frame's start), and no relaxing while
+  `DEGR` is up. +11 B CODE5.
+- the brake letter shows **C** first while `DEGR` is up (+8 B, debug).
+
+A test build with the cut forced on every frame flew the same scripted run:
+ZCAP walked to its cap (16), collisions 0 against 31.
+
+**Flown by the user with all three fuses on (dump 00003846, ~64 s): 91
+frames cut, 1 late** (most likely the sector start, as in every scripted
+run), the front at most 188 (81%), the heaviest on-time frame 213 (92%) -
+against 38-173 late frames before the fuses. A cut counter was added for
+this: `NCUT`, `$70D1-$70D2`, 16-bit, in `tools/loadmarks.py`. **Next:** fly
+the halved split; the open TBMs stay `TAIL_MARGIN` and `DEGR_HOLD`.
 
 **E4. Restitution, spin gain, split impulse, break-up threshold (TBM).** The whole
 tuning surface, and still largely open — the physics *runs* now, which means the
