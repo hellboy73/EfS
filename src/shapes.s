@@ -77,16 +77,16 @@ SHAPE_HI:    .byte    >SHP192_A, >SHP192_B, >SHP192_C, >SHP192_D
              .byte    >SHP32_A, >SHP32_B, >SHP32_C, >SHP32_D
              .byte    >SHP16_A, >SHP16_B, >SHP16_C, >SHP16_D
 
-SHAPE_LODN: .byte   6, 7, 8, 6, 6, 7, 6, 6, 0, 0, 0, 0, 0, 0, 0
+SHAPE_LODN: .byte   6, 7, 8, 6, 6, 7, 6, 6, 6, 6, 7, 7, 0, 0, 0
             .byte   0, 0, 0, 0, 0
 SHAPE_LODLO: .byte    <SHP192_A_LOD, <SHP192_B_LOD, <SHP192_C_LOD, <SHP192_D_LOD
              .byte    <SHP128_A_LOD, <SHP128_B_LOD, <SHP128_C_LOD, <SHP128_D_LOD
-             .byte    0, 0, 0, 0
+             .byte    <SHP64_A_LOD, <SHP64_B_LOD, <SHP64_C_LOD, <SHP64_D_LOD
              .byte    0, 0, 0, 0
              .byte    0, 0, 0, 0
 SHAPE_LODHI: .byte    >SHP192_A_LOD, >SHP192_B_LOD, >SHP192_C_LOD, >SHP192_D_LOD
              .byte    >SHP128_A_LOD, >SHP128_B_LOD, >SHP128_C_LOD, >SHP128_D_LOD
-             .byte    0, 0, 0, 0
+             .byte    >SHP64_A_LOD, >SHP64_B_LOD, >SHP64_C_LOD, >SHP64_D_LOD
              .byte    0, 0, 0, 0
              .byte    0, 0, 0, 0
 
@@ -176,6 +176,14 @@ SHP128_C_LOD: .byte   <-20,   <-15,     2,   <-32,    26,   <-10,    14,    21
               .byte   <-12,    24,   <-27,     9
 SHP128_D_LOD: .byte   <-16,    20,   <-25,     7,   <-20,   <-24,    15,   <-22
               .byte    28,     2,    18,    19
+SHP64_A_LOD:  .byte     8,   <-10,    13,     0,     6,    12,   <-13,     8
+              .byte   <-12,   <-4,   <-2,   <-14
+SHP64_B_LOD:  .byte   <-8,     4,   <-15,   <-5,     0,   <-13,    12,   <-6
+              .byte     7,    12,   <-6,    13
+SHP64_C_LOD:  .byte   <-3,   <-13,     8,   <-12,    12,   <-6,    13,     2
+              .byte     2,    13,   <-11,     8,   <-12,   <-5
+SHP64_D_LOD:  .byte    12,   <-7,     9,   <-2,    13,     3,     3,    13
+              .byte   <-9,    10,   <-12,   <-5,   <-3,   <-13
 
 SHIP_VN     = 14
 SHIP_SHAPE:   .byte     0,   <-8,   <-4,   <-8,   <-4,   <-14,     9,   <-14

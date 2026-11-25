@@ -1220,6 +1220,16 @@ one_asteroid:
         sta     SHPL
         lda     SHAPE_HI,y
         sta     SHPH
+        lda     LODH                    ; THE GPU IS DEGRADED (cam.s
+        beq     :+                      ;   cam_rockbrake, E12): the authored
+        lda     SHAPE_LODN,y            ;   reduced outline instead, where one
+        beq     :+                      ;   exists - the 192s and 128s, 6-8
+        sta     AVN                     ;   vertices for 10-13. The pop as a
+        lda     SHAPE_LODLO,y           ;   rock changes outline is accepted
+        sta     SHPL                    ;   (the user): it beats a lost frame
+        lda     SHAPE_LODHI,y
+        sta     SHPH
+:
 
         lda     SHAPE_R,y               ; both radii shrink with the zoom - the
         sta     MQA                     ;   bounding one because it decides what

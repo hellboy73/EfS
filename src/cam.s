@@ -127,6 +127,9 @@ CAMFL       = $73AA             ; the servo's verdict: bit 0 past the tight
                                 ;   margin, bit 1 not inside the loose one
 CAMSD       = $73AB             ; the SHOFF the slide wants, before the slew
 CAMZ        = $73AC             ; the rung's reciprocal as a Q0.7 multiplier
+LODH        = $70D4             ; frames left of the simpler rocks (objects.s
+                                ;   one_asteroid), set by either GPU trip; 0 =
+                                ;   full outlines. After fuse.s's SPLALT
 RBHOLD      = $73BF             ; cam_rockbrake's hold after a GPU overrun,
                                 ;   frames; 0 = none. Between freight.s's LDFRT
                                 ;   and window.s's WINSAVE
@@ -161,18 +164,24 @@ CAMZLAG     = $73AD             ; the shift do_ship's zoom ease uses: ZOOM_LAG,
 ; Called first thing in cam_foe, so this frame's clamp sees this frame's cap.
 ; -----------------------------------------------------------------------------
 cam_rockbrake:
-        lda     GPU_LAST
+        dec     LODH                    ; the simpler rocks' hold ages every
+        bpl     :+                      ;   frame, floored at 0 ($FF and back)
+        inc     LODH
+:       lda     GPU_LAST
         cmp     #GPU_WORKING
         bne     :+
         lda     #RB_HOLD                ; the GPU overran: a rung in, and hold
         sta     RBHOLD
-        bra     rb_brake
+        bra     rb_gpu
+:       lda     ABUDGET
+        cmp     #RB_HI+1
+        bcs     :+                      ; rock budget nearly spent: a rung in
+rb_gpu: lda     #RB_HOLD                ; EITHER GPU trip: the rocks also go to
+        sta     LODH                    ;   their reduced outlines AT ONCE, in
+        bra     rb_brake                ;   this frame (objects.s one_asteroid)
 :       lda     DEGR                    ; CPU1's fuse (fuse.s) cut LAST frame's
         cmp     #DEGR_HOLD              ;   tail: a rung in too - a smaller view
         beq     rb_brake                ;   is fewer rocks moved and collided
-        lda     ABUDGET
-        cmp     #RB_HI+1
-        bcc     rb_brake                ; rock budget nearly spent: a rung in
         dec     RBHOLD                  ; comfortably inside budget: release -
         bpl     rb_done                 ;   once the hold has run out. 0 goes
         inc     RBHOLD                  ;   to $FF and straight back: idle

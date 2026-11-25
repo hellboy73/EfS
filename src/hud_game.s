@@ -396,6 +396,10 @@ hud_init:
         stz     CURLEV
         stz     BGTEXT_GAP
         stz     DEGR                    ; fuse.s: a new game starts undegraded
+        stz     LODH                    ; ...and with full rock outlines (cam.s:
+                                        ;   its countdown floors at 0 and would
+                                        ;   stick on a stray $80-$FF)
+        stz     RBHOLD                  ; ...and the brake's GPU hold likewise
 .if DBG_LOAD
         stz     HWL                     ; ...and its load marks start afresh
         stz     HWC

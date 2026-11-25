@@ -411,8 +411,20 @@ read-only (MAD-65 `MAD65_CPU_OS.md`, "Frame budget & overrun"); `$00` until
 the first `gpu_begin`. The zoom brake's trip is BUILT too (2026-11-24,
 `cam.s cam_rockbrake`, +21 B of CODE5): each frame `GPU_LAST` reads
 `GPU_WORKING` takes a rung in and sets `RBHOLD` ($73BF) to `RB_HOLD` = 60;
-ZCAP does not relax until the hold has run out. The simpler rocks are not
-built yet. TEMPORARY: `DBG_BRAKE` (main.s, = TRAINER) shows one letter on
+ZCAP does not relax until the hold has run out. **The simpler rocks are
+built too (2026-11-25):** either GPU trip - `GPU_LAST` = `$B1` or `ABUDGET`
+nearly spent - sets `LODH` (`$70D4`) to `RB_HOLD` = 60 frames, counted down
+every frame in `cam_rockbrake`; while it is up, `one_asteroid` draws a rock's
+authored reduced outline (`SHAPE_LODN`/`LODLO`/`LODHI`, the 192s and 128s:
+6-8 vertices for 10-13) in the SAME frame, alongside the zoom. Checked in
+py65 on a dump with two visible rocks forced to each class and variant: 24-26
+vertices became 12-16 for the 192s, 20-26 became 12-14 for the 128s. CODE
++22 B, CODE5 +15 B; `game_start` now clears `LODH` and `RBHOLD` (+6 B
+LDCODE) - their countdowns floor at 0 and would stick on a stray $80-$FF.
+The user then authored reduced outlines for the **64s** too (shape editor,
+6-7 vertices for 9-11), which the switch picks up with no code: the same
+py65 check gave 18-22 -> 12-14 for two of them. The 32s and 16s stay full
+(SHAPE_LODN 0). TEMPORARY: `DBG_BRAKE` (main.s, = TRAINER) shows one letter on
 the background, line 3 cell 36 - G holding after a GPU overrun, Z ZCAP above
 0, blank off (cam.s `dbg_brake`, 59 B, out of the demo build).*
 
@@ -422,8 +434,8 @@ is built blind: **at least two GPU overruns are unavoidable** before any
 reaction, and the brake's eased zoom (`ZOOM_LAG`, 1/16 of the gap a frame)
 takes many more frames to bite. Decided: **the zoom stays smooth** (no snap);
 **the rocks degrade at once on detection** - the simpler outlines go on in
-the frame `GPU_LAST` trips, since `one_asteroid` runs after `cam_foe` (not
-built); and for the frames in between, the list order is enough - the GPU
+the frame `GPU_LAST` trips, since `one_asteroid` runs after `cam_foe`
+(built 2026-11-25, see above); and for the frames in between, the list order is enough - the GPU
 drops the tail of the list (backdrop first), which is what the order is for.
 Known and left alone for now: the `$B1` of list N+1 arrives after the
 reaction and takes a rung of its own. `ABUDGET` is an estimate made
