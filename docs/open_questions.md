@@ -533,11 +533,17 @@ ship, enemies stopped and sliding). What is still open:
   hexagon does with a hole in it (rocks and the ship can now pass through the gap
   a dead triangle leaves), and whether the alien attackers target a segment or the
   base.
-* **CPU cost of the star discs once a triangle is gone:** the one disc round the
-  hexagon (11.48) is the cheap case, 19 k cycles a frame for `do_base` and
-  `do_stars` with the base on the screen; with a triangle gone the base falls back
-  to a disc a triangle that stands, about 2.7 k each more. A base that loses its
-  segments one by one is at its dearest with five or four standing (about 28 k).
+  **Settled (the user, 2026-11-25): a destroyed segment does NOT disappear** - so
+  the cost never grows. It is drawn SHRUNK, the animation's small triangle for that
+  segment, held still (no animation), and about once a second, irregularly, it
+  gives off sparks like a rock hit by the blaster (`expl_spawn`). So the star
+  occlusion stays ONE disc round the hexagon always, and the per-segment discs
+  (`base.s` `@segs`, about 60 B in the base's slot) can go. **The wall stays**
+  (the user, 2026-11-25): a shrunk segment still stops rocks, the ship and shots
+  exactly as a whole one - the collision code does not change.
+* **CPU cost of the star discs once a triangle is gone:** moot - see above, the
+  base keeps its one disc (11.48's cheap case, 19 k cycles a frame for `do_base`
+  and `do_stars` with the base on the screen).
 * **Enemies and the station:** the circles stop them and they slide along them,
   but they do not GO ROUND them as `foe_avoid` takes them round a rock, so a UFO
   after the ship on the far side stays pressed to the base. Do they need to steer
