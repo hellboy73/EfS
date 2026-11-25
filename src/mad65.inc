@@ -200,6 +200,11 @@ CART_EN           = $80         ; bit 7 of the bank byte: 1 = cartridge enabled
 OVERRUN_FLAG      = $03         ; the OS sets this when a VSYNC fired before
                                 ;   gpu_end - i.e. the GPU drew nothing that
                                 ;   frame. STICKY: the OS never clears it.
+GPU_LAST          = $0279       ; the GPU's last PP_STATUS, kept by gpu_begin
+                                ;   before it writes CPU_WORKING: GPU_WORKING
+                                ;   means the GPU did not finish the list CPU1
+                                ;   built two frames ago. Read-only, not sticky
+GPU_WORKING       = $B1         ; ...that value (PP_STATUS codes, GPU OS)
 SPK_BUSY          = $024D       ; the speech engine: 0 = idle, non-zero = still
                                 ;   speaking. PUBLISHED, and it is the whole
                                 ;   mechanism - hud_game.s's message bar holds

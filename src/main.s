@@ -209,6 +209,12 @@ DEMO          = 0
 .endif
 TRAINER       = 1 - DEMO
 
+; TEMPORARY, likewise: one letter on the BACKGROUND at line 3, cell 36 - G while
+; the zoom brake holds after a real GPU overrun (GPU_LAST), Z while ZCAP is
+; above 0 for any reason, blank when the brake is off. cam.s dbg_brake. Off in
+; the demo build; 0 takes every byte of it out.
+DBG_BRAKE     = TRAINER
+
 ; Which opcode draws a rock. All three are the SAME command - one closed figure
 ; per outline, with the centre, the angle, the scale and the RAW shape sent as
 ; data - and the GPU does the rotate, the scale and the clip. They differ only in

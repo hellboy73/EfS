@@ -406,8 +406,27 @@ pop, and it is **accepted, not hidden** (the user, 2026-11-24): it is far
 better than a skipped frame, and hiding it would cost code for nothing.
 
 *A second GPU trip: the GPU's real overrun, `GPU_LAST` (the user,
-2026-11-24; needs a MAD-65 OS change, proposed in MAD-65
-`docs/MAD65_future_features.md`, not built).* `ABUDGET` is an estimate made
+2026-11-24). The OS side is BUILT: `GPU_LAST` = `$0279`, published,
+read-only (MAD-65 `MAD65_CPU_OS.md`, "Frame budget & overrun"); `$00` until
+the first `gpu_begin`. The zoom brake's trip is BUILT too (2026-11-24,
+`cam.s cam_rockbrake`, +21 B of CODE5): each frame `GPU_LAST` reads
+`GPU_WORKING` takes a rung in and sets `RBHOLD` ($73BF) to `RB_HOLD` = 60;
+ZCAP does not relax until the hold has run out. The simpler rocks are not
+built yet. TEMPORARY: `DBG_BRAKE` (main.s, = TRAINER) shows one letter on
+the background, line 3 cell 36 - G holding after a GPU overrun, Z ZCAP above
+0, blank off (cam.s `dbg_brake`, 59 B, out of the demo build).*
+
+*The pipeline, and what was decided about it (the user, 2026-11-24).* List N
+is built in N, drawn in N+1 and its verdict reaches CPU1 in N+2, so list N+1
+is built blind: **at least two GPU overruns are unavoidable** before any
+reaction, and the brake's eased zoom (`ZOOM_LAG`, 1/16 of the gap a frame)
+takes many more frames to bite. Decided: **the zoom stays smooth** (no snap);
+**the rocks degrade at once on detection** - the simpler outlines go on in
+the frame `GPU_LAST` trips, since `one_asteroid` runs after `cam_foe` (not
+built); and for the frames in between, the list order is enough - the GPU
+drops the tail of the list (backdrop first), which is what the order is for.
+Known and left alone for now: the `$B1` of list N+1 arrives after the
+reaction and takes a rung of its own. `ABUDGET` is an estimate made
 in advance - the rocks' vertices against a fixed `AST_NONROCK` for everything
 else - so a GPU frame lost to enemies, the base, explosions or anything the
 constant under-prices never trips it, and CPU1 cannot see the GPU's own
@@ -415,9 +434,8 @@ constant under-prices never trips it, and CPU1 cannot see the GPU's own
 `GPU_WORKING` (`$B1`) into `PP_STATUS` when it starts a list and `GPU_READY`
 (`$B2`) at its `WAI`, so a chip handed back to CPU1 still holding `$B1` is a
 list the GPU did not finish (a frame with no `CPU_READY` leaves `$B2`, so the
-two never mix). Today `gpu_begin` overwrites that byte with `CPU_WORKING`
-before `cart_frame` runs; the proposal is that it first copies it to a
-published byte, `GPU_LAST`. Then the zoom brake and the simpler rocks trip on
+two never mix). `gpu_begin` copies that byte to `GPU_LAST` before it writes
+`CPU_WORKING` over it. Then the zoom brake and the simpler rocks trip on
 EITHER `ABUDGET` nearly spent (ahead of time) OR `GPU_LAST = $B1` (measured,
 two frames late: list N comes back to CPU1 in frame N+2) - ~6 B in
 `cam_rockbrake`, and the measured trip holds the brake for a while, like

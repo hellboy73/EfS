@@ -69,6 +69,10 @@ RB_HI       = 4                 ; ABUDGET this low or lower: the rock budget is
                                  ;   (HUD_ON, ROCK_FAMILY)
 RB_CAPMAX   = 16                ; never clamp tighter than half the 0..32
                                  ;   ladder (ZQ_LADDER, main.s)
+RB_HOLD     = 60                ; frames after the GPU's last real overrun
+                                 ;   (GPU_LAST) before ZCAP may relax: a second.
+                                 ;   TBM, open_questions E12. At most 127 - the
+                                 ;   countdown's end is its sign bit
 
 ARW_SLOT0   = FLAME_SLOT0 + FLAME_N ; the four arrows, after the flames
 ARW_PAGE    = $12               ; GPU RAM page (flames $11) - see sprites.s
@@ -88,7 +92,7 @@ ARW_BLINK   = $08               ; blink bit: 8 frames lit, 8 dark, the respawn
         .assert CAM_SLIM + CAM_SSTEP < 256, error, "cam.s: the slew's step must not wrap past a byte"
 
 ; --- state: $6FE2-$6FFF (the tail of the page laser.s and thrust.s share) and
-;     $73A9-$73AB (behind shots.s's RKDMG) ------------------------------------
+;     $73A9-$73AB (behind shots.s's RKDMG), and RBHOLD at $73BF ---------------
 CAMT        = $6FE2             ; the target: its slot + 1, 0 = none
 CAMRZ       = $6FE3             ; zoom target (Q0.7 reciprocal) do_ship eases to
 CAMSOF      = $6FE4             ; SHOFF target, signed px, slewed
@@ -123,6 +127,9 @@ CAMFL       = $73AA             ; the servo's verdict: bit 0 past the tight
                                 ;   margin, bit 1 not inside the loose one
 CAMSD       = $73AB             ; the SHOFF the slide wants, before the slew
 CAMZ        = $73AC             ; the rung's reciprocal as a Q0.7 multiplier
+RBHOLD      = $73BF             ; cam_rockbrake's hold after a GPU overrun,
+                                ;   frames; 0 = none. Between freight.s's LDFRT
+                                ;   and window.s's WINSAVE
 CAMZLAG     = $73AD             ; the shift do_ship's zoom ease uses: ZOOM_LAG,
                                 ;   or ZOOM_LAG+1 on the way home from a target
                                 ;   that is gone - half the pace, so an enemy
@@ -143,24 +150,86 @@ CAMZLAG     = $73AD             ; the shift do_ship's zoom ease uses: ZOOM_LAG,
 ; (never wider than ZCAP) and cz_in/cz_out (never step past it) already give
 ; it the final word over wherever the enemy servo wants to sit.
 ;
-; No new state: ZCAP was already here and unwritten (see its comment above).
+; ABUDGET is an ESTIMATE, made in advance and only of the rocks - everything
+; else is the fixed AST_NONROCK. So the brake also trips on the FACT: GPU_LAST
+; (the OS, $0279) = GPU_WORKING says the GPU did not finish a list, two frames
+; ago. Each such frame takes a rung, so a run of overruns keeps walking in for
+; as long as it lasts; and ZCAP may not relax until RB_HOLD frames after the
+; last one, or the estimate - which did not see it coming - would let go the
+; very next frame. Open_questions E12.
+;
 ; Called first thing in cam_foe, so this frame's clamp sees this frame's cap.
 ; -----------------------------------------------------------------------------
 cam_rockbrake:
-        lda     ABUDGET
+        lda     GPU_LAST
+        cmp     #GPU_WORKING
+        bne     :+
+        lda     #RB_HOLD                ; the GPU overran: a rung in, and hold
+        sta     RBHOLD
+        bra     rb_brake
+:       lda     ABUDGET
         cmp     #RB_HI+1
-        bcs     rb_relax                ; comfortably inside budget: release
+        bcc     rb_brake                ; rock budget nearly spent: a rung in
+        dec     RBHOLD                  ; comfortably inside budget: release -
+        bpl     rb_done                 ;   once the hold has run out. 0 goes
+        inc     RBHOLD                  ;   to $FF and straight back: idle
+        lda     ZCAP
+        beq     rb_done
+        dec     ZCAP
+        rts
+rb_brake:
         lda     ZCAP
         cmp     #RB_CAPMAX
         bcs     rb_done
         inc     ZCAP
-        bra     rb_done
-rb_relax:
-        lda     ZCAP
-        beq     rb_done
-        dec     ZCAP
 rb_done:
         rts
+
+.if DBG_BRAKE
+; -----------------------------------------------------------------------------
+; dbg_brake - TEMPORARY: the brake's state as one letter on the background.
+; -----------------------------------------------------------------------------
+; G = holding after a real GPU overrun (RBHOLD), Z = ZCAP above 0 for any other
+; reason, blank = off. Emitted only when the letter changes, and through
+; bgtext_claim like every background emitter, so it joins the replay schedule
+; instead of breaking it - which is why it is called from here, AFTER
+; hud_tick's turn: a claim made before bgtext_tick would be aged in the same
+; frame and let a HUD row land inside its replay window. A refused claim just
+; tries again next frame. A CLEAR_BG wipes the letter without telling it; it
+; comes back on the next change.
+DBG_BRK_ROW  = 3                ; below the message bar (IND_ROW)
+DBG_BRK_CELL = HUD_COLS - 1     ; the last cell: madsim's CPU/GPU meters sit
+                                ;   over cell 0's corner
+DBGBRK      = $70C7             ; the letter on screen, then a NUL ($70C8) - past
+                                ;   hud_game.s's LVSTART, in its free tail
+dbg_brake:
+        lda     #' '
+        ldx     ZCAP
+        beq     :+
+        lda     #'Z'
+:       ldx     RBHOLD
+        beq     :+
+        lda     #'G'
+:       cmp     DBGBRK
+        beq     @done
+        pha
+        jsr     bgtext_claim
+        pla
+        bcc     @done
+        sta     DBGBRK
+        stz     DBGBRK+1
+        lda     #DBG_BRK_CELL
+        sta     OS_ARG+0
+        lda     #DBG_BRK_ROW
+        sta     OS_ARG+1
+        stz     OS_ARG+2
+        lda     #<DBGBRK
+        sta     OS_ARG+3
+        lda     #>DBGBRK
+        sta     OS_ARG+4
+        jmp     API_GPU_VTEXT_BG
+@done:  rts
+.endif
 
 ; -----------------------------------------------------------------------------
 ; cam_foe - this frame's camera targets: CAMSOF, CAMRZ, CAMLK/CAMLB.
@@ -169,6 +238,9 @@ rb_done:
 ; -----------------------------------------------------------------------------
 cam_foe:
         jsr     cam_rockbrake
+.if DBG_BRAKE
+        jsr     dbg_brake               ; TEMPORARY - the brake's letter
+.endif
         ldx     ETIER
         lda     ZOOM_RZ,x
         sta     CAMRT
