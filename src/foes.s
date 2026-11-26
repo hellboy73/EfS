@@ -3917,6 +3917,7 @@ fw_centre:
         .segment "LDCODE"
 load_foes:
         stz     NFOE
+        stz     GHN                     ; ...and no ghost (ghosts.s)
         stz     LDFRT                   ; no freighter yet (freight.s) - the
         stz     FRTN                    ;   count is written, never read, here
         stz     FOEKILL
@@ -3951,7 +3952,10 @@ load_foes:
         bpl     :-
         ldy     #4                      ; the KIND, out of the record in ROM -
         lda     (T0),y                  ;   FEREC+4 can't be read back here
-        cmp     #FK_FREIGHT             ; a FREIGHTER is not an enemy: it goes to
+        bpl     :+                      ; DORMANT (bit 7): a ghost, on ghosts.s's
+        jsr     gh_add                  ;   own list and in no enemy slot
+        bra     @skip
+:       cmp     #FK_FREIGHT             ; a FREIGHTER is not an enemy: it goes to
         bne     :+                      ;   freight.s's own list, and takes no
         jsr     frt_add                 ;   slot
         bra     @skip

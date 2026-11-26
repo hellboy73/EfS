@@ -28,7 +28,7 @@ MODULES = src/math.s src/input.s src/camera.s src/ship.s src/thrust.s \
           src/pickup.s src/capsule.s src/sprites.s src/base.s src/empmine.s \
           src/speech.s src/tunnel.s src/tunnel_pod.s src/tunnel_art.s \
           src/tunnel_hud.s src/loader.s src/freight.s \
-          src/slots.s src/ffield.s src/fuse.s
+          src/slots.s src/ffield.s src/ghosts.s src/fuse.s
 DATA    = src/shapes.s src/enemies.s src/levels.s src/radar_bg.s \
           src/flames.s src/arrows.s src/screens_art.s src/scroller_text.s \
           src/pickups_art.s src/capsule_art.s src/repair_art.s
@@ -68,6 +68,15 @@ fftest.bin: $(DEPS)
 
 run-fftest: fftest.bin
 	./madsim.exe --tate --gpu roms/gpu_os.bin --cpu1 roms/cpu_os.bin --cart fftest.bin
+
+# THE GHOSTS' TEST LEVEL: a new game starts in level 3, GHOST TEST (levels.s) -
+# ghost rocks round the start and four dormant enemies ahead; the trainer's FIRE2
+# on the other pad wakes them (ghosts.s). `make run-ghtest`.
+ghtest.bin: $(DEPS)
+	cl65 -g -t none -C cart.cfg -o $@ -Ln ghtest.lbl --asm-define DEMO=0 --asm-define TUNTEST=0 --asm-define GHTEST=1 $(UNITS)
+
+run-ghtest: ghtest.bin
+	./madsim.exe --tate --gpu roms/gpu_os.bin --cpu1 roms/cpu_os.bin --cart ghtest.bin
 
 # The tunnel's own bench (tools/tunnel_bench.py): seconds, on the tunnel image.
 tunnel-test: tunnel.bin

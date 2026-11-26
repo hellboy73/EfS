@@ -19,6 +19,8 @@ tunnel.bin
 tunnel.lbl
 fftest.bin
 fftest.lbl
+ghtest.bin
+ghtest.lbl
 proto/*/*.bin
 assets/*.bin
 assets/vgm/*_stream.bin

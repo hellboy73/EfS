@@ -1209,10 +1209,11 @@ one_asteroid:
         lda     #$00
 :       sta     ACRACK
 
-        lda     CLASS_BASE,y            ;   turns it into the first shape id of
-        clc                             ;   that class, so this needs no multiply
-        adc     OBJTYPE,x               ; ...+ which authored variant, picked at
-        tay                             ;   init - Y is now the SHAPE ID, and
+        lda     OBJTYPE,x               ; which authored variant, picked at init,
+        and     #GH_VARM                ;   the ghost bits (ghosts.s) off...
+        clc                             ; ...+ CLASS_BASE, which turns the class
+        adc     CLASS_BASE,y            ;   into its first shape id, so this
+        tay                             ;   needs no multiply - Y is now the SHAPE ID, and
         sty     ASHP                    ;   everything below reads it, qmul
         lda     SHAPE_N,y               ;   clobbers X and Y so it is read FIRST
         sta     AVN
@@ -1293,6 +1294,9 @@ one_asteroid:
         bne     :+
         rts
 :
+        ldx     OBJI                    ; a GHOST hides no stars: it is not
+        bit     OBJTYPE,x               ;   there to hide them (ghosts.s)
+        bmi     :+
         lda     AOCR                    ; (0: the smallest class, or a disc the
         beq     :+                      ;   zoom shrank to nothing - no hole)
         jsr     add_disc                ; the stars go out under this rock
@@ -1427,7 +1431,11 @@ one_asteroid:
         sta     OS_ARG+0
         lda     #>PBUF
         sta     OS_ARG+1
-        jmp     ROCK_BUILDER
+        ldx     OBJI
+        bit     OBJTYPE,x
+        bpl     :+
+        jmp     WS_GROCK                ; a GHOST: the ghost tenant draws it, or
+:       jmp     ROCK_BUILDER            ;   not (ghosts.s gh_rock)
 
 ; -----------------------------------------------------------------------------
 ; span_test - where does [C-R, C+R] sit against the field 0..LIM?

@@ -434,6 +434,7 @@ ld_steps:                               ; ...FE_NEXTSECTOR here
         .addr   base_load               ; ...the human base, if any (base.s)
         .addr   ff_load                 ; ...or the force field (ffield.s), which
                                         ;   then asks the wall slots for itself
+        .addr   gh_load                 ; ...or the ghosts (ghosts.s), the same
         .addr   lb_hud                  ; ...and the message bar
 LD_NSTEPS   = (* - ld_steps) / 2
 LD_NALL     = (* - ld_all) / 2

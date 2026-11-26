@@ -2585,8 +2585,15 @@ These are settled and should not be re-opened without a reason:
       `UPPER` and `FIELDRAM` end where the slots begin: move both together.
     * **Every caller goes through the vectors** - `WS_FRAME` (frame_body,
       before do_stars), `WS_ROCK`, `WS_FOE`, `WS_BRAKE`, `WS_SHOTP`,
-      `WS_SHOTF`, the base's contracts unchanged - and never a tenant's
-      routine by name. Both tables are asserted to one address.
+      `WS_SHOTF`, `WS_EMP`, `WS_GROCK` (54), the base's contracts unchanged -
+      and never a tenant's routine by name. Every table is asserted to one
+      address.
+    * **The third tenant (2026-11-26): the ghosts (54)** - `GHWALL` /
+      `GHFRAME`, from bank 7, `WK_GHOST`, chosen by `gh_load` after `ff_load`
+      when the level says `GH_ON`. The three tenants are the game's three zones
+      (open_questions): the near neighbourhood (the base), the farther reaches
+      (the ghosts), the aliens' own sectors (the field). levels.s asserts a level
+      asks for one at most.
     * **The swap**: the loader writes `WSKIND` (base_load: the base, until a
       level asks for the field); `ld_enter` calls `ws_sync` (since 53 in the
       loader's bank, and QUEUING its copies for `ld_pump`). It patches both
@@ -2625,7 +2632,7 @@ These are settled and should not be re-opened without a reason:
       patched by `ws_sync`.
     * **Loader steps run near the top of a frame.** `ld_request` (X = FE_*)
       sets the cursor; `ld_steps_run` (gameover.s, in the window) starts each
-      of `ld_all`'s steps - a new game's head, then level_begin's seven - only
+      of `ld_all`'s steps - a new game's head, then level_begin's eight - only
       while `FRAME_POS` < `LD_STEP_AT` (20), after the queue is empty.
       Power-on alone runs them back to back (cart_init has no frame yet) and
       flushes its copies untimed (`ovl_flush`); so does frame_body's safety
@@ -2641,3 +2648,52 @@ These are settled and should not be re-opened without a reason:
       stubs went. CODE8 -3, HIDATA -8, CODE -3, CODE9 +2.
     * **Next to cut, when a sector outgrows a frame**: `lb_field`, ~200 of the
       frame's 232 with 120 rocks - the scatter, in batches of rocks.
+
+54. **Ghosts: dormant enemies and rocks nobody can see - the wall slots' third
+    tenant, the far zone.** Built 2026-11-26 (`src/ghosts.s`, the user's
+    design 2026-11-24/26; open_questions keeps what is still open).
+    * **Enemy ghosts.** An enemy record with KIND + 128 is DORMANT: `load_foes`
+      puts it on the ghosts' own list (`gh_add`, at most `GH_MAX` 4, kinds 0-3),
+      not in an enemy slot, so nothing that reads `FOEST` sees it - no radar
+      (the user: it shows there once woken), no hits, no collision, no mission.
+      It is drawn as its kind's WHOLE shape, frame 0, dotted (`gb_draw`,
+      `GBSH` 1), STROBED while the ship is within `GH_R` (9 pages on both
+      high-byte deltas, a square, 144 px at 1:1) and dying away once it has gone
+      (`GH_FLASH` frames, the last half half as often), at most ONE a frame, in
+      turn. `gh_wake` turns the whole list into enemies
+      through `foe_spawn` (the position's low bytes are `$80`); until F10's
+      `A_WAKE` exists, the trainer's FIRE2 on the other pad calls it.
+    * **Rock ghosts.** An ordinary rock with `OBJTYPE` bit 7 (`GH_ROCK`): a
+      hand-placed record's TYPE + 128 goes into `OBJTYPE` as it is, and
+      `one_asteroid` masks the variant (`GH_VARM`), skips the star disc and
+      hands the built command to `WS_GROCK` (`gh_rock`) instead of the GPU.
+      Unrevealed it is drawn only within `GH_R`; revealed -
+      HIT (`OBJHP` under its class's `ROCK_HP`, free: every hit goes through
+      `rock_take_hit`) or BUMPED (`GH_SEEN`, bit 6, set by `gh_reveal` from
+      `pair_test` and `ship_test`, which take no hit points) - it is drawn
+      wherever it is. Dotted is
+      `DOT_POLYGON` at the half-res centre with the scale halved for the
+      doubled offsets. `rock_split` draws its children fresh variants: two
+      ordinary, solid rocks. The radar takes rocks by class and never reads
+      `OBJTYPE`, so a ghost is on it exactly when the mission's classes say.
+    * **EVERY ghost strobe is IRREGULAR** (the user, 2026-11-26), near or
+      revealed, enemy or rock: `gh_irr`, a FLUORESCENT TUBE's flicker (the
+      user) - a short burst, a blip, a burst, a long dark: `GH_IRR`, 11 lit of 32, a third
+      - at `FRAME + 5 x seed`, the seed the rock's slot or the ghost's index, so
+      no two blink in step (an add keeps the bursts' shape; XOR shuffled them). It replaced the plan to share the field's
+      regular flash: `STROBE_LIT` (slots.s, a macro) is now the field's alone.
+      With four enemy ghosts near, one of them is lit nearly every frame, so the
+      one-a-frame rule is what bounds the GPU then (48 of 48 frames drew one).
+    * **Measured** (`tools/ghosts_bench.py`, py65 and the real GPU OS):
+      enemy ghosts a drawn frame - UFO 19.7 k GPU cycles, pulsar 14.2 k, mine
+      13.6 k, spider 27-34 k (the model said 17-20 k for the UFO); a ghost 192
+      24.9 k dotted against 37 k solid; `gh_frame` with four near 6.5 k CPU1
+      cycles. **Bytes** against b1b0f5b: resident +44 (CODE +43: one_asteroid
+      +19, `gh_reveal*` 18, the two calls 6; CODE8 +1, `GHN`); `GHWALL` 110 of
+      1,440, `GHFRAME` 254 of 1,184 (the trainer's wake 17 of it) - since the
+      irregular strobe 109 and 260; the base's slot B +3 and the field's -1
+      (the `WS_GROCK` entries; the macro); the loader +99 and level 3 +103 in
+      bank 8; under the window 25 (`GH_END` `$97FE`, 2 B left).
+    * **The test level:** 3, GHOST TEST (`make run-ghtest`, `GHTEST=1`): four
+      ghost rocks round the start beside two ordinary ones, four dormant
+      enemies (one of each kind) ahead, the gate open.

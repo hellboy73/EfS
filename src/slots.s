@@ -1,25 +1,29 @@
 ; =============================================================================
-; slots.s - the WALL SLOTS: the base's code or the force field's, never both
+; slots.s - the WALL SLOTS: the base's code, the force field's or the ghosts'
 ; =============================================================================
 ; design_technical.md 11.52. A sector has the human base (with its freighters)
-; OR the force field (11.51), never both (the user, 2026-11-23), so their code
-; does not have to be resident side by side. It shares two SLOTS, and the
+; OR the force field (11.51) OR the ghosts (ghosts.s), never two (the user,
+; 2026-11-23; the ghosts 2026-11-26), so their code does not have to be
+; resident side by side. The three are the game's three ZONES: the near
+; neighbourhood (the base), the farther reaches (things in camouflage) and the
+; sectors the aliens hold for good (the field). They share two SLOTS, and the
 ; sector loader decides which TENANT fills them:
 ;
 ;   slot A  $B960-$BEFF, the tail of upper RAM (cart.cfg SLOTA_*): the walls'
-;           own code - base.s's bs_* (BSWALL) or the field's (FFWALL). Upper
+;           own code - base.s's bs_* (BSWALL), the field's (FFWALL) or the
+;           ghosts' rock drawing (GHWALL). Upper
 ;           RAM is never overlaid, so it is copied only when the tenant changes.
 ;   slot B  $DA60-$DEFF, the tail of DEMO_RAM (cart.cfg SLOTB_*): the frame's
-;           code - do_base, the freighters (BSFRAME) or the field's drawing
-;           (FFFRAME) - and FIRST in it, the VECTOR TABLE. DEMO_RAM is the
+;           code - do_base, the freighters (BSFRAME), the field's drawing
+;           (FFFRAME) or the ghosts' (GHFRAME) - and FIRST in it, the VECTOR TABLE. DEMO_RAM is the
 ;           overlay's (overlay.s): the screens and the tunnel write over it, so
 ;           its row (overlay.s ovl_slotb_row) is the CURRENT tenant's, patched here, and
 ;           ovl_load_field brings back whichever tenant the sector has.
 ;
 ; EVERY CALLER GOES THROUGH THE VECTORS (WS_*), never a tenant's routine by
 ; name: the movers (objects.s, foes.s, ship.s, shots.s) and frame_body cannot
-; know which tenant is in. Each tenant's table is the same seven JMPs at the same
-; address (asserted), with the base's contracts:
+; know which tenant is in. Each tenant's table is the same eight entries at the
+; same address (asserted), with the base's contracts:
 ;
 ;   WS_FRAME  once a frame, inside the bracket, before do_stars: its discs
 ;             must be in the list before the stars are walked
@@ -29,9 +33,13 @@
 ;   WS_SHOTP  a player's bullet, X = its slot: carry SET = it ended on a wall
 ;   WS_SHOTF  an enemy's bullet, the same
 ;   WS_EMP    do_emp, EMK this frame's reach (the field's tower; the base: rts)
+;   WS_GROCK  one_asteroid, a GHOST rock (OBJTYPE bit 7) with its command block
+;             built in PBUF: draw it, or not (ghosts.s). Only the ghost tenant's
+;             sectors have ghost rocks, so the other two never see the call
 ;
 ; WHO CHOOSES: the sector loader writes WSKIND (WK_*) - base.s's base_load the
-; base, then ffield.s's ff_load the field if the level has one (LVL_FF_ON) -
+; base, then ffield.s's ff_load the field if the level has one (LVL_FF_ON),
+; then ghosts.s's gh_load the ghosts if the level has them (LVL_GH_ON) -
 ; and ld_enter (loader.s) calls ws_sync once the
 ; loader is out of the window, which copies the tenant in if it is not the one
 ; resident (WSCUR). The base is the tenant at power-on: bootstrap.s copies it.
@@ -41,14 +49,35 @@
         .import __BSFRAME_LOAD__, __BSFRAME_RUN__, __BSFRAME_SIZE__
         .import __FFWALL_LOAD__,  __FFWALL_RUN__,  __FFWALL_SIZE__
         .import __FFFRAME_LOAD__, __FFFRAME_RUN__, __FFFRAME_SIZE__
+        .import __GHWALL_LOAD__,  __GHWALL_RUN__,  __GHWALL_SIZE__
+        .import __GHFRAME_LOAD__, __GHFRAME_RUN__, __GHFRAME_SIZE__
 
 WK_BASE     = 0                 ; WSKIND: the human base and its freighters
 WK_FIELD    = 1                 ; ...the force field (ffield.s)
+WK_GHOST    = 2                 ; ...the ghosts (ghosts.s)
 
 BSWALL_BANK  = 7                ; must match cart.cfg's MEMORY order (ROMn = bank n)
 BSFRAME_BANK = 2
 FFWALL_BANK  = 2
 FFFRAME_BANK = 2
+GHWALL_BANK  = 7
+GHFRAME_BANK = 7
+
+; STROBE_LIT - A = a strobe's timer, nonzero (frames left, out of FF_FLASH) ->
+; Z SET: lit this frame. Every other frame while fresh, one in four as it dies
+; away, in step with FRAME. The field's flash (ffield.s). It was to be shared
+; with the ghosts, hence a macro; since 2026-11-26 the ghosts strobe
+; irregularly instead (ghosts.s gh_irr, the user) and only the field uses it.
+; Branchless, so it has no label of its own: a label there would end the
+; caller's @-local scope.
+.macro  STROBE_LIT
+        cmp     #FF_FLASH / 2           ; carry: fresh
+        lda     #$00
+        rol     a                       ; 1 fresh, 0 dying...
+        asl     a
+        eor     #$03                    ; ...-> the mask, 1 or 3
+        and     FRAME
+.endmacro
 
 ; --- the vector tables: FIRST in each tenant's slot B -------------------------
         .pushseg
@@ -61,6 +90,8 @@ ws_tab_bs:
         jmp     base_shot_p
         jmp     base_shot_f
         rts                             ; WS_EMP: nothing of the base's
+        .res    2
+        rts                             ; WS_GROCK: no ghost rocks here
 ws_frame_bs:                            ; the freighters, then the base - the
         jsr     do_freight              ;   order frame_body always had
         jmp     do_base
@@ -74,8 +105,30 @@ ws_tab_ff:
         jmp     ff_shot_p
         jmp     ff_shot_f
         jmp     ff_emp
+        rts                             ; WS_GROCK: no ghost rocks here
+
+        .segment "GHFRAME"
+ws_tab_gh:
+        jmp     gh_frame                ; WS_FRAME
+        rts                             ; WS_ROCK: nothing to bump into
+        .res    2
+        rts                             ; WS_FOE
+        .res    2
+        rts                             ; WS_BRAKE
+        .res    2
+        clc                             ; WS_SHOTP: carry CLEAR, no wall
+        rts
+        .res    1
+        clc                             ; WS_SHOTF
+        rts
+        .res    1
+        rts                             ; WS_EMP
+        .res    2
+        jmp     gh_rock                 ; WS_GROCK
 
         .assert ws_tab_ff = ws_tab_bs, lderror, "slots.s: the two tenants' vector tables are not at one address"
+        .assert ws_tab_gh = ws_tab_bs, lderror, "slots.s: the ghosts' vector table is not at the others' address"
+        .assert ws_tab_gh = __GHFRAME_RUN__, lderror, "slots.s: the ghosts' vector table is not first in slot B"
         .assert ws_tab_bs = __BSFRAME_RUN__, lderror, "slots.s: the base's vector table is not first in slot B"
         .assert ws_tab_ff = __FFFRAME_RUN__, lderror, "slots.s: the field's vector table is not first in slot B"
         .popseg
@@ -87,6 +140,7 @@ WS_BRAKE    = ws_tab_bs + 9
 WS_SHOTP    = ws_tab_bs + 12
 WS_SHOTF    = ws_tab_bs + 15
 WS_EMP      = ws_tab_bs + 18
+WS_GROCK    = ws_tab_bs + 21
 
 ; --- the swap ----------------------------------------------------------------
         .pushseg
@@ -152,6 +206,12 @@ ws_rows:
         .byte   FFFRAME_BANK
         .word   __FFFRAME_LOAD__, __FFFRAME_RUN__, __FFFRAME_SIZE__
         .byte   $FF
-        .assert * - ws_rows = 32, error, "slots.s: ws_sync indexes 16 bytes a tenant"
+        .byte   GHWALL_BANK
+        .word   __GHWALL_LOAD__, __GHWALL_RUN__, __GHWALL_SIZE__
+        .byte   $FF
+        .byte   GHFRAME_BANK
+        .word   __GHFRAME_LOAD__, __GHFRAME_RUN__, __GHFRAME_SIZE__
+        .byte   $FF
+        .assert * - ws_rows = 48, error, "slots.s: ws_sync indexes 16 bytes a tenant"
 
         .popseg

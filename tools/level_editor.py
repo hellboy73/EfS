@@ -98,8 +98,19 @@ FOE_SEE = 400 * UNITS_PER_PX            # how far one sees: the resting screen's
                                         #   height, foes.s FOE_SEE
 
 
+GHOST = 0x80                            # a rock's TYPE / a foe's KIND bit 7: a GHOST
+                                        #   (ghosts.s) - only in a GH_ON level
+
+
 def kind_name(k):
+    if k & GHOST:
+        return "GHOST " + kind_name(k & 0x7F)
     return KIND_NAMES.get(k, f"kind {k}")
+
+
+def type_name(t):
+    """A rock's variant letter, ' ghost' after it for a ghost rock."""
+    return string.ascii_uppercase[t & 0x3F] + (" ghost" if t & GHOST else "")
 
 # The screen's footprint in world units, filled in from main.s at start-up by
 # _read_screen so it cannot drift from the framebuffer the game actually has.
@@ -230,7 +241,7 @@ class Level:
                  shx=0x8000, shy=0x8000, shhd=0, rocks=None, foes=None,
                  misn=0, mpar=0, gtx=0xB000, gty=0x5000,
                  base_on=0, base_x=0x8000, base_y=0x5800,
-                 ff_on=0, ff_x=0x8000, ff_y=0x8000, ff_vis=1):
+                 ff_on=0, ff_x=0x8000, ff_y=0x8000, ff_vis=1, gh_on=0):
         self.name = name
         self.counts = list(counts or [0, 0, 0, 0, 0])   # per size class
         self.seed = seed                                 # the scatter's LFSR word
@@ -245,6 +256,8 @@ class Level:
         self.ff_on = ff_on                                # the force field
         self.ff_x, self.ff_y = ff_x, ff_y                # (ffield.s) - its centre;
         self.ff_vis = ff_vis                              #   never with the base
+        self.gh_on = gh_on                                # the ghosts (ghosts.s):
+                                                          #   never with either
 
     @property
     def total(self):
@@ -255,7 +268,7 @@ class Level:
                      [dict(r) for r in self.rocks], [dict(f) for f in self.foes],
                      self.misn, self.mpar, self.gtx, self.gty,
                      self.base_on, self.base_x, self.base_y,
-                     self.ff_on, self.ff_x, self.ff_y, self.ff_vis)
+                     self.ff_on, self.ff_x, self.ff_y, self.ff_vis, self.gh_on)
 
     def scatter(self, type_pick):
         """Exactly what load_level's first pass produces, in its own order:
@@ -333,7 +346,7 @@ class Model:
                 k(i, "MISN"), k(i, "MPAR"), k(i, "GTX", 0xB000), k(i, "GTY", 0x5000),
                 k(i, "BASE_ON", 0), k(i, "BASE_X", 0x8000), k(i, "BASE_Y", 0x5800),
                 k(i, "FF_ON", 0), k(i, "FF_X", 0x8000), k(i, "FF_Y", 0x8000),
-                k(i, "FF_VIS", 1)))
+                k(i, "FF_VIS", 1), k(i, "GH_ON", 0)))
         return cls(levels)
 
 
@@ -386,6 +399,10 @@ def render_generated(model):
     out.append(";         1 = there - never with the base (the wall slots, slots.s)")
     out.append(";   FF_X     its centre, world 16-bit; the radius is ffield.s's FF_R, fixed")
     out.append(";   FF_VIS   1 = drawn, 0 = invisible (flashed where it is hit)")
+    out.append(";   GH_ON    whether this sector is the far zone's (ghosts.s): 0 = no, 1 = its")
+    out.append(";         ghosts take the wall slots - never with the base or the field. A")
+    out.append(";         rock's TYPE +128 is a GHOST rock, a foe's KIND +128 a dormant one, and")
+    out.append(";         both need it")
     out.append("; -----------------------------------------------------------------------------")
     for i, l in enumerate(lv):
         out.append(f'; level {i} - "{l.name}"')
@@ -408,6 +425,7 @@ def render_generated(model):
         out.append(const("FF_X", f"${l.ff_x:04X}"))
         out.append(const("FF_Y", f"${l.ff_y:04X}"))
         out.append(const("FF_VIS", l.ff_vis))
+        out.append(const("GH_ON", l.gh_on))
         out.append("")
 
     out.append("; The hand-placed blocks, and the counts DERIVED from their own length - so a")
@@ -421,7 +439,7 @@ def render_generated(model):
                 f"${v:02X}" for v in (r["x"] & 0xFF, (r["x"] >> 8) & 0xFF,
                                        r["y"] & 0xFF, (r["y"] >> 8) & 0xFF)) +
                 f", {r['cls']}, {r['type']}"
-                f"       ; {CLASSES[r['cls']]}{string.ascii_uppercase[r['type']]}"
+                f"       ; {CLASSES[r['cls']]}{type_name(r['type'])}"
                 f" at {r['x']}, {r['y']}")
         out.append(f"LVL{i}_ROCKS_END:")
         out.append(f"; enemies: XL, XH, YL, YH, kind, heading, speed - {FOE_REC} bytes each")
@@ -476,6 +494,7 @@ def render_generated(model):
     out.append(_row("LVL_FF_YL", [f"<L{i}_FF_Y" for i in range(n)]))
     out.append(_row("LVL_FF_YH", [f">L{i}_FF_Y" for i in range(n)]))
     out.append(_row("LVL_FF_VIS", [f"L{i}_FF_VIS" for i in range(n)]))
+    out.append(_row("LVL_GH_ON", [f"L{i}_GH_ON" for i in range(n)]))
     out.append("")
     out.append(_row("LVL_ROCKN", [f"L{i}_ROCKN" for i in range(n)]))
     out.append(_row("LVL_ROCKLO", [f"<LVL{i}_ROCKS" for i in range(n)]))
@@ -492,6 +511,8 @@ def render_generated(model):
                    f'"level {i} ({l.name}) asks for more rocks than NOBJ slots"')
         out.append(f'        .assert !(L{i}_BASE_ON && L{i}_FF_ON), error, '
                    f'"level {i} ({l.name}) has the base AND the force field - the wall slots hold one"')
+        out.append(f'        .assert !(L{i}_GH_ON && (L{i}_BASE_ON || L{i}_FF_ON)), error, '
+                   f'"level {i} ({l.name}) has the ghosts AND the base or the field - the wall slots hold one"')
     return "\n".join(out)
 
 
@@ -955,7 +976,7 @@ class LevelEditor(tk.Tk):
 
     def _rock_world_r(self, cls, type_):
         """SHAPE_R is half-res px; a world unit is 1/16 of a FULL-res px."""
-        idx = cls * self.ast_types + min(type_, self.ast_types - 1)
+        idx = cls * self.ast_types + min(type_ & 0x3F, self.ast_types - 1)
         r = self.shape_r[idx] if idx < len(self.shape_r) else 48
         return r * 2 * UNITS_PER_PX
 

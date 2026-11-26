@@ -244,13 +244,8 @@ ff_frame:
         dec     FFLT
         bcs     @r
         lda     FFLT                    ; the strobe: on every other frame while
-        ldx     #$01                    ;   fresh, one in four as it dies away
-        cmp     #FF_FLASH / 2
-        bcs     :+
-        ldx     #$03
-:       txa
-        and     FFLT
-        bne     @r
+        STROBE_LIT                      ;   fresh, one in four as it dies away -
+        bne     @r                      ;   (slots.s)
         lda     FFLT                    ; ...and it crawls, a brad on and back
         and     #$04
         lsr     a

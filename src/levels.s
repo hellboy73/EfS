@@ -74,7 +74,10 @@
 ;   KIND             0 = the UFO, 1 = the spider, 2 = the pulsar, 3 = the EMP
 ;                    mine (empmine.s), 4 = a FREIGHTER (freight.s) - not an
 ;                    enemy and not in an enemy slot: HEADING 0 north / 128
-;                    south, SPEED 0 docked. A kind nothing knows is not loaded
+;                    south, SPEED 0 docked. A kind nothing knows is not loaded.
+;                    +128 = DORMANT, a GHOST (ghosts.s): kinds 0..3 only, at most
+;                    GH_MAX a level, and only in a GH_ON level - it waits as a
+;                    picture until woken, then flies HEADING / SPEED
 ;   HEADING          the patrol course, brad, the ship's own convention - 0 flies
 ;                    toward -Y, "up" in the editor, and 64 toward +X. Unread by
 ;                    a mine, which never turns to a heading - HEADING and SPEED
@@ -123,7 +126,7 @@ LVL_BANK    = LDR_BANK          ; cart.cfg: the LEVELS segment's bank - the
         .segment "LEVELS"
 
 ; === GENERATED (tools/level_editor.py) - rewritten whole on Save =============
-NLEVELS     = 3
+NLEVELS     = 4
 
 ; Level names. A comment, not a table - no level has anything to print them
 ; on yet, and a string per level is ROM with nothing to spend it on. The editor
@@ -131,6 +134,7 @@ NLEVELS     = 3
 ;   NAME 0 "MINING ZONE"
 ;   NAME 1 "SECTOR ZERO"
 ;   NAME 2 "FORCE FIELD TEST"
+;   NAME 3 "GHOST TEST"
 
 ; -----------------------------------------------------------------------------
 ; What each level asks for. THIS is the source: the tables further down are
@@ -154,6 +158,10 @@ NLEVELS     = 3
 ;         1 = there - never with the base (the wall slots, slots.s)
 ;   FF_X     its centre, world 16-bit; the radius is ffield.s's FF_R, fixed
 ;   FF_VIS   1 = drawn, 0 = invisible (flashed where it is hit)
+;   GH_ON    whether this sector is the far zone's (ghosts.s): 0 = no, 1 = its
+;         ghosts take the wall slots - never with the base or the field. A
+;         rock's TYPE +128 is a GHOST rock, a foe's KIND +128 a dormant one, and
+;         both need it
 ; -----------------------------------------------------------------------------
 ; level 0 - "MINING ZONE"
 L0_N192     = 15
@@ -176,6 +184,7 @@ L0_FF_ON    = 0
 L0_FF_X     = $8000
 L0_FF_Y     = $8000
 L0_FF_VIS   = 1
+L0_GH_ON    = 0
 
 ; level 1 - "SECTOR ZERO"
 L1_N192     = 8
@@ -198,6 +207,7 @@ L1_FF_ON    = 0
 L1_FF_X     = $8000
 L1_FF_Y     = $8000
 L1_FF_VIS   = 1
+L1_GH_ON    = 0
 
 ; level 2 - "FORCE FIELD TEST"
 L2_N192     = 0
@@ -220,6 +230,30 @@ L2_FF_ON    = 1
 L2_FF_X     = $8000
 L2_FF_Y     = $8000
 L2_FF_VIS   = 1
+L2_GH_ON    = 0
+
+; level 3 - "GHOST TEST"
+L3_N192     = 0
+L3_N128     = 2
+L3_N64      = 6
+L3_N32      = 8
+L3_N16      = 8
+L3_SEED     = $6B21
+L3_SHX      = $8000
+L3_SHY      = $8000
+L3_SHHD     = 0
+L3_MISN     = 2
+L3_MPAR     = 0
+L3_GTX      = $8000
+L3_GTY      = $1800
+L3_BASE_ON  = 0
+L3_BASE_X   = $8000
+L3_BASE_Y   = $5800
+L3_FF_ON    = 0
+L3_FF_X     = $8000
+L3_FF_Y     = $8000
+L3_FF_VIS   = 1
+L3_GH_ON    = 1
 
 ; The hand-placed blocks, and the counts DERIVED from their own length - so a
 ; record added or deleted by hand needs nothing else changed.
@@ -292,59 +326,87 @@ L2_ROCKN    = (LVL2_ROCKS_END - LVL2_ROCKS) / 6
 L2_FOEN     = (LVL2_FOES_END - LVL2_FOES) / 7
 L2_TOTAL    = L2_N192 + L2_N128 + L2_N64 + L2_N32 + L2_N16 + L2_ROCKN
 
+; level 3 - "GHOST TEST"
+; rocks: XL, XH, YL, YH, class, type - 6 bytes each, class 0..4 = 192..16
+LVL3_ROCKS:
+        .byte   $00, $80, $00, $70, 0, 128       ; 192A ghost at 32768, 28672
+        .byte   $00, $74, $00, $78, 1, 129       ; 128B ghost at 29696, 30720
+        .byte   $00, $8C, $00, $78, 2, 130       ; 64C ghost at 35840, 30720
+        .byte   $00, $80, $00, $64, 3, 128       ; 32A ghost at 32768, 25600
+        .byte   $00, $70, $00, $88, 0, 0       ; 192A at 28672, 34816
+        .byte   $00, $90, $00, $88, 1, 0       ; 128A at 36864, 34816
+LVL3_ROCKS_END:
+; enemies: XL, XH, YL, YH, kind, heading, speed - 7 bytes each
+LVL3_FOES:
+        .byte   $00, $80, $00, $58, 128, 0, 0       ; GHOST UFO at 32768, 22528, holding its post
+        .byte   $00, $68, $00, $68, 130, 64, 40       ; GHOST PULSAR at 26624, 26624, course 64 at 40 px/s
+        .byte   $00, $98, $00, $68, 131, 0, 0       ; GHOST EMP MINE at 38912, 26624, holding its post
+        .byte   $00, $80, $00, $70, 129, 0, 0       ; GHOST SPIDER at 32768, 28672, holding its post
+LVL3_FOES_END:
+L3_ROCKN    = (LVL3_ROCKS_END - LVL3_ROCKS) / 6
+L3_FOEN     = (LVL3_FOES_END - LVL3_FOES) / 7
+L3_TOTAL    = L3_N192 + L3_N128 + L3_N64 + L3_N32 + L3_N16 + L3_ROCKN
+
 ; -----------------------------------------------------------------------------
 ; The tables load_level indexes by level. Nothing here is a number: every cell
 ; is one of the constants above, so this half of the file cannot drift from it.
 ; -----------------------------------------------------------------------------
-LVL_N192:   .byte   L0_N192, L1_N192, L2_N192
-LVL_N128:   .byte   L0_N128, L1_N128, L2_N128
-LVL_N64:    .byte   L0_N64, L1_N64, L2_N64
-LVL_N32:    .byte   L0_N32, L1_N32, L2_N32
-LVL_N16:    .byte   L0_N16, L1_N16, L2_N16
+LVL_N192:   .byte   L0_N192, L1_N192, L2_N192, L3_N192
+LVL_N128:   .byte   L0_N128, L1_N128, L2_N128, L3_N128
+LVL_N64:    .byte   L0_N64, L1_N64, L2_N64, L3_N64
+LVL_N32:    .byte   L0_N32, L1_N32, L2_N32, L3_N32
+LVL_N16:    .byte   L0_N16, L1_N16, L2_N16, L3_N16
 
-LVL_SEEDL:  .byte   <L0_SEED, <L1_SEED, <L2_SEED
-LVL_SEEDH:  .byte   >L0_SEED, >L1_SEED, >L2_SEED
+LVL_SEEDL:  .byte   <L0_SEED, <L1_SEED, <L2_SEED, <L3_SEED
+LVL_SEEDH:  .byte   >L0_SEED, >L1_SEED, >L2_SEED, >L3_SEED
 
-LVL_SHXL:   .byte   <L0_SHX, <L1_SHX, <L2_SHX
-LVL_SHXH:   .byte   >L0_SHX, >L1_SHX, >L2_SHX
-LVL_SHYL:   .byte   <L0_SHY, <L1_SHY, <L2_SHY
-LVL_SHYH:   .byte   >L0_SHY, >L1_SHY, >L2_SHY
-LVL_SHHD:   .byte   L0_SHHD, L1_SHHD, L2_SHHD
+LVL_SHXL:   .byte   <L0_SHX, <L1_SHX, <L2_SHX, <L3_SHX
+LVL_SHXH:   .byte   >L0_SHX, >L1_SHX, >L2_SHX, >L3_SHX
+LVL_SHYL:   .byte   <L0_SHY, <L1_SHY, <L2_SHY, <L3_SHY
+LVL_SHYH:   .byte   >L0_SHY, >L1_SHY, >L2_SHY, >L3_SHY
+LVL_SHHD:   .byte   L0_SHHD, L1_SHHD, L2_SHHD, L3_SHHD
 
-LVL_MISN:   .byte   L0_MISN, L1_MISN, L2_MISN
-LVL_MPAR:   .byte   L0_MPAR, L1_MPAR, L2_MPAR
-LVL_GTXL:   .byte   <L0_GTX, <L1_GTX, <L2_GTX
-LVL_GTXH:   .byte   >L0_GTX, >L1_GTX, >L2_GTX
-LVL_GTYL:   .byte   <L0_GTY, <L1_GTY, <L2_GTY
-LVL_GTYH:   .byte   >L0_GTY, >L1_GTY, >L2_GTY
+LVL_MISN:   .byte   L0_MISN, L1_MISN, L2_MISN, L3_MISN
+LVL_MPAR:   .byte   L0_MPAR, L1_MPAR, L2_MPAR, L3_MPAR
+LVL_GTXL:   .byte   <L0_GTX, <L1_GTX, <L2_GTX, <L3_GTX
+LVL_GTXH:   .byte   >L0_GTX, >L1_GTX, >L2_GTX, >L3_GTX
+LVL_GTYL:   .byte   <L0_GTY, <L1_GTY, <L2_GTY, <L3_GTY
+LVL_GTYH:   .byte   >L0_GTY, >L1_GTY, >L2_GTY, >L3_GTY
 
-LVL_BASE_ON: .byte   L0_BASE_ON, L1_BASE_ON, L2_BASE_ON
-LVL_BASE_XL: .byte   <L0_BASE_X, <L1_BASE_X, <L2_BASE_X
-LVL_BASE_XH: .byte   >L0_BASE_X, >L1_BASE_X, >L2_BASE_X
-LVL_BASE_YL: .byte   <L0_BASE_Y, <L1_BASE_Y, <L2_BASE_Y
-LVL_BASE_YH: .byte   >L0_BASE_Y, >L1_BASE_Y, >L2_BASE_Y
+LVL_BASE_ON: .byte   L0_BASE_ON, L1_BASE_ON, L2_BASE_ON, L3_BASE_ON
+LVL_BASE_XL: .byte   <L0_BASE_X, <L1_BASE_X, <L2_BASE_X, <L3_BASE_X
+LVL_BASE_XH: .byte   >L0_BASE_X, >L1_BASE_X, >L2_BASE_X, >L3_BASE_X
+LVL_BASE_YL: .byte   <L0_BASE_Y, <L1_BASE_Y, <L2_BASE_Y, <L3_BASE_Y
+LVL_BASE_YH: .byte   >L0_BASE_Y, >L1_BASE_Y, >L2_BASE_Y, >L3_BASE_Y
 
-LVL_FF_ON:  .byte   L0_FF_ON, L1_FF_ON, L2_FF_ON
-LVL_FF_XL:  .byte   <L0_FF_X, <L1_FF_X, <L2_FF_X
-LVL_FF_XH:  .byte   >L0_FF_X, >L1_FF_X, >L2_FF_X
-LVL_FF_YL:  .byte   <L0_FF_Y, <L1_FF_Y, <L2_FF_Y
-LVL_FF_YH:  .byte   >L0_FF_Y, >L1_FF_Y, >L2_FF_Y
-LVL_FF_VIS: .byte   L0_FF_VIS, L1_FF_VIS, L2_FF_VIS
+LVL_FF_ON:  .byte   L0_FF_ON, L1_FF_ON, L2_FF_ON, L3_FF_ON
+LVL_FF_XL:  .byte   <L0_FF_X, <L1_FF_X, <L2_FF_X, <L3_FF_X
+LVL_FF_XH:  .byte   >L0_FF_X, >L1_FF_X, >L2_FF_X, >L3_FF_X
+LVL_FF_YL:  .byte   <L0_FF_Y, <L1_FF_Y, <L2_FF_Y, <L3_FF_Y
+LVL_FF_YH:  .byte   >L0_FF_Y, >L1_FF_Y, >L2_FF_Y, >L3_FF_Y
+LVL_FF_VIS: .byte   L0_FF_VIS, L1_FF_VIS, L2_FF_VIS, L3_FF_VIS
+LVL_GH_ON:  .byte   L0_GH_ON, L1_GH_ON, L2_GH_ON, L3_GH_ON
 
-LVL_ROCKN:  .byte   L0_ROCKN, L1_ROCKN, L2_ROCKN
-LVL_ROCKLO: .byte   <LVL0_ROCKS, <LVL1_ROCKS, <LVL2_ROCKS
-LVL_ROCKHI: .byte   >LVL0_ROCKS, >LVL1_ROCKS, >LVL2_ROCKS
+LVL_ROCKN:  .byte   L0_ROCKN, L1_ROCKN, L2_ROCKN, L3_ROCKN
+LVL_ROCKLO: .byte   <LVL0_ROCKS, <LVL1_ROCKS, <LVL2_ROCKS, <LVL3_ROCKS
+LVL_ROCKHI: .byte   >LVL0_ROCKS, >LVL1_ROCKS, >LVL2_ROCKS, >LVL3_ROCKS
 
-LVL_FOEN:   .byte   L0_FOEN, L1_FOEN, L2_FOEN
-LVL_FOELO:  .byte   <LVL0_FOES, <LVL1_FOES, <LVL2_FOES
-LVL_FOEHI:  .byte   >LVL0_FOES, >LVL1_FOES, >LVL2_FOES
+LVL_FOEN:   .byte   L0_FOEN, L1_FOEN, L2_FOEN, L3_FOEN
+LVL_FOELO:  .byte   <LVL0_FOES, <LVL1_FOES, <LVL2_FOES, <LVL3_FOES
+LVL_FOEHI:  .byte   >LVL0_FOES, >LVL1_FOES, >LVL2_FOES, >LVL3_FOES
 
 ; The one thing a level cannot be allowed to get wrong, checked by the
 ; assembler rather than discovered in the simulator.
         .assert L0_TOTAL <= NOBJ, error, "level 0 (MINING ZONE) asks for more rocks than NOBJ slots"
         .assert !(L0_BASE_ON && L0_FF_ON), error, "level 0 (MINING ZONE) has the base AND the force field - the wall slots hold one"
+        .assert !(L0_GH_ON && (L0_BASE_ON || L0_FF_ON)), error, "level 0 (MINING ZONE) has the ghosts AND the base or the field - the wall slots hold one"
         .assert L1_TOTAL <= NOBJ, error, "level 1 (SECTOR ZERO) asks for more rocks than NOBJ slots"
         .assert !(L1_BASE_ON && L1_FF_ON), error, "level 1 (SECTOR ZERO) has the base AND the force field - the wall slots hold one"
+        .assert !(L1_GH_ON && (L1_BASE_ON || L1_FF_ON)), error, "level 1 (SECTOR ZERO) has the ghosts AND the base or the field - the wall slots hold one"
         .assert L2_TOTAL <= NOBJ, error, "level 2 (FORCE FIELD TEST) asks for more rocks than NOBJ slots"
         .assert !(L2_BASE_ON && L2_FF_ON), error, "level 2 (FORCE FIELD TEST) has the base AND the force field - the wall slots hold one"
+        .assert !(L2_GH_ON && (L2_BASE_ON || L2_FF_ON)), error, "level 2 (FORCE FIELD TEST) has the ghosts AND the base or the field - the wall slots hold one"
+        .assert L3_TOTAL <= NOBJ, error, "level 3 (GHOST TEST) asks for more rocks than NOBJ slots"
+        .assert !(L3_BASE_ON && L3_FF_ON), error, "level 3 (GHOST TEST) has the base AND the force field - the wall slots hold one"
+        .assert !(L3_GH_ON && (L3_BASE_ON || L3_FF_ON)), error, "level 3 (GHOST TEST) has the ghosts AND the base or the field - the wall slots hold one"
 ; === END GENERATED ===

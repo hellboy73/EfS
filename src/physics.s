@@ -465,7 +465,8 @@ pair_test:
         cmp     #COL_MAX
         bcs     @no                     ; over budget: it waits a frame
         inc     COL_N
-        jmp     col_respond
+        jsr     gh_reveal2              ; a ghost that bumps is found out
+        jmp     col_respond             ;   (ghosts.s) - both of the pair
 @no:    rts
 
 ; -----------------------------------------------------------------------------
@@ -616,7 +617,8 @@ ship_test:
         inc     SHIPHITCL               ;   still counted (SHIPHITN, below)
         bne     :+                      ;   but gets no response of its own
         inc     SHIPHITCH
-:       jsr     ship_respond
+:       jsr     gh_reveal_i             ; ...and one the ship bumps (ghosts.s)
+        jsr     ship_respond
 @notfirst:
         inc     SHIPHITN
 @no:    rts

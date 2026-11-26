@@ -136,8 +136,13 @@ NOBJ        = 255               ; asteroid SLOTS. How many rocks a level puts
 .ifndef FFTEST
 FFTEST        = 0               ; 1: a new game starts in the force field's test
 .endif                          ;   level (make run-fftest)
+.ifndef GHTEST
+GHTEST        = 0               ; 1: ...in the ghosts' test level (make run-ghtest)
+.endif
 .if FFTEST
 START_LEVEL = 2                 ; FORCE FIELD TEST (levels.s)
+.elseif GHTEST
+START_LEVEL = 3                 ; GHOST TEST (levels.s)
 .else
 START_LEVEL = DEMO              ; (0 = MINING ZONE, 1 = SECTOR ZERO - the demo's)
 .endif
@@ -1651,6 +1656,8 @@ frame_body:
         .include "freight.s"            ; the freighter: a neutral transport, a
                                         ; base that drifts - its walls are base.s's
         .include "ffield.s"             ; the force field: the slots' other tenant
+        .include "ghosts.s"             ; the ghosts, enemies and rocks: the slots'
+                                        ;   third tenant, the far zone
         .include "pickup.s"             ; the laser, the shield and the EMP,
                                         ; dropped by a kill and homing like
                                         ; Saturnium. CODE6, its art in SPRART
