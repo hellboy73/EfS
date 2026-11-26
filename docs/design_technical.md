@@ -2534,7 +2534,7 @@ These are settled and should not be re-opened without a reason:
       tenant changes. **B** = `$DA60-$DEFF` (1,184 B), the tail of DEMO_RAM:
       the frame's code, `BSFRAME` (do_base and freight.s, from bank 2) or
       `FFFRAME`, and FIRST in it the **vector table**. DEMO_RAM is the
-      overlay's (screens, tunnel), so B's row in `ovl_field_segs` is the
+      overlay's (screens, tunnel), so B's row (`ovl_slotb_row`, RAM) is the
       current tenant's and `ovl_load_field` brings it back with FIELD.
       `UPPER` and `FIELDRAM` end where the slots begin: move both together.
     * **Every caller goes through the vectors** - `WS_FRAME` (frame_body,
@@ -2542,9 +2542,9 @@ These are settled and should not be re-opened without a reason:
       `WS_SHOTF`, the base's contracts unchanged - and never a tenant's
       routine by name. Both tables are asserted to one address.
     * **The swap**: the loader writes `WSKIND` (base_load: the base, until a
-      level asks for the field); `ld_enter` calls `ws_sync` once the loader is
-      out of the window. It copies A, patches B's row, and copies B only while
-      FIELD is the DEMO_RAM tenant. The base is the power-on tenant
+      level asks for the field); `ld_enter` calls `ws_sync` (since 53 in the
+      loader's bank, and QUEUING its copies for `ld_pump`). It patches both
+      rows, queues A, and queues B only while FIELD is the DEMO_RAM tenant. The base is the power-on tenant
       (bootstrap.s). Verified in py65 (a scratch test on preview.py's boot):
       both swaps byte-exact against the ROM, B surviving the screens and the
       tunnel, B left alone and only its row patched while SCREEN is up.
@@ -2553,3 +2553,45 @@ These are settled and should not be re-opened without a reason:
       sit in B, which both slots call). Fixed UPPER keeps 29 B spare, fixed
       FIELDRAM 168 B. The base tenant's growth (its bullets, the
       siege - 48) must fit its slots or move a boundary.
+
+53. **The staged load: no long code runs without a frame to show for it.**
+    Decided and built 2026-11-26 (the user: "the loader, like everything
+    else, must fit in frames and never go by without sending the GPU a list,
+    even an empty one"). Measured before it: FIRE on the title held CPU1 for
+    ~3.3 frames with no list - the overlay copy 458 k cycles (`cart_load`,
+    ~59 cycles a byte out of the EPROM-fetched OS loop), `lb_field` 202 k,
+    `load_foes` 79 k - which the OS counted as one overrun; out of the tunnel
+    the engine's ~18 KB came back the same way.
+    * **A loading frame is the loader's, whole.** `frame_body`'s first word
+      is `ld_pump` (overlay.s, CODE8); a frame with copying or loader steps to
+      do runs only that and returns straight out of `cart_frame` - not even
+      `spr_pump`, whose boot-time upload fills whatever PPRAM a frame left
+      (a loading frame leaves all of it). The list closes empty: the
+      background keeps its picture (the title, SECTOR COMPLETED, the field's
+      HUD on GAME OVER, the tunnel's cockpit), the image layer is blank.
+    * **Copies are queued.** `ovl_walk` only queues a $FF-ended row list
+      (two at most); `ld_pump` copies 256-byte pages with `cart_load`, each
+      started only while `FRAME_POS` < `LD_POS_MAX` (200; a page is ~15).
+      Every overlay swap - FIELD, SCREEN, TUNNEL, the engine out of the
+      tunnel, the wall slots' tenant - goes through it, so a new sector or
+      tunnel transition needs nothing new. The row lists are ROM (bank 8,
+      read with the window switched there); only the two slot rows are RAM,
+      patched by `ws_sync`.
+    * **Loader steps run near the top of a frame.** `ld_request` (X = FE_*)
+      sets the cursor; `ld_steps_run` (gameover.s, in the window) starts each
+      of `ld_all`'s steps - a new game's head, then level_begin's seven - only
+      while `FRAME_POS` < `LD_STEP_AT` (20), after the queue is empty.
+      Power-on alone runs them back to back (cart_init has no frame yet) and
+      flushes its copies untimed (`ovl_flush`); so does frame_body's safety
+      net for py65.
+    * **Measured in headless madsim**, no overrun anywhere (the OS's sticky
+      `OVERRUN_FLAG` read straight): title -> game 6 frames (the worst 206),
+      FIRE on GAME OVER 3 (201), into the tunnel 4 (211), out of the tunnel
+      into the next sector 11 (211), the force-field sector's slot swap. The
+      title stays up ~4 frames longer than before, then clears as it did.
+    * **Resident RAM went DOWN 12 B** (the user's condition): the pump is
+      CODE8, but `ws_sync`, the overlay loaders, `ovl_flush` and every row
+      list moved to the loader's ROM bank, and the `game_start`/`level_begin`
+      stubs went. CODE8 -3, HIDATA -8, CODE -3, CODE9 +2.
+    * **Next to cut, when a sector outgrows a frame**: `lb_field`, ~200 of the
+      frame's 232 with 120 rocks - the scatter, in batches of rocks.

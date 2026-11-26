@@ -37,23 +37,24 @@
 ; efs-free-space-2026-11) - every read of $8000-$9FFF with CART_EN clear,
 ; with its PC. After this move, no such read may come from an $8xxx PC.
 ;
-; ENTRIES. The callers did not change: game_start and level_begin are still
-; those names, now three-line stubs here (HIDATA - UPPER, resident in every
-; overlay) that pick an entry and go through ld_enter; cart_init calls
-; power_on the same way. All three are called INSIDE a win_off bracket
-; (set_state_field, over_wait via state_tick, cart_init), so ld_enter saves
-; both halves of that bracket - CART_BANK_MIR and WINSAVE - since every
+; ENTRIES, all through ld_enter (HIDATA - UPPER, resident in every overlay),
+; which puts this bank in the window, jumps through ld_tab, runs ws_sync (the
+; wall slots' tenant: it only QUEUES copies now) and puts the caller's window
+; back: power_on (cart_init, once), LD_STEPS (ld_pump, the staged load) and
+; the three overlay loaders, which only queue rows (overlay.s). ld_enter saves
+; both halves of a win_off bracket - CART_BANK_MIR and WINSAVE - since every
 ; WCALL inside reuses WINSAVE, and puts both back on the way out.
 ;
-; ONE FRAME OR SEVERAL. level_begin is a TABLE OF STEPS (gameover.s,
-; ld_steps), run back to back. It takes ~230 k cycles at level 0 today - a
-; whole frame (prng's scatter alone is ~100 k) - and it is run in the same
-; frame as the trigger, synchronously, because the FIELD/SCREEN overlay taught
-; that a transition deferred to a later frame breaks the background in
-; madsim while preview.py still passes (memory: efs-field-screen-overlay).
-; If a sector ever has to load across frames, the step table is where it is
-; cut: a LOADING state that runs some steps a frame with the cursor kept in
-; RAM, drawing a held screen meanwhile. Not built - nothing needs it yet.
+; IT IS STAGED (2026-11-26, the user: no long code without a frame to show for
+; it). level_begin is a TABLE OF STEPS (gameover.s, ld_steps): power-on runs
+; them back to back, but every load in play - a new game, the next sector,
+; out of the tunnel, FIRE on GAME OVER - goes through ld_request/ld_pump
+; (overlay.s): the copies first, a page at a time while FRAME_POS allows, then
+; the steps, each started only near the top of a frame (ld_steps_run,
+; LD_STEP_AT). Every frame closes its list; the background holds its picture
+; meanwhile. Measured: title -> game 6 frames (lb_field alone ~200 of 232),
+; out of the tunnel 11, FIRE on GAME OVER 3 - with no overrun. lb_field is the
+; step to cut next when a sector outgrows a frame: the scatter, in batches.
 ; =============================================================================
 LDR_BANK    = 8                 ; cart.cfg: LDCODE is in ROM8, with LEVELS
 LDCNT       = $73B6             ; load_foes' record countdown. NOT under the
@@ -61,9 +62,12 @@ LDCNT       = $73B6             ; load_foes' record countdown. NOT under the
                                 ;   It is the byte levels.s's LVSAVE had
         .assert EMPHAVE < LDCNT && LDCNT < CAPN, error, "loader.s: LDCNT has landed inside pickup.s's or capsule.s's block"
 
-LD_GAME     = 0                 ; ld_tab's entries, x2
-LD_LEVEL    = 2
-LD_POWER    = 4
+LD_POWER    = 0                 ; ld_tab's entries, x2
+LD_STEPS    = 2                 ; ld_pump's (overlay.s): the staged load
+LD_OVLF     = 4                 ; ...and the three overlay loaders (overlay.s),
+LD_OVLS     = 6                 ;   which only queue rows, out of this bank
+LD_OVLT     = 8
+LD_OVLFN    = 10                ; ...and FIELD flushed at once (the safety net)
 
 ; WCALL target - from the loader, call a resident routine that reads the RAM
 ; under the window. A goes in and comes back out; X and Y go in, and come back
@@ -81,12 +85,6 @@ LD_POWER    = 4
 ; -----------------------------------------------------------------------------
 power_on:
         ldx     #LD_POWER
-        bra     ld_enter
-game_start:
-        ldx     #LD_GAME
-        bra     ld_enter
-level_begin:
-        ldx     #LD_LEVEL
 ld_enter:
         lda     WINSAVE                 ; the caller's bracket, both halves
         pha
@@ -141,6 +139,7 @@ wcall:
 ; ld_disp - X = LD_*: into that entry. Its rts is ld_enter's.
 ld_disp:
         jmp     (ld_tab,x)
-ld_tab: .addr   ld_game_start, ld_level_begin, ld_power_on
+ld_tab: .addr   ld_power_on, ld_steps_run, ovl_load_field, ovl_load_screen
+        .addr   ovl_load_tunnel, ovl_field_now
 
         .popseg

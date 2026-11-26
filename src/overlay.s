@@ -70,38 +70,296 @@ FE_NEXTSECTOR = 2                ; sector_frame's FIRE (gate.s): jsr level_begin
 
         .segment "CODE8"
 
-; Row: bank(1) + load16 + run16 + size16 = 7 bytes, cart_load's own OS_ARG
-; shape (bootstrap.s), $FF-terminated (a real bank never reads FF here - the
-; image has at most a few dozen banks).
-ovl_field_segs:
-        .byte   CODE5_BANK
-        .word   __CODE5_LOAD__, __CODE5_RUN__, __CODE5_SIZE__
-        .byte   CODE6_BANK
-        .word   __CODE6_LOAD__, __CODE6_RUN__, __CODE6_SIZE__
-        .byte   CODE9_BANK
-        .word   __CODE9_LOAD__, __CODE9_RUN__, __CODE9_SIZE__
-ovl_slotb_row:                          ; ...and slot B, the wall slots' tenant
-        .byte   BSFRAME_BANK            ;   in this sector - the base at power-on;
-        .word   __BSFRAME_LOAD__, __BSFRAME_RUN__, __BSFRAME_SIZE__ ; slots.s
-        .byte   $FF                     ;   ws_sync patches the row. LAST, so it
-                                        ;   can be walked on its own
-ovl_screen_segs:
-        .byte   UICODE_BANK
-        .word   __UICODE_LOAD__, __UICODE_RUN__, __UICODE_SIZE__
+; THE SLOT ROWS, in RAM: ws_sync (slots.s) patches them with the tenant the
+; sector wants. A row is bank(1) + load16 + run16 + size16 = 7 bytes, cart_load's
+; own OS_ARG shape, and a list ends on a $FF bank. Every other row list is ROM
+; (LDCODE, below): ld_pump selects bank 8 to read a row.
+ovl_slotb_row:                          ; slot B, the wall slots' tenant in DEMO_RAM:
+        .byte   BSFRAME_BANK            ;   FIELD's last row (ovl_load_field queues
+        .word   __BSFRAME_LOAD__, __BSFRAME_RUN__, __BSFRAME_SIZE__ ;   it after
+        .byte   $FF                     ;   FIELD's own) - the base at power-on
+ovl_slota_row:                          ; ...and slot A's, filled in by ws_sync
+        .res    7, 0
         .byte   $FF
 
-ovl_tunnel_segs:
-        .byte   TUNCODE_BANK
-        .word   __TUNCODE_LOAD__, __TUNCODE_RUN__, __TUNCODE_SIZE__
-        .byte   TUNCODE_BANK            ; ...and the rocks, over the run area
-        .word   __TUNCODE2_LOAD__, __TUNCODE2_RUN__, __TUNCODE2_SIZE__
-        .byte   TUNCODE3_BANK           ; ...and the lifepods, behind them
-        .word   __TUNCODE3_LOAD__, __TUNCODE3_RUN__, __TUNCODE3_SIZE__
-        .byte   $FF
-; THE FLIGHT ENGINE, which the tunnel's second row overwrites: reloaded (before FIELD's own
-; rows) by ovl_load_field when the tenant it replaces is the tunnel. The same four rows as
-; bootstrap.s's boot_segs.
-ovl_engine_segs:
+overlay_cur: .byte OVL_FIELD    ; which tenant DEMO_RAM holds right now
+
+; -----------------------------------------------------------------------------
+; set_state_field - the ONLY place SCR_STATE is set to SC_PLAY. X = FE_NEWGAME
+; or FE_NEXTSECTOR. QUEUES FIELD's copy, clears BGDONE UNCONDITIONALLY (a
+; screen was showing no matter which of the callers got here) and queues the
+; one-time action (ld_request); none of it runs here. From the next frame on,
+; ld_pump runs the copy and then the loader's steps a piece a frame, and the
+; field's first frame comes when they are done. Still a tail-JMP target, never
+; a jsr target (the file header): harmless now that nothing is overwritten
+; this frame, and the callers are UICODE that the copy WILL overwrite.
+; -----------------------------------------------------------------------------
+set_state_field:
+        stz     SCR_STATE
+        stz     BGDONE
+        phx
+        ldx     #LD_OVLF                ; ovl_load_field, in the loader's bank
+        jsr     ld_enter
+        plx
+        ; fall through
+; ld_request - X = FE_*: the loader's steps from that action's first one -
+; game_start's head (FE_NEWGAME) or level_begin's first step (FE_NEXTSECTOR),
+; ld_all's entries 0 and 1 (gameover.s). Also gameover.s's FIRE on GAME OVER,
+; which stays in the field and so needs no copy.
+ld_request:
+        dex                             ; FE_NEWGAME = 1, FE_NEXTSECTOR = 2
+        txa
+        asl     a
+        sta     lj_step
+        inc     lj_act
+        rts
+
+; =============================================================================
+; THE STAGED LOAD (open_questions.md E12's rule for the loader, the user,
+; 2026-11-26): no long code runs without a frame to show for it. A frame that
+; has loading to do is the LOADER'S, whole: ld_pump runs first in frame_body,
+; copies and runs steps for as long as FRAME_POS allows, and frame_body then
+; returns, so the frame still closes its (empty) list - the background holds
+; whatever picture it had, the image layer is blank. Two kinds of work:
+;
+;   COPIES  ovl_walk only QUEUES a table of rows; ld_pump copies them in
+;           256-byte pages with cart_load, each started only while
+;           FRAME_POS is under LD_POS_MAX. Every overlay swap, the wall slots'
+;           tenant included, goes through here, so the next sector or tunnel
+;           transition needs nothing new. Resident by necessity: cart_load
+;           takes the window, so this cannot run from it.
+;   STEPS   lj_act set: the loader's step table (gameover.s ld_steps_run, in
+;           the window, bank 8), each step started only near the top of a
+;           frame. Run after the queue is empty, since a step may need the
+;           code a copy brings.
+;
+; ovl_flush runs the queue to the end, untimed: cart_init's, which has no frame
+; to protect yet, and frame_body's safety net for py65 (preview.py).
+; =============================================================================
+LD_POS_MAX  = 200               ; no page starts past this (232 = the frame):
+                                ;   a page is ~15 (cart_load, ~59 cycles a
+                                ;   byte), so 215 at the latest
+LJ_QMAX     = 2                 ; lists queued at once: FIELD's (ROM) and then
+                                ;   slot B's row (RAM); slot A's and then slot
+                                ;   B's (ws_sync)
+
+lj_qn:      .byte   0           ; tables queued; the head is entry 0
+lj_qlo:     .res    LJ_QMAX, 0     ; ...each a pointer to its next row
+lj_qhi:     .res    LJ_QMAX, 0
+lj_row:     .res    7, 0        ; the row being copied: bank, src, dst, len -
+                                ;   len 0 = none, take the next one
+lj_act:     .byte   0           ; nonzero: loader steps to run
+lj_step:    .byte   0           ; ...and the next one, x2 (gameover.s ld_all)
+lj_sync:    .byte   0           ; nonzero: ovl_flush, no clock
+lj_bnk:     .byte   0           ; the window's bank when ld_pump started
+
+; ovl_walk - A/X = a table of rows, $FF-ended: queue it.
+ovl_walk:
+        ldy     lj_qn
+        sta     lj_qlo,y
+        txa
+        sta     lj_qhi,y
+        inc     lj_qn
+        rts
+
+; -----------------------------------------------------------------------------
+; ld_pump - frame_body's first word. C CLEAR: nothing to load, the frame is the
+; game's (four loads and a branch). C SET: the frame was the loader's.
+; -----------------------------------------------------------------------------
+ld_pump:
+        lda     lj_qn
+        ora     lj_row+5
+        ora     lj_row+6
+        ora     lj_act
+        bne     :+
+        clc
+        rts
+:       lda     CART_BANK_MIR           ; the window as the frame had it - put
+        sta     lj_bnk                  ;   back on the way out (@busy)
+@lp:    lda     lj_row+5
+        ora     lj_row+6
+        bne     @copy
+        lda     lj_qn
+        beq     @steps
+        lda     #LDR_BANK | CART_EN     ; the lists are the loader's bank's
+        jsr     API_CART_BANK           ;   (slot rows are RAM: any bank reads)
+        lda     lj_qlo                  ; the head list's next row
+        sta     @rd+1
+        lda     lj_qhi
+        sta     @rd+2
+        ldy     #6
+@rd:    lda     $FFFF,y
+        sta     lj_row,y
+        dey
+        bpl     @rd
+        lda     lj_row
+        inc     a
+        beq     @pop                    ; $FF: that table is done
+        clc
+        lda     lj_qlo                  ; past this row
+        adc     #7
+        sta     lj_qlo
+        bcc     @lp
+        inc     lj_qhi
+        bra     @lp
+@pop:   stz     lj_row+5                ; (the bytes after a $FF are not a len)
+        stz     lj_row+6
+        lda     lj_qlo+1                ; the second list moves up
+        sta     lj_qlo
+        lda     lj_qhi+1
+        sta     lj_qhi
+        dec     lj_qn
+        bra     @lp
+
+@copy:  jsr     ld_time
+        bcs     @busy
+        jsr     ld_piece
+        bra     @lp
+
+@steps: lda     lj_act
+        beq     @busy                   ; (the copies were this frame's work)
+        jsr     ld_time
+        bcs     @busy
+        lda     lj_step                 ; the loader runs what it can start
+        pha
+        jsr     win_off                 ;   (the object pool is under the
+        ldx     #LD_STEPS               ;   window), in its own bank
+        jsr     ld_enter
+        jsr     win_on
+        pla
+        cmp     lj_step
+        beq     @busy
+        jmp     @lp                     ; it ran some: any copies it queued next
+@busy:  lda     lj_bnk
+        jsr     API_CART_BANK
+        sec
+        rts
+
+; ld_piece - one cart_load of the current row: a PAGE (256 bytes), or the
+; row's last part-page. A page moves only the high bytes - src (crossing into
+; the next bank at $A000), dst, len - and a last part-page ends the row, which
+; then needs no moving at all. Everything is moved BEFORE the call and nothing
+; reads OS_ARG after it: cart_load does not leave its argument block as it
+; found it.
+ld_piece:
+        ldx     #4                      ; bank, src, dst
+:       lda     lj_row,x
+        sta     OS_ARG,x
+        dex
+        bpl     :-
+        lda     lj_row+6
+        beq     @last
+        stz     OS_ARG+5                ; a page
+        lda     #$01
+        sta     OS_ARG+6
+        dec     lj_row+6
+        inc     lj_row+4
+        inc     lj_row+2
+        lda     lj_row+2
+        cmp     #$A0
+        bne     @go
+        lda     #$80
+        sta     lj_row+2
+        inc     lj_row
+        bra     @go
+@last:  lda     lj_row+5                ; the row's tail, and the row is done
+        sta     OS_ARG+5
+        stz     OS_ARG+6
+        stz     lj_row+5
+@go:    jmp     API_CART_LOAD           ; tail
+
+; ld_time - C SET: too late in this frame to start a piece. ovl_flush: never.
+ld_time:
+        lda     lj_sync
+        bne     @go
+        lda     FRAME_POS               ; the hardware FIRST, then the flag
+        ldx     VSYNC_FLAG              ;   (MAD65_CPU_OS.md)
+        bne     @late
+        cmp     #LD_POS_MAX
+        rts
+@late:  sec
+        rts
+@go:    clc
+        rts
+
+        .pushseg
+        .segment "LDCODE"               ; THE LOADER'S BANK (loader.s): run in
+                                        ;   the window through ld_enter (LD_OVLF,
+                                        ;   LD_OVLS, LD_OVLT), and nothing here
+                                        ;   copies - it only QUEUES (ovl_walk)
+; -----------------------------------------------------------------------------
+; ovl_load_field / ovl_load_screen / ovl_load_tunnel - queue the tenant's rows
+; unless it is already resident, and say it is (overlay_cur): the copies land
+; over the next frames (ld_pump), and frame_body runs no frame of the new
+; tenant until they have. ovl_load_field is also frame_body's safety net, then
+; flushed on the spot. Out of the TUNNEL the flight engine comes back first -
+; the tunnel's second row is over the run area - so those lists start with the
+; engine's four rows (bootstrap.s's boot_segs) and run on into the tenant's.
+; -----------------------------------------------------------------------------
+ovl_load_field:
+        lda     overlay_cur
+        cmp     #OVL_FIELD
+        beq     @ret
+        cmp     #OVL_TUNNEL
+        beq     @eng
+        lda     #<ovl_field_rows
+        ldx     #>ovl_field_rows
+        bra     @go
+@eng:   lda     #<ovl_engf_rows
+        ldx     #>ovl_engf_rows
+@go:    jsr     ovl_walk
+        lda     #OVL_FIELD
+        sta     overlay_cur
+        lda     #<ovl_slotb_row         ; ...and slot B, its last row (RAM)
+        ldx     #>ovl_slotb_row
+        jmp     ovl_walk
+@ret:   rts
+
+ovl_load_screen:
+        lda     overlay_cur
+        cmp     #OVL_SCREEN
+        beq     @ret
+        cmp     #OVL_TUNNEL             ; the demo ends in SECTOR COMPLETED straight
+        beq     @eng                    ;   out of the tunnel
+        lda     #<ovl_screen_rows
+        ldx     #>ovl_screen_rows
+        bra     @go
+@eng:   lda     #<ovl_engs_rows
+        ldx     #>ovl_engs_rows
+@go:    jsr     ovl_walk
+        lda     #OVL_SCREEN
+        sta     overlay_cur
+@ret:   rts
+
+; ovl_field_now - frame_body's safety net (LD_OVLFN): FIELD, copied on the spot.
+ovl_field_now:
+        jsr     ovl_load_field
+        ; fall through
+; ovl_flush - run the queue to its end now, whatever the frame says: cart_init's
+; (ld_power_on) and the safety net's. From this bank: ld_pump is resident, does
+; the copying, and hands the window back as it found it - this bank.
+ovl_flush:
+        inc     lj_sync
+:       jsr     ld_pump
+        bcs     :-
+        stz     lj_sync
+        rts
+
+; ovl_load_tunnel - the frame AFTER the field set SC_TUNNEL (frame_body), so the
+; field's last frame has already returned out of CODE6.
+ovl_load_tunnel:
+        lda     overlay_cur
+        cmp     #OVL_TUNNEL
+        beq     @ret
+        lda     #OVL_TUNNEL
+        sta     overlay_cur
+        lda     #<ovl_tunnel_rows
+        ldx     #>ovl_tunnel_rows
+        jmp     ovl_walk
+@ret:   rts
+
+; The row lists. ROM, so a list may be spelt out twice rather than chained.
+.macro  ENGINE_ROWS
         .byte   ENG0_BANK
         .word   __CODE_LOAD__, __CODE_RUN__, __CODE_SIZE__
         .byte   ENG1_BANK
@@ -110,110 +368,29 @@ ovl_engine_segs:
         .word   __CODE3_LOAD__, __CODE3_RUN__, __CODE3_SIZE__
         .byte   ENG4_BANK
         .word   __CODE4_LOAD__, __CODE4_RUN__, __CODE4_SIZE__
+.endmacro
+ovl_engf_rows:
+        ENGINE_ROWS                     ; out of the tunnel: the engine, then...
+ovl_field_rows:
+        .byte   CODE5_BANK
+        .word   __CODE5_LOAD__, __CODE5_RUN__, __CODE5_SIZE__
+        .byte   CODE6_BANK
+        .word   __CODE6_LOAD__, __CODE6_RUN__, __CODE6_SIZE__
+        .byte   CODE9_BANK
+        .word   __CODE9_LOAD__, __CODE9_RUN__, __CODE9_SIZE__
         .byte   $FF
-
-overlay_cur: .byte OVL_FIELD    ; which tenant DEMO_RAM holds right now
-
-; -----------------------------------------------------------------------------
-; set_state_field - the ONLY place SCR_STATE is set to SC_PLAY. X = FE_NEWGAME
-; or FE_NEXTSECTOR. Loads CODE5/CODE6, clears BGDONE UNCONDITIONALLY (a screen
-; was showing no matter which of the two callers got here), runs the one-time
-; action inside a win_off/win_on bracket (the object pool lives under the
-; window), and returns to cart_frame. See the file header for why this is a
-; tail-JMP target, never a jsr target.
-; -----------------------------------------------------------------------------
-set_state_field:
-        stz     SCR_STATE
-        phx                             ; ovl_load_field clobbers X; FE_* is
-        jsr     ovl_load_field          ;   still needed once it returns
-        plx
-        stz     BGDONE
-        jsr     win_off
-        cpx     #FE_NEWGAME
-        bne     @sector
-        jsr     game_start
-        bra     @done
-@sector:
-        jsr     level_begin
-@done:
-        jmp     win_on                  ; tail: its rts is this call's own
-
-; -----------------------------------------------------------------------------
-; ovl_load_field / ovl_load_screen - cart_load the group's table unless it is
-; already resident. ovl_load_field is also frame_body's safety net: normally
-; set_state_field has already loaded FIELD by the time frame_body sees
-; SCR_STATE = SC_PLAY, but a path that reaches SC_PLAY some OTHER way (a test
-; harness poking SCR_STATE directly - tools/preview.py's boot_cart does) still
-; gets FIELD loaded and BGDONE cleared, just without a queued action.
-; -----------------------------------------------------------------------------
-ovl_load_field:
-        lda     overlay_cur
-        cmp     #OVL_FIELD
-        beq     @ret
-        cmp     #OVL_TUNNEL
-        bne     @f
-        lda     #<ovl_engine_segs       ; the tunnel has been over the run area: the
-        ldx     #>ovl_engine_segs       ;   flight engine comes back from ROM first
-        jsr     ovl_walk
-@f:     lda     #OVL_FIELD
-        sta     overlay_cur
-        lda     #<ovl_field_segs
-        ldx     #>ovl_field_segs
-        jsr     ovl_walk
-@ret:   rts
-
-ovl_load_screen:
-        lda     overlay_cur
-        cmp     #OVL_SCREEN
-        beq     @ret
-        cmp     #OVL_TUNNEL             ; the demo ends in SECTOR COMPLETED straight
-        bne     @s                      ;   out of the tunnel: the flight engine must
-        lda     #<ovl_engine_segs       ;   come back before the next game needs it
-        ldx     #>ovl_engine_segs       ;   (ovl_load_field only restores it when the
-        jsr     ovl_walk                ;   tenant is still the tunnel)
-@s:
-        lda     #OVL_SCREEN
-        sta     overlay_cur
-        lda     #<ovl_screen_segs
-        ldx     #>ovl_screen_segs
-        jsr     ovl_walk
-@ret:   rts
-
-; ovl_load_tunnel - the same for TUNNEL. Called by frame_body (main.s) on the
-; first frame it sees SC_TUNNEL, which is the frame AFTER the field set it, so
-; the field's last frame has already returned out of CODE6.
-ovl_load_tunnel:
-        lda     overlay_cur
-        cmp     #OVL_TUNNEL
-        beq     @ret
-        lda     #OVL_TUNNEL
-        sta     overlay_cur
-        lda     #<ovl_tunnel_segs
-        ldx     #>ovl_tunnel_segs
-        jsr     ovl_walk
-@ret:   rts
-
-; -----------------------------------------------------------------------------
-; ovl_walk - A/X = table addr lo/hi. Reads 7-byte rows into OS_ARG (self-
-; patched base + ,Y so no zero page is spent - ZP had as little as 2 B free
-; the same day this was written), cart_load per row, stops at the $FF
-; sentinel. bootstrap.s's boot_init loop, generalised to a runtime address.
-; -----------------------------------------------------------------------------
-ovl_walk:
-        sta     @rd+1
-        stx     @rd+2
-        ldy     #0
-@row:   ldx     #0
-@arg:
-@rd:    lda     $FFFF,y
-        sta     OS_ARG,x
-        iny
-        inx
-        cpx     #7
-        bne     @arg
-        lda     OS_ARG+0
-        cmp     #$FF
-        beq     @done
-        jsr     API_CART_LOAD
-        bra     @row
-@done:  rts
+ovl_engs_rows:
+        ENGINE_ROWS
+ovl_screen_rows:
+        .byte   UICODE_BANK
+        .word   __UICODE_LOAD__, __UICODE_RUN__, __UICODE_SIZE__
+        .byte   $FF
+ovl_tunnel_rows:
+        .byte   TUNCODE_BANK
+        .word   __TUNCODE_LOAD__, __TUNCODE_RUN__, __TUNCODE_SIZE__
+        .byte   TUNCODE_BANK            ; ...and the rocks, over the run area
+        .word   __TUNCODE2_LOAD__, __TUNCODE2_RUN__, __TUNCODE2_SIZE__
+        .byte   TUNCODE3_BANK           ; ...and the lifepods, behind them
+        .word   __TUNCODE3_LOAD__, __TUNCODE3_RUN__, __TUNCODE3_SIZE__
+        .byte   $FF
+        .popseg

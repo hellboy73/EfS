@@ -1161,10 +1161,8 @@ cart_init:
         jsr     win_on                  ; ...and the window is a cartridge again
                                         ;   before init can return - the OS jumps
                                         ;   to boot_frame THROUGH it (window.s)
-        jsr     ovl_load_screen         ; FIELD was resident for hof_seed/
-                                        ;   game_start above; frame 1 is
-                                        ;   SC_INTRO and needs SCREEN instead
-                                        ;   (overlay.s)
+                                        ; (SCREEN is loaded by ld_power_on, at
+                                        ;   its end, untimed - overlay.s)
         jsr     scr_boot                ; ...and power-on is the intro, not the
                                         ;   flight (screens.s, resident now)
         jsr     spr_arm                 ; ...and every sprite the game has goes
@@ -1224,8 +1222,10 @@ ld_power_on:
         ; drift from the first the day either changed. What stays above is only
         ; what a SESSION does once: the tables, the two backdrop layers, the
         ; seed, the settled flight-model dials.
-        jmp     ld_game_start           ; tail, in the loader
-        .popseg
+        jsr     ld_game_start           ; ...then SCREEN over FIELD: frame 1
+        jsr     ovl_load_screen         ;   is SC_INTRO, and cart_init's
+        jmp     ovl_flush               ;   scr_boot is SCREEN code - copied
+        .popseg                         ;   now, untimed: no frame runs yet
 
 ; THE KERNEL (CODE8): cart_frame and frame_body stay resident when the tunnel
 ; overwrites the run area (open_questions.md H1, the tunnel memory audit).
@@ -1245,32 +1245,47 @@ frame_body:
         inc     FRAME
         bne     :+
         inc     FRAME+1
+:       jsr     ld_pump                 ; THE STAGED LOAD (overlay.s): a frame
+        bcc     :+                      ;   with copying or loader steps to do
+        pla                             ;   is the loader's, whole - it closes
+        pla                             ;   an empty list and nothing else runs,
+        rts                             ;   not even cart_frame's spr_pump: out
+                                        ;   of cart_frame from here. The sprite
+                                        ;   upload FILLS what PPRAM the frame left
+                                        ;   (~2 KB out of the cartridge at boot),
+                                        ;   and a loading frame leaves all of it
 :       lda     SCR_STATE               ; SC_PLAY (0) needs FIELD resident;
         beq     @field                  ;   anything else needs SCREEN - a
         cmp     #SC_TUNNEL              ; ...except the tunnel, its own tenant
         beq     @tunnel
         lda     overlay_cur             ;   screen (screens.s) takes the whole
         cmp     #OVL_SCREEN             ;   frame either way, so the swap (if
-        beq     @go_scr                 ;   any) has to land before it does
-        jsr     ovl_load_screen         ;   (overlay.s)
+        beq     @go_scr                 ;   any) has to land before it does:
+        ldx     #LD_OVLS                ;   QUEUED (overlay.s, through the
+        jmp     ld_enter                ;   loader), and the screen runs once
+                                        ;   ld_pump has landed it
 @go_scr:
         jmp     scr_frame
 @tunnel:
         lda     overlay_cur
         cmp     #OVL_TUNNEL
         beq     :+
-        jsr     ovl_load_tunnel         ; (overlay.s) - the frame after the
-:       jmp     tunnel_frame            ;   field set SC_TUNNEL (gate.s)
+        ldx     #LD_OVLT                ; (overlay.s) - queued the same way, the
+        jmp     ld_enter
+:       jmp     tunnel_frame            ;   frame after the field set SC_TUNNEL
 @field:
         lda     overlay_cur
         cmp     #OVL_FIELD
         beq     :+
-        jsr     ovl_load_field          ; SAFETY NET ONLY: set_state_field
-        stz     BGDONE                  ;   (overlay.s) is the real entry point
-                                        ;   and has normally already done both
+        ldx     #LD_OVLFN               ; SAFETY NET ONLY: set_state_field
+        jsr     ld_enter                ;   (overlay.s) is the real entry point
+        stz     BGDONE                  ;   and has normally already done both
                                         ;   of these on the SAME frame SCR_STATE
                                         ;   went to 0 - this only fires if
                                         ;   SCR_STATE reached 0 some OTHER way
+                                        ;   (preview.py's boot_cart), and copies
+                                        ;   on the spot, untimed, so the bench's
+                                        ;   frames are the game's as they were
 :
         lda     BGDONE                  ; one-shot: wipe the boot screen off the
         bne     :+                      ;   background. The OS replays background

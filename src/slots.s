@@ -13,7 +13,7 @@
 ;           code - do_base, the freighters (BSFRAME) or the field's drawing
 ;           (FFFRAME) - and FIRST in it, the VECTOR TABLE. DEMO_RAM is the
 ;           overlay's (overlay.s): the screens and the tunnel write over it, so
-;           its row in ovl_field_segs is the CURRENT tenant's, patched here, and
+;           its row (overlay.s ovl_slotb_row) is the CURRENT tenant's, patched here, and
 ;           ovl_load_field brings back whichever tenant the sector has.
 ;
 ; EVERY CALLER GOES THROUGH THE VECTORS (WS_*), never a tenant's routine by
@@ -92,12 +92,16 @@ WS_SHOTF    = ws_tab_bs + 15
 WSKIND:     .byte   WK_BASE             ; the tenant this sector wants (the loader)
 WSCUR:      .byte   WK_BASE             ; ...and the one in the slots (bootstrap.s)
 
+        .segment "LDCODE"               ; the LOADER (loader.s): only ld_enter
+                                        ;   calls it, with the window on bank 8
 ; -----------------------------------------------------------------------------
 ; ws_sync - ld_enter, after the loader: bring WSKIND's tenant into the slots if
-; it is not there. Slot A always; slot B's row in ovl_field_segs is patched,
-; and slot B itself copied only while DEMO_RAM holds FIELD - under any other
-; tenant ovl_load_field will bring it, from the patched row. Clobbers A, X, Y
-; and the window's bank (API_CART_LOAD hands bank 0 back; ld_enter restores).
+; it is not there. Both rows are copied into RAM (overlay.s) - ld_pump reads
+; rows from there, later, when this bank is long out of the window - and slot A
+; is queued; slot B's row is FIELD's last, so it is queued only while DEMO_RAM
+; holds FIELD - under any other tenant ovl_load_field will bring it, from the
+; patched row. QUEUED, not copied: ld_pump does it on the next frames, before
+; the field runs again. Clobbers A, X, Y.
 ; -----------------------------------------------------------------------------
 ws_sync:
         lda     WSKIND
@@ -108,24 +112,19 @@ ws_sync:
         asl     a
         asl     a
         asl     a
-        pha
         tax
         ldy     #$00
-@cp:    lda     ws_rows+8,x             ; its slot-B row into the FIELD list
+@cp:    lda     ws_rows,x               ; its slot-A row, and its slot-B row
+        sta     ovl_slota_row,y         ;   into the FIELD list
+        lda     ws_rows+8,x
         sta     ovl_slotb_row,y
         inx
         iny
         cpy     #7
         bne     @cp
-        pla
-        clc
-        adc     #<ws_rows
-        pha
-        lda     #>ws_rows
-        adc     #$00
-        tax
-        pla
-        jsr     ovl_walk                ; slot A: its row and a terminator
+        lda     #<ovl_slota_row         ; slot A, always
+        ldx     #>ovl_slota_row
+        jsr     ovl_walk
         lda     overlay_cur
         cmp     #OVL_FIELD
         bne     @ret
@@ -134,8 +133,8 @@ ws_sync:
         jmp     ovl_walk
 @ret:   rts
 
-; Each tenant: its slot-A row, $FF, its slot-B row, $FF - ovl_walk's rows
-; (bank, load, run, size), each list ended by a $FF bank.
+; Each tenant: its slot-A row, $FF, its slot-B row, $FF (bank, load, run,
+; size) - ws_sync copies the two rows into overlay.s's RAM rows. ROM, bank 8.
 ws_rows:
         .byte   BSWALL_BANK
         .word   __BSWALL_LOAD__, __BSWALL_RUN__, __BSWALL_SIZE__

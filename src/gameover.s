@@ -276,7 +276,8 @@ over_wait:
         lda     JOY1_PRESS,x            ; consume the edge, so the press that
         and     #<~JOY_FIRE             ;   restarts does not ALSO come out of
         sta     JOY1_PRESS,x            ;   the new game's first gun frame
-        jmp     game_start              ; tail
+        ldx     #FE_NEWGAME             ; a new game, queued: ld_pump runs
+        jmp     ld_request              ;   its steps on the next frames
 
 over_idle:
 .if DEMO
@@ -356,6 +357,12 @@ idle_tick:
                                         ;   bank 8 (loader.s). game_start and
                                         ;   level_begin are its resident stubs
 ld_game_start:
+        jsr     lg_head                 ; a new game's own resets, and then a
+        bra     ld_level_begin          ;   sector's - all of it, synchronously:
+                                        ;   power-on's only (ld_power_on). Every
+                                        ;   other new game is STAGED, step by
+                                        ;   step (ld_steps_run below)
+lg_head:
         jsr     rumble_reset            ; no pulse carries over into a new game
         jsr     hud_init                ; the score, the lives, level 1 on the
         lda     #START_LEVEL            ;   board, the message bar - none of it
@@ -364,7 +371,7 @@ ld_game_start:
         stz     SATARM                  ;   where a sector keeps what it had
         stz     LSRHAVE                 ; ...and no laser, until one is found
         stz     EMPHAVE                 ; ...nor an EMP, the same way
-        ; fall through
+        rts
 
 ; -----------------------------------------------------------------------------
 ; level_begin - a sector from its first frame: the ship, the field, the enemies
@@ -390,7 +397,36 @@ ld_level_begin:
         rts
 @step:  jmp     (ld_steps,x)
 
-ld_steps:
+; -----------------------------------------------------------------------------
+; ld_steps_run - THE STAGED LOAD's share in the loader (overlay.s ld_pump,
+; through ld_enter, inside its bracket). From step lj_step on, each step is
+; STARTED only while FRAME_POS is under LD_STEP_AT - near the top of a frame,
+; because the dearest, lb_field, is ~200 of the frame's 232 on its own (the
+; first level: 120 rocks). It runs what it can and returns; ld_pump comes back
+; next frame. The last step clears lj_act. ld_enter then runs ws_sync, which
+; may queue the wall slots' copies - ld_pump does those before anything else.
+; -----------------------------------------------------------------------------
+LD_STEP_AT  = 20                ; TBM - lb_field from 20 ends near 220
+
+ld_steps_run:
+@lp:    lda     FRAME_POS               ; the hardware FIRST, then the flag
+        ldx     VSYNC_FLAG
+        bne     @out
+        cmp     #LD_STEP_AT
+        bcs     @out
+        ldx     lj_step
+        cpx     #LD_NALL * 2
+        bcs     @fin
+        jsr     @step
+        inc     lj_step
+        inc     lj_step
+        bra     @lp
+@fin:   stz     lj_act
+@out:   rts
+@step:  jmp     (ld_all,x)
+
+ld_all: .addr   lg_head                 ; FE_NEWGAME starts here (ld_request)...
+ld_steps:                               ; ...FE_NEXTSECTOR here
         .addr   lb_state                ; the ship, the HUD's state, the guns
         .addr   lb_field                ; the rocks and the sector grid
         .addr   load_foes               ; ...then the enemies (foes.s)
@@ -400,6 +436,7 @@ ld_steps:
                                         ;   then asks the wall slots for itself
         .addr   lb_hud                  ; ...and the message bar
 LD_NSTEPS   = (* - ld_steps) / 2
+LD_NALL     = (* - ld_all) / 2
 
 lb_state:
 .if DEMO
