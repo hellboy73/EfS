@@ -52,7 +52,24 @@
 ; way, the base's angle). FF_NI pieces either side of the one nearest the ship,
 ; each culled on its anchor as the base is. INVISIBLE (FFVIS 0): nothing, but a
 ; three-vertex piece FLASHED for FF_FLASH frames where a ship, a rock or a bullet
-; hit it. Never on the radar (the user, for now).
+; hit it. Never on the radar (the user, for now). A visible field is drawn only
+; for a ship INSIDE it: seen from outside it is the invisible one, flash and all.
+;
+; THE TOWER (open_questions E13) stands in the centre and holds the field up:
+; EA_ALIEN_TOWER, turning a brad every TW_SPIN frames, a WALL - ff_f's other
+; circle, below - that only the EMP harms (WS_EMP, ff_emp). Reached by the ring,
+; it counts the rocks inside the field, once: one or more, and it and the field
+; are DOWN for TW_DOWN frames (dotted, the whole shape); none, and they are down
+; for good (dotted, without its last part, sparking where that part was).
+;
+;   TWST    0 up (solid; the field is there), 1..TW_DOWN down and counting, $FF dead
+;
+; ONE f FOR BOTH CIRCLES. Near the middle (both high bytes within TW_PM pages)
+; ff_f measures the tower instead: f = D.n - TW_R, the same products with VTX[k]
+; left out, so ff_mover, ff_pen and ff_shot serve it unchanged. Its side is
+; always OUTSIDE (FFAM): a mover that lands inside it - a teleport, a spawn - is
+; put out, never kept in. The ship slides on it as on the base's wall - no kick,
+; no hurt - and nothing that strikes it flashes or zaps the field.
 ;
 ;   FFWALL   slot A (upper RAM, $B960): the side function and the movers
 ;   FFFRAME  slot B (DEMO_RAM, $DA60): after slots.s's vector table, the frame
@@ -94,6 +111,25 @@ FF_REACH    = 17                ; pages past the cull window a piece reaches: it
                                 ;   anchor to its end, FF_R sin 10 brad, 16 pages
         .assert FF_PMAX < 128 && FF_DMAX < 128, error, "ffield.s: the high bytes' squares index QS by 2a"
         .assert FF_R = 16384, error, "ffield.s: FF_SIN is FF_R sin - regenerate it with the radius"
+
+TW_R        = EN_ALIEN_TOWER_R * 32 ; the tower's circle, world units: the editor's
+TW_PM       = 12                ; ff_f: a mover within this many pages of the
+                                ;   centre on both axes is the tower's - its radius
+                                ;   (4.1 pages) + a 192's (4.9) + a step + the
+                                ;   high bytes' error, as FF_PM
+        .assert TW_PM < FF_RIN, error, "ffield.s: the tower's box reaches the edge's band"
+TW_SPIN     = 4                 ; frames a brad: a turn in 17 s
+TW_DOWN     = 180               ; frames the EMP takes it down with rocks inside: 3 s
+TW_SPK0     = 15                ; frames between sparks, dead: TW_SPK0 + 0..31,
+TW_SPKJ     = 31                ;   about half a second, irregular
+TW_MASK     = (1 << (EN_ALIEN_TOWER_PN - 1)) - 1 ; dead: every part but the last
+TW_GAP      = 160               ; where the last part's middle is: a bearing at
+TW_SR       = 849               ;   spin 0, brad, and world units out - S1, (0,75)
+                                ;   to (75,0) full-res px: its middle (37.5,37.5)
+                                ;   is fb, = world (-37.5, 37.5), 53 px out
+TW_DISC     = 38                ; its star-occlusion disc, half-res px at 1:1: to
+                                ;   its corners, 75 full-res px
+        .assert EN_ALIEN_TOWER_PN = 2, error, "ffield.s: TW_GAP/TW_SR are the middle of the tower's second part - re-measure them"
 
 ; --- state: under the window, behind freight.s's --------------------------------
 FFB         = FR_END
@@ -142,7 +178,11 @@ FFSX        = FFB + 45          ; the normal turned to the mover's side, Q0.7
 FFSY        = FFB + 46
 FFJ         = FFB + 47          ; ff_frame: pieces left (ff_xfer: in or out)
 FFKK        = FFB + 48          ; ...the piece's vertex (ff_xfer, ff_shot: scratch)
-FF_END      = FFB + 49
+FFAM        = FFB + 49          ; ff_f's circle: $FF the edge, 0 the tower
+TWST        = FFB + 50          ; the tower: 0 up, 1..TW_DOWN down, $FF dead
+TWAN        = FFB + 51          ; ...its spin, brad
+TWSP        = FFB + 52          ; ...frames to its next spark, dead
+FF_END      = FFB + 53
         .assert FF_END <= SHAPES_AT, error, "ffield.s: past the RAM under the window"
 
 ; =============================================================================
@@ -157,16 +197,23 @@ FF_END      = FFB + 49
 ; -----------------------------------------------------------------------------
 ff_frame:
         lda     FFON
-        beq     @r
-        lda     FFHC
+        bne     :+
+        rts
+:       lda     FFHC
         beq     :+
         dec     FFHC
 :       jsr     ff_dship                ; D = ship - centre (FFP = the ship)
+        jsr     tw_frame                ; the tower: its clocks and its drawing
+        lda     TWST                    ; the field is down while the tower is
+        bne     @r
         lda     FFVIS
-        beq     @flash
+        beq     @nod
         ldx     #FF_BT_D                ; near enough to the edge to see it?
         jsr     ff_band
-        bcc     @flash
+        bcc     @nod
+        lda     FFT1                    ; ...and inside: from outside it is the
+        cmp     #>(FF_RP * FF_RP)       ;   invisible one (d^2 >= R^2, pages^2)
+        bcs     @nod
         jsr     ff_atan                 ; FFK: the vertex nearest the ship
         lda     FFK                     ; three pieces, or five zoomed out
         sec
@@ -189,11 +236,13 @@ ff_frame:
         sta     FFKK
         dec     FFJ
         bne     @piece
-@flash: lda     FFLT
+        sec                             ; drawn: the flash only runs down
+        bra     @fl
+@nod:   clc
+@fl:    lda     FFLT
         beq     @r
         dec     FFLT
-        lda     FFVIS                   ; drawn already: the flash is for the
-        bne     @r                      ;   invisible field
+        bcs     @r
         lda     FFLT                    ; the strobe: on every other frame while
         ldx     #$01                    ;   fresh, one in four as it dies away
         cmp     #FF_FLASH / 2
@@ -222,7 +271,8 @@ ff_arc:
         stx     FFSY                    ; (FFSX/FFSY are the movers'; free here)
         sty     FFSX
         sta     FFK
-        ldx     #$00                    ; P = centre + VTX[k] - ship, x then y
+        jsr     ff_p0                   ; P = centre - ship...
+        ldx     #$00                    ; ...+ VTX[k], x then y
 @ax:    lda     FFK
         cpx     #$00
         beq     :+
@@ -233,44 +283,19 @@ ff_arc:
         stx     FFT1
         plx
         clc
-        adc     FFCXL,x
+        adc     PXL,x
         sta     PXL,x
         lda     FFT1
-        adc     FFCXH,x
-        sta     PXH,x
-        sec
-        lda     PXL,x
-        sbc     FFPXL,x
-        sta     PXL,x
-        lda     PXH,x
-        sbc     FFPXH,x
+        adc     PXH,x
         sta     PXH,x
         inx
         inx
         cpx     #$04
         bne     @ax
-        ldy     #$01                    ; the rocks' coarse window per world axis,
-@cull:  tya                             ;   grown by the piece's reach - which also
-        asl     a                       ;   keeps view_xform's input inside what it
-        tax                             ;   can rotate
-        lda     CULH,y
-        clc
-        adc     #FF_REACH
-        sta     T0
-        asl     a
-        adc     #$01
-        sta     T1
-        lda     PXH,x
-        clc
-        adc     T0
-        cmp     T1
+        jsr     ff_view
         bcc     :+
         rts
-:       dey
-        bpl     @cull
-        jsr     view_xform
-        jsr     zoom_fb
-        ldx     #$02                    ; the anchor, halved: DOT_POLYGON is half-res
+:       ldx     #$02                    ; the anchor, halved: DOT_POLYGON is half-res
 @h:     lda     FXH,x
         cmp     #$80
         ror     a
@@ -361,8 +386,50 @@ ff_dp:
         bpl     @l
         rts
 
+; ff_p0 - P = the centre - FFP, both axes: the field's middle seen from the ship.
+ff_p0:
+        ldx     #$02
+@l:     sec
+        lda     FFCXL,x
+        sbc     FFPXL,x
+        sta     PXL,x
+        lda     FFCXH,x
+        sbc     FFPXH,x
+        sta     PXH,x
+        dex
+        dex
+        bpl     @l
+        rts
+
+; ff_view - P, world units from the ship: carry SET = off the rocks' coarse
+; window grown by FF_REACH (which also keeps view_xform's input inside what it
+; can rotate); CLEAR = FX/FY, its framebuffer point.
+ff_view:
+        ldy     #$01
+@cull:  tya
+        asl     a
+        tax
+        lda     CULH,y
+        clc
+        adc     #FF_REACH
+        sta     T0
+        asl     a
+        adc     #$01
+        sta     T1
+        lda     PXH,x
+        clc
+        adc     T0
+        cmp     T1
+        bcs     @r
+        dey
+        bpl     @cull
+        jsr     view_xform
+        jsr     zoom_fb
+        clc
+@r:     rts
+
 ; -----------------------------------------------------------------------------
-; ff_band - D's high bytes against a band round the edge, d^2 in pages^2 by two
+; ff_band -D's high bytes against a band round the edge, d^2 in pages^2 by two
 ; quarter-square reads: X = FF_BT_F the movers' (FF_PM pages), FF_BT_D the
 ; drawing's (FF_DM). Carry SET = in it.
 ; -----------------------------------------------------------------------------
@@ -404,21 +471,42 @@ ff_band:
 
 FF_BT:      .byte   FF_PMAX, <FF_BLO, >FF_BLO, <FF_BHI, >FF_BHI
             .byte   FF_DMAX, <FF_DLO, >FF_DLO, <FF_DHI, >FF_DHI
+            .byte   FF_RP, 0, 0, <(FF_RP * FF_RP - 1), >(FF_RP * FF_RP - 1)
 FF_BT_F     = 0
 FF_BT_D     = 5
+FF_BT_I     = 10                ; ...and the whole inside: ff_emp's count
 
 ; -----------------------------------------------------------------------------
 ; ff_f - D in FFDX/FFDY. Carry CLEAR = far from the edge (nothing else is
 ; computed); SET = in the band, and FFK the vertex, FFNX/FFNY its normal, FFF
-; f. Clobbers A, X, Y, MA/MB/MR, MQ*, FFT*, FFMN, FFS.
+; f. Near the middle it is the TOWER's circle instead (FFAM 0; the header).
+; Clobbers A, X, Y, MA/MB/MR, MQ*, FFT*, FFMN, FFS.
 ; -----------------------------------------------------------------------------
 ff_f:
+        stz     FFFL
+        stz     FFFH
+        ldx     #$02                    ; both high bytes near the middle: the
+@box:   lda     FFDXH,x                 ;   tower, f = D.n - TW_R
+        jsr     ff_absh
+        cmp     #TW_PM
+        bcs     @edge
+        dex
+        dex
+        bpl     @box
+        lda     #<(-TW_R)
+        sta     FFFL
+        lda     #>(-TW_R)
+        sta     FFFH
+        lda     #$00
+        bra     @go
+@edge:  lda     TWST                    ; the edge, while the tower holds it up
+        bne     @no
         ldx     #FF_BT_F
         jsr     ff_band
         bcc     @r
+        lda     #$FF
+@go:    sta     FFAM
         jsr     ff_atan                 ; FFK
-        stz     FFFL
-        stz     FFFH
         ldx     #$00                    ; f = (D - VTX[k]).n, x then y
 @ax:    lda     FFK
         cpx     #$00
@@ -430,7 +518,11 @@ ff_f:
         sta     FFT0
         stx     FFT1
         jsr     ff_n                    ; ...and of n
-        ply                             ; Y = the axis, x2
+        bit     FFAM                    ; the tower: D.n, no vertex
+        bmi     :+
+        stz     FFT0
+        stz     FFT1
+:       ply                             ; Y = the axis, x2
         pha
         tya
         lsr     a
@@ -460,6 +552,8 @@ ff_f:
         cpx     #$04
         bne     @ax
         sec
+        rts
+@no:    clc
 @r:     rts
 
 ; -----------------------------------------------------------------------------
@@ -687,26 +781,25 @@ ff_rtx: ldx     FFI
 ff_rts: rts
 
 ; ff_far - A, Y = a mover's x and y high bytes: carry SET = it is nowhere near
-; the edge - outside the band's box, or deep inside its inner square. X kept.
+; the edge or the tower - outside the band's box, or deep inside its inner
+; square but outside the tower's. On the larger of |dx|, |dy|. X kept.
 ff_far:
         sec
         sbc     FFCXH
         jsr     ff_absh
-        cmp     #FF_PMAX
-        bcs     @r                      ; past the box
         sta     FFT0
         tya
         sec
         sbc     FFCYH
         jsr     ff_absh
-        cmp     #FF_PMAX
-        bcs     @r
-        cmp     #FF_RIN
-        bcs     @no
+        cmp     FFT0
+        bcs     :+
         lda     FFT0
+:       cmp     #FF_PMAX
+        bcs     @r                      ; past the box
         cmp     #FF_RIN
-        bcs     @no
-        sec                             ; inside the inner square
+        bcs     @no                     ; the band's
+        cmp     #TW_PM                  ; deep inside: far, unless the tower's
         rts
 @no:    clc
 @r:     rts
@@ -776,6 +869,7 @@ ff_mover:
         bcs     :+
         rts                             ; far from the edge: nothing to touch
 :       lda     FFFH
+        and     FFAM                    ; (the tower's side is always outside)
         sta     FFSD                    ; the side, from the old centre
         jsr     ff_dp                   ; the new centre
         jsr     ff_f
@@ -904,8 +998,10 @@ ff_pen:
         rts
 
 ; ff_lit - the flash, on the vertex ff_f last found (FFK), and the zap - unless
-; the last one is still sounding.
+; the last one is still sounding. Nothing for the tower (FFAM 0).
 ff_lit:
+        bit     FFAM
+        bpl     ff_lt_r
         lda     FFLT
         cmp     #FF_FLASH - LEN_ZAP + 1
         bcs     :+
@@ -915,6 +1011,7 @@ ff_lit:
         sta     FFLK
         lda     #FF_FLASH
         sta     FFLT
+ff_lt_r:
         rts
 
 ; -----------------------------------------------------------------------------
@@ -930,6 +1027,7 @@ ff_brake:
         jsr     ff_f
         bcc     @r
         lda     FFFH
+        and     FFAM
         sta     FFSD
         clc                             ; ...and where the step would put it: the
         lda     SHXF                    ;   true 24-bit sum, base_brake's way
@@ -973,6 +1071,8 @@ ff_ship_hit:
         sta     SHYL
         lda     FFPYH
         sta     SHYH
+        bit     FFAM                    ; the tower: a wall the ship slides on,
+        bpl     ff_lt_r                 ;   as the base's - no kick, no hurt
         ldx     #$01                    ; COL_N = -ns, toward the edge
 @n:     lda     FFSX,x
         eor     #$FF
@@ -1148,6 +1248,160 @@ ff_shot:
 @off:   clc
         rts
 
+; -----------------------------------------------------------------------------
+; tw_frame - ff_frame, FFP = the ship: the tower's spin and clocks, its sparks
+; when dead, and its drawing - gate.s's gb_draw, as the base's.
+; -----------------------------------------------------------------------------
+tw_frame:
+        lda     FRAME                   ; a brad every TW_SPIN frames
+        and     #TW_SPIN - 1
+        bne     :+
+        inc     TWAN
+:       ldx     TWST
+        beq     @draw                   ; up
+        inx
+        beq     @dead
+        dec     TWST                    ; down: up again when it runs out,
+        bne     @draw                   ;   and says so
+        lda     #SE_TWUP
+        jsr     sfx_fire
+        bra     @draw
+@dead:  dec     TWSP                    ; dead: a spark now and then
+        bne     @draw
+        jsr     prng
+        and     #TW_SPKJ
+        adc     #TW_SPK0
+        sta     TWSP
+        ldx     #$02                    ; ...where the last part was: the centre +
+@sp:    lda     TWAN                    ;   TW_SR (sin, -cos) of its bearing, y
+        clc                             ;   then x
+        adc     #TW_GAP
+        cpx     #$00
+        beq     :+
+        sec
+        sbc     #64
+:       phx
+        jsr     ff_rsin
+        jsr     ff_n                    ; Q0.7
+        sta     MB
+        lda     #<TW_SR
+        sta     MAL
+        lda     #>TW_SR
+        sta     MAH
+        jsr     smul16q7
+        plx
+        clc
+        lda     MAL
+        adc     FFCXL,x
+        sta     EXTXL,x
+        lda     MAH
+        adc     FFCXH,x
+        sta     EXTXH,x
+        dex
+        dex
+        bpl     @sp
+        jsr     expl_at                 ; a blaster's puff
+@draw:  jsr     ff_p0
+        jsr     ff_view
+        bcs     @r
+        lda     #TW_DISC                ; the stars kept out of it (occlude.s, a
+        sta     MQA                     ;   rock's way): the radius with the zoom,
+        lda     ZOOMH                   ;   the centre halved
+        sta     MQB
+        jsr     qmul
+        sta     AOCR
+        ldx     #$02
+:       lda     FXH,x
+        cmp     #$80
+        ror     a
+        sta     CX2H,x
+        lda     FXL,x
+        ror     a
+        sta     CX2L,x
+        dex
+        dex
+        bpl     :-
+        jsr     add_disc
+        lda     #EA_ALIEN_TOWER
+        sta     GBAP
+        stz     GBST
+        lda     TWAN
+        sta     GBAN
+        ldx     #$FF                    ; up: every part, solid (POLYGON16)
+        ldy     #$02
+        lda     TWST
+        beq     @go
+        dey                             ; down or dead: dotted (DOT_POLYGON)...
+        inc     a
+        bne     @go
+        ldx     #TW_MASK                ; ...and dead: without its last part
+@go:    stx     GBMK
+        sty     GBSH
+        jsr     gb_draw
+@r:
+; ...and its radar mark: the freighter's 2x2, blinking with the enemies while it
+; stands, steady once it is dead - no threat, still in the way.
+        lda     TWST
+        inc     a                       ; dead ($FF): steady
+        beq     :+
+        lda     RBLINK
+        cmp     #RAD_BLINK_ON
+        bcs     @nr
+:       lda     FFCXH
+        ldy     FFCYH
+        jsr     gr_pos
+        bcs     @nr
+        lda     #GSQ_N
+        ldx     #GSQ_X
+        jmp     gr_mark                 ; tail
+@nr:    rts
+
+; -----------------------------------------------------------------------------
+; ff_emp - WS_EMP: do_emp, EMK this frame's reach. A tower that is up and inside
+; it goes down: for TW_DOWN frames if any rock is inside the field, for good if
+; none is - counted here, once, on the rocks' high bytes (ff_band's inside row).
+; -----------------------------------------------------------------------------
+ff_emp:
+        lda     FFON
+        beq     @r
+        lda     TWST
+        bne     @r                      ; down or dead already
+        lda     FFCXH
+        ldy     FFCYH
+        jsr     emp_rt
+        bcc     @r
+        lda     #TW_DOWN
+        sta     TWST
+        ldx     #NOBJ - 1
+@lp:    lda     OBJSHP,x                ; every rock but the 16s (class 4,
+        cmp     #4                      ;   the user) - and SHP_DEAD is past it
+        bcs     @nx
+        sec
+        lda     OBJXH,x
+        sbc     FFCXH
+        sta     FFDXH
+        sec
+        lda     OBJYH,x
+        sbc     FFCYH
+        sta     FFDYH
+        phx
+        ldx     #FF_BT_I
+        jsr     ff_band
+        plx
+        bcs     @zap                    ; one is enough
+@nx:    dex
+        cpx     #$FF
+        bne     @lp
+        lda     #$FF                    ; none: down for good - the fall, and a
+        sta     TWST                    ;   blast where it ends, with the first
+        lda     #LEN_TWSWEEP + 1        ;   spark
+        sta     TWSP
+        lda     #SE_TWDIE_N
+        jsr     sfx_fire
+@zap:   lda     #SE_TWDOWN
+        jmp     sfx_fire                ; tail
+@r:     rts
+
         .popseg
 
 ; -----------------------------------------------------------------------------
@@ -1175,5 +1429,6 @@ ff_load:
         sta     FFVIS
         stz     FFLT
         stz     FFHC
+        stz     TWST                    ; the tower stands
         rts
         .popseg

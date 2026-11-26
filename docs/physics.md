@@ -664,6 +664,11 @@ mover keeps the side its centre was on before its step.
 | `SE_ZAP` | the hit's sound: two buzz bursts on the noise voice, `PRI_KLANG`, 18 frames | (sfx.s, program in ffield.s) |
 | `FF_ARCB` / `FF_STEP` | a drawn piece's half-span / the step between pieces, brad | 10 / 20 |
 | `FF_NIZ` | `ZEASH` below which five pieces are drawn, not three | 96 |
+| `TW_R` | the tower's circle, world units: the enemy editor's `EN_ALIEN_TOWER_R` x32 | 1,056 |
+| `TW_PM` | pages from the centre, both axes, inside which `ff_f` measures the tower | 12 |
+| `TW_SPIN` | frames a brad of the tower's turn (a turn in 17 s) | 4 |
+| `TW_DOWN` | frames the EMP takes the tower and the field down with a rock inside (TBM) | 180 |
+| `TW_SPK0` + 0..`TW_SPKJ` | frames between a dead tower's sparks | 15 + 0..31 |
 
 The ship's response is the EMP mine's: `P = 1.75 vn` against an immovable
 wall, the ship's share `EMPM_FI` through `ship_kick`, and `RAM_DMG`. A rock's

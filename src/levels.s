@@ -200,11 +200,11 @@ L1_FF_Y     = $8000
 L1_FF_VIS   = 1
 
 ; level 2 - "FORCE FIELD TEST"
-L2_N192     = 4
-L2_N128     = 6
-L2_N64      = 12
-L2_N32      = 12
-L2_N16      = 10
+L2_N192     = 0
+L2_N128     = 0
+L2_N64      = 0
+L2_N32      = 0
+L2_N16      = 0
 L2_SEED     = $5A17
 L2_SHX      = $8000
 L2_SHY      = $3000
@@ -275,6 +275,11 @@ L1_TOTAL    = L1_N192 + L1_N128 + L1_N64 + L1_N32 + L1_N16 + L1_ROCKN
 ; level 2 - "FORCE FIELD TEST"
 ; rocks: XL, XH, YL, YH, class, type - 6 bytes each, class 0..4 = 192..16
 LVL2_ROCKS:
+        .byte   $00, $80, $00, $60, 0, 0       ; 192A at 32768, 24576 - inside the field
+        .byte   $00, $A0, $00, $80, 0, 0       ; 192A at 40960, 32768 - inside the field
+        .byte   $00, $60, $00, $28, 1, 0       ; 128A at 24576, 10240
+        .byte   $00, $A0, $00, $28, 1, 0       ; 128A at 40960, 10240
+        .byte   $00, $50, $00, $40, 1, 0       ; 128A at 20480, 16384
 LVL2_ROCKS_END:
 ; enemies: XL, XH, YL, YH, kind, heading, speed - 7 bytes each
 LVL2_FOES:

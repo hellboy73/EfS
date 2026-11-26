@@ -2522,6 +2522,52 @@ These are settled and should not be re-opened without a reason:
       UPPER (the walls' code) and slot B at the end of FIELDRAM (the frame's
       code: drawing, the radar mark, the freighters, and the vector table the
       movers call through). See 52.
+    * **Seen only from inside** (the user, 2026-11-26; built). A visible field
+      is drawn only while the ship is inside it (`d^2 < R^2` on the high bytes,
+      from `ff_band`'s own sum); from outside it is the invisible field, flash
+      and zap included. The level's `FF_VIS` and the trainer's toggle stay.
+    * **The alien tower** (the user, 2026-11-26; built in `ffield.s`). It stands
+      in the field's centre and powers it: `EA_ALIEN_TOWER` (the user's shape in
+      the enemy editor: two OPEN parts, about 75 full-res px), turning a brad
+      every `TW_SPIN` = 4 frames, drawn through `gb_draw`.
+      - **A wall.** `ff_f` measures a second circle when both of a mover's high
+        bytes are within `TW_PM` = 12 pages of the centre: `f = D.n - TW_R`
+        (`TW_R` the editor's collision circle, 1,056 units = 66 px), the same products
+        with the vertex left out, so `ff_mover`, `ff_pen` and `ff_shot` serve it
+        unchanged. Its side is always outside (`FFAM`), so a mover born or
+        teleported inside it is put out. Rocks bounce, enemies slide, the ship
+        slides as on the base (no kick, no hurt), bullets end in a puff; nothing
+        that strikes it flashes or zaps the field.
+      - **Only the EMP harms it** (`WS_EMP`, a seventh slot vector, from
+        `do_emp` with this frame's reach; the base's entry is an `rts`). The
+        ring's own round test (`emp.s emp_rt`, now shared with the enemies'
+        loop) finds the tower; then the rocks inside the field are counted ONCE:
+        every live slot of classes 0-3 - NOT the 16s (the user, 2026-11-26),
+        nor the Saturnium motes - against `R^2` on the high bytes. One or more: the tower AND the
+        field are down for `TW_DOWN` = 180 frames (3 s, the user) - the tower dotted, the
+        whole shape; nothing stops at the edge meanwhile. None: down for good -
+        dotted without its last part (`TW_MASK`), and a blaster's puff
+        (`expl_at`) every 15-46 frames from that part's middle (`TW_GAP`,
+        `TW_SR`), turning with it - the first with a blast. SOUNDS (the user):
+        `SE_TWDOWN` going down, a warbling tone falling to the bottom note A2 in
+        a second; `SE_TWUP` the same rising when it comes back; dying, the fall
+        and `SE_TWDIE_N`, a short noise blast where it ends. The programs are
+        in CODE8 (147 B resident: the slots and UPPER are full), the table rows
+        18 B in HIDATA.
+      - **On the radar:** a 2x2 square (the freighter's), blinking with the
+        enemies (`RBLINK`) while it stands, steady once dead - no threat, still
+        an obstacle (the user). Drawn by `gate.s gr_mark`, now shared by the
+        gate's triangle, the freighter's square and the tower's.
+      - **State:** `TWST` (0 up, 1..120 down, `$FF` dead), `TWAN`, `TWSP`, and
+        `FFAM` - four bytes behind the field's, under the window.
+      - **Measured** (`tools/ffield_bench.py`): no rock, enemy or ship left
+        inside it (worst 7 units inside the radius); bullets decided right;
+        the count 4.9 k cycles over 255 empty slots, once an EMP; the GPU, at
+        25 px, 19.7 k cycles up (solid), 18.4 k down, 16.2 k dead; at 50 px
+        24.4 k / 21.0 k / 18.7 k (the 75 px it now is: TBM). Code: +417 B in the field's
+        slots (FFWALL 1,416 of 1,440, FFFRAME 1,114 of 1,184); resident CODE6
+        -4 B (emp.s +9, the shared `gr_mark` -13); the base's slot B -46 B (the
+        freighter's mark through `gr_mark`). Its star-occlusion disc (`TW_DISC` 38 half-res px, to its corners) is a rock's, through `add_disc`.
 
 52. **The wall slots: the base's code and the force field's take turns in
     two fixed slots, filled by the sector loader.** Built 2026-11-23

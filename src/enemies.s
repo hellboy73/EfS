@@ -424,6 +424,21 @@ EN_TRANSPORTER_DAMAGED_S0: .byte    11,    45,    30,   <-35,    30,   <-48,    
 EN_TRANSPORTER_DAMAGED_S1: .byte   132,   <-39,   <-4,     1,    30,    40,    15,    20
                .byte   <-15
 
+; ---- ALIEN_TOWER ----
+EN_ALIEN_TOWER_PN     = 2      ; parts, the same in every frame
+EN_ALIEN_TOWER_PW     = 2      ; ...of which the LEADING ones become wreck pieces
+EN_ALIEN_TOWER_FN     = 1      ; authored frames
+EN_ALIEN_TOWER_AN     = 1      ; playlist steps - any number
+EN_ALIEN_TOWER_AHOLD  = 8      ; game frames one step lasts
+EN_ALIEN_TOWER_R      = 33      ; collision circle, collision units: radius 66 full-res px
+EN_ALIEN_TOWER_RBASE  = 132      ; its first row in EN_PLO/EN_PHI...
+EN_ALIEN_TOWER_ABASE  = 35      ; ...and its first step in EN_ANIM
+; f0p0
+EN_ALIEN_TOWER_S0: .byte   134,   <-75,     0,     0,   <-75,    75,     0,   <-75
+               .byte     0,     0,    75,     0,   <-75
+; f0p1
+EN_ALIEN_TOWER_S1: .byte   130,     0,    75,    75,     0
+
 ; ---- the appearance table ----
 ; Which shape a foe wears is one byte, EA_*, and every table below is
 ; indexed by it. A behaviour KIND picks an appearance; two appearances
@@ -437,29 +452,30 @@ EA_BASE           = 5
 EA_EMP_MINE       = 6
 EA_TRANSPORTER    = 7
 EA_TRANSPORTER_DAMAGED = 8
-EN_APPN = 9      ; how many appearances there are
+EA_ALIEN_TOWER    = 9
+EN_APPN = 10      ; how many appearances there are
 EN_PWMAX = 5      ; the most wreck pieces one appearance throws - foes.s asserts FW_N covers it
 ; parts per frame
 EN_PN:         .byte EN_UFO_PN, EN_SPIDER_PN, EN_SPIDER_FLOAT_PN, EN_PULSAR_PN, EN_GATE_PN, EN_BASE_PN
-               .byte EN_EMP_MINE_PN, EN_TRANSPORTER_PN, EN_TRANSPORTER_DAMAGED_PN
+               .byte EN_EMP_MINE_PN, EN_TRANSPORTER_PN, EN_TRANSPORTER_DAMAGED_PN, EN_ALIEN_TOWER_PN
 ; ...of which become wreck pieces
 EN_PW:         .byte EN_UFO_PW, EN_SPIDER_PW, EN_SPIDER_FLOAT_PW, EN_PULSAR_PW, EN_GATE_PW, EN_BASE_PW
-               .byte EN_EMP_MINE_PW, EN_TRANSPORTER_PW, EN_TRANSPORTER_DAMAGED_PW
+               .byte EN_EMP_MINE_PW, EN_TRANSPORTER_PW, EN_TRANSPORTER_DAMAGED_PW, EN_ALIEN_TOWER_PW
 ; playlist steps
 EN_AN:         .byte EN_UFO_AN, EN_SPIDER_AN, EN_SPIDER_FLOAT_AN, EN_PULSAR_AN, EN_GATE_AN, EN_BASE_AN
-               .byte EN_EMP_MINE_AN, EN_TRANSPORTER_AN, EN_TRANSPORTER_DAMAGED_AN
+               .byte EN_EMP_MINE_AN, EN_TRANSPORTER_AN, EN_TRANSPORTER_DAMAGED_AN, EN_ALIEN_TOWER_AN
 ; game frames a step lasts
 EN_AHOLD:      .byte EN_UFO_AHOLD, EN_SPIDER_AHOLD, EN_SPIDER_FLOAT_AHOLD, EN_PULSAR_AHOLD, EN_GATE_AHOLD, EN_BASE_AHOLD
-               .byte EN_EMP_MINE_AHOLD, EN_TRANSPORTER_AHOLD, EN_TRANSPORTER_DAMAGED_AHOLD
+               .byte EN_EMP_MINE_AHOLD, EN_TRANSPORTER_AHOLD, EN_TRANSPORTER_DAMAGED_AHOLD, EN_ALIEN_TOWER_AHOLD
 ; collision circle, collision units
 EN_R:          .byte EN_UFO_R, EN_SPIDER_R, EN_SPIDER_FLOAT_R, EN_PULSAR_R, EN_GATE_R, EN_BASE_R
-               .byte EN_EMP_MINE_R, EN_TRANSPORTER_R, EN_TRANSPORTER_DAMAGED_R
+               .byte EN_EMP_MINE_R, EN_TRANSPORTER_R, EN_TRANSPORTER_DAMAGED_R, EN_ALIEN_TOWER_R
 ; first row in EN_PLO/EN_PHI
 EN_RBASE:      .byte EN_UFO_RBASE, EN_SPIDER_RBASE, EN_SPIDER_FLOAT_RBASE, EN_PULSAR_RBASE, EN_GATE_RBASE, EN_BASE_RBASE
-               .byte EN_EMP_MINE_RBASE, EN_TRANSPORTER_RBASE, EN_TRANSPORTER_DAMAGED_RBASE
+               .byte EN_EMP_MINE_RBASE, EN_TRANSPORTER_RBASE, EN_TRANSPORTER_DAMAGED_RBASE, EN_ALIEN_TOWER_RBASE
 ; first step in EN_ANIM
 EN_ABASE:      .byte EN_UFO_ABASE, EN_SPIDER_ABASE, EN_SPIDER_FLOAT_ABASE, EN_PULSAR_ABASE, EN_GATE_ABASE, EN_BASE_ABASE
-               .byte EN_EMP_MINE_ABASE, EN_TRANSPORTER_ABASE, EN_TRANSPORTER_DAMAGED_ABASE
+               .byte EN_EMP_MINE_ABASE, EN_TRANSPORTER_ABASE, EN_TRANSPORTER_DAMAGED_ABASE, EN_ALIEN_TOWER_ABASE
 ; every playlist, end to end: step -> the frame's ROW within its own
 ;   appearance, already multiplied by the part count
 EN_ANIM:       .byte 0*EN_UFO_PN, 1*EN_UFO_PN, 2*EN_UFO_PN, 3*EN_UFO_PN, 0*EN_SPIDER_PN
@@ -469,6 +485,7 @@ EN_ANIM:       .byte 0*EN_UFO_PN, 1*EN_UFO_PN, 2*EN_UFO_PN, 3*EN_UFO_PN, 0*EN_SP
                .byte 1*EN_PULSAR_PN, 0*EN_GATE_PN, 1*EN_GATE_PN, 2*EN_GATE_PN, 3*EN_GATE_PN
                .byte 4*EN_GATE_PN, 0*EN_BASE_PN, 1*EN_BASE_PN, 2*EN_BASE_PN, 3*EN_BASE_PN
                .byte 4*EN_BASE_PN, 5*EN_BASE_PN, 0*EN_EMP_MINE_PN, 0*EN_TRANSPORTER_PN, 0*EN_TRANSPORTER_DAMAGED_PN
+               .byte 0*EN_ALIEN_TOWER_PN
 ; every row, end to end, frame-major within each appearance
 EN_PLO:        .byte <EN_UFO_S0, <EN_UFO_S1, <EN_UFO_S2, <EN_UFO_S3, <EN_UFO_S4, <EN_UFO_S0
                .byte <EN_UFO_S1, <EN_UFO_S5, <EN_UFO_S6, <EN_UFO_S4, <EN_UFO_S0, <EN_UFO_S1
@@ -492,6 +509,7 @@ EN_PLO:        .byte <EN_UFO_S0, <EN_UFO_S1, <EN_UFO_S2, <EN_UFO_S3, <EN_UFO_S4,
                .byte <EN_BASE_S6, <EN_BASE_S1, <EN_BASE_S2, <EN_BASE_S3, <EN_BASE_S10, <EN_BASE_S5
                .byte <EN_BASE_S6, <EN_BASE_S1, <EN_BASE_S2, <EN_BASE_S3, <EN_BASE_S4, <EN_BASE_S11
                .byte <EN_EMP_MINE_S0, <EN_EMP_MINE_S1, <EN_EMP_MINE_S2, <EN_TRANSPORTER_S0, <EN_TRANSPORTER_DAMAGED_S0, <EN_TRANSPORTER_DAMAGED_S1
+               .byte <EN_ALIEN_TOWER_S0, <EN_ALIEN_TOWER_S1
 EN_PHI:        .byte >EN_UFO_S0, >EN_UFO_S1, >EN_UFO_S2, >EN_UFO_S3, >EN_UFO_S4, >EN_UFO_S0
                .byte >EN_UFO_S1, >EN_UFO_S5, >EN_UFO_S6, >EN_UFO_S4, >EN_UFO_S0, >EN_UFO_S1
                .byte >EN_UFO_S7, >EN_UFO_S8, >EN_UFO_S4, >EN_UFO_S0, >EN_UFO_S1, >EN_UFO_S9
@@ -514,6 +532,7 @@ EN_PHI:        .byte >EN_UFO_S0, >EN_UFO_S1, >EN_UFO_S2, >EN_UFO_S3, >EN_UFO_S4,
                .byte >EN_BASE_S6, >EN_BASE_S1, >EN_BASE_S2, >EN_BASE_S3, >EN_BASE_S10, >EN_BASE_S5
                .byte >EN_BASE_S6, >EN_BASE_S1, >EN_BASE_S2, >EN_BASE_S3, >EN_BASE_S4, >EN_BASE_S11
                .byte >EN_EMP_MINE_S0, >EN_EMP_MINE_S1, >EN_EMP_MINE_S2, >EN_TRANSPORTER_S0, >EN_TRANSPORTER_DAMAGED_S0, >EN_TRANSPORTER_DAMAGED_S1
+               .byte >EN_ALIEN_TOWER_S0, >EN_ALIEN_TOWER_S1
 ; === END GENERATED ===
 
         .popseg

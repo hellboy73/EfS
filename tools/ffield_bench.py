@@ -39,7 +39,7 @@ exec(compile(_src, "preview.py", "exec"), G)
 cpu, mem, LBL, call, cart_bank = G["cpu"], G["cpu_mem"], G["_LBL"], G["call"], G["cart_bank"]
 C = G["asm_consts"]("main.s", "hud_game.s", "radar.s", "foes.s", "shots.s", "physics.s", "satn.s",
                     "emp.s", "shield.s", "gate.s", "base.s", "empmine.s", "freight.s",
-                    "ffield.s")
+                    "enemies.s", "ffield.s")
 FF_R = C["FF_R"]
 random.seed(1123)
 fails = []
@@ -94,9 +94,38 @@ def wcall(name, x=None):
 
 
 # --- the field in the slots ----------------------------------------------------
-call(cpu, LBL["ovl_load_field"])
+# The loads are STAGED (overlay.s ld_pump): ovl_load_field and ws_sync only queue
+# their rows, and ld_pump copies them over the following frames. ws_sync is
+# loader code (LDCODE), run with the window on the loader's bank as ld_enter does.
+def loads_idle():
+    return not (rd(LBL["lj_qn"]) or rd(LBL["lj_act"]) or rd(LBL["lj_row"] + 5)
+                or rd(LBL["lj_row"] + 6))
+
+
+def pump():
+    for i in range(400):
+        if loads_idle():
+            return
+        call(cpu, LBL["ld_pump"])
+    raise RuntimeError("ld_pump never finished")
+
+
+def ld_call(name):
+    call(cpu, LBL["win_off"])
+    cpu.a = 0x80 | 8                            # LDR_BANK | CART_EN
+    call(cpu, G["API_CART_BANK"])
+    call(cpu, LBL[name])
+    call(cpu, LBL["win_on"])
+
+
+pump()                                          # whatever the boot left queued
 wr(LBL["WSKIND"], 1)
-call(cpu, LBL["ws_sync"])
+ld_call("ws_sync")                              # slot A, and slot B's row patched...
+pump()
+wr(LBL["overlay_cur"], 1)                       # ...and FIELD loaded afresh, slot B with it
+ld_call("ovl_load_field")
+pump()
+assert rd(LBL["WSCUR"]) == 1 and rd(LBL["ws_tab_bs"] + 18) == 0x4C, "the field is not in the slots"
 CX, CY = 0x8000, 0x8000
 wr(C["FFON"], 1)
 wr16(C["FFCXL"], CX)
@@ -344,7 +373,7 @@ seen = joins = bad_joins = 0
 worst_join = 0.0
 curv_bad = 0
 for th, head in ((0.4, 0), (2.0, 77), (4.1, 160), (5.5, 230)):
-    x, y = on_edge(th, 2600)
+    x, y = on_edge(th, -2600)                   # inside: seen from outside it is invisible
     for a, v in (("SHX", x << 8), ("SHY", y << 8)):
         wr(C[a + "F"], 0); wr(C[a + "L"], v >> 8); wr(C[a + "H"], v >> 16)
     wr(C["HEAD"], head)
@@ -372,6 +401,21 @@ check("the drawing: visible near the edge, the pieces are on the frame", seen >=
 check("...and they meet end to end, as one curve", joins >= 2 and worst_join < 3,
       f"{joins} joins, the worst {worst_join:.1f} half-res px apart")
 check("...and every one is bent, not straight", curv_bad == 0, f"{curv_bad} straight")
+x, y = on_edge(0.4, 2600)                       # the same, from OUTSIDE: nothing
+for a, v in (("SHX", x << 8), ("SHY", y << 8)):
+    wr(C[a + "F"], 0); wr(C[a + "L"], v >> 8); wr(C[a + "H"], v >> 16)
+wr(C["HEAD"], 0)
+for f in range(3):
+    st = run_frame()
+out_n = len(pieces(st))
+wr(C["FFLT"], C["FF_FLASH"]); wr(C["FFLK"], round(0.4 / (2 * math.pi) * 256))
+fl_n = 0
+for f in range(2):                              # the strobe: every other frame
+    st = run_frame()
+    fl_n += sum(1 for op, pl in G["decode"](st) if op == 0x4C and pl[6] == 0x83)
+wr(C["FFLT"], 0)
+check("a visible field seen from OUTSIDE is not drawn, but still flashes where it is hit",
+      out_n == 0 and fl_n == 1, f"{out_n} pieces from outside; {fl_n} flash piece")
 wr(C["SHIPINV"], 0)
 
 # --- the costs --------------------------------------------------------------------
@@ -391,7 +435,7 @@ hit = cyc_rock(820, 40)
 print(f"        ff_rock: {far} cycles far from the edge, {band} in the band, {hit} bouncing")
 
 # the frame, near the edge: visible, then a flash on an invisible field
-x, y = on_edge(0.3, 1500)
+x, y = on_edge(0.3, -1500)
 for a, v in (("SHX", x << 8), ("SHY", y << 8)):
     wr(C[a + "F"], 0); wr(C[a + "L"], v >> 8); wr(C[a + "H"], v >> 16)
 call(cpu, LBL["do_camera"]) if "do_camera" in LBL else None
@@ -406,15 +450,280 @@ wr(C["FFVIS"], 1)
 print(f"        ff_frame: {vis} cycles visible at the edge, {fl} flashing, {inv} invisible")
 check("ff_frame runs visible, flashing and invisible", vis > inv and fl > inv)
 
+# --- the tower: the circle in the middle ------------------------------------------
+TW_R = C["TW_R"]
+
+
+def at_c(th, r):
+    """The world point at bearing th (radians), r units from the centre."""
+    return (round(CX + r * math.sin(th)) & 0xFFFF, round(CY - r * math.cos(th)) & 0xFFFF)
+
+
+def c_dist(x, y):
+    return math.hypot(s16(x - CX), s16(y - CY))
+
+
+def fly_tower(kind, n_trials, frames):
+    """Movers flown at the tower from every side, some born inside it: the worst
+    any centre came to the tower's circle + its own radius, after the first frame."""
+    worst = 1e9
+    for t in range(n_trials):
+        th = random.uniform(0, 2 * math.pi)
+        if kind == "rock":
+            shp = random.randrange(5)
+            r = BODY_R[shp] * 32
+        else:
+            r = C["FF_FOER"]
+        born_in = t % 5 == 0
+        u = random.uniform(0, TW_R + r - 40) if born_in else TW_R + r + random.uniform(10, 1500)
+        x, y = at_c(th, u)
+        sp = random.choice([0.3, 2, 8, 30, 70, 110])
+        aim = th + math.pi + random.uniform(-1.0, 1.0)
+        vx8 = int(round(sp * math.sin(aim) * 256)) & 0xFFFF
+        vy8 = int(round(-sp * math.cos(aim) * 256)) & 0xFFFF
+        if kind == "rock":
+            A = dict(XL=C["OBJXL"], XH=C["OBJXH"], XF=C["OBJXF"], YL=C["OBJYL"],
+                     YH=C["OBJYH"], YF=C["OBJYF"], VXL=C["OBJVXL"], VXH=C["OBJVXH"],
+                     VYL=C["OBJVYL"], VYH=C["OBJVYH"])
+            wr(C["OBJSHP"], shp)
+        else:
+            A = dict(XL=C["FOEXL"], XH=C["FOEXH"], XF=C["FOEXF"], YL=C["FOEYL"],
+                     YH=C["FOEYH"], YF=C["FOEYF"], VXL=C["FOEVXL"], VXH=C["FOEVXH"],
+                     VYL=C["FOEVYL"], VYH=C["FOEVYH"])
+        wr(A["XL"], x); wr(A["XH"], x >> 8); wr(A["XF"], 0)
+        wr(A["YL"], y); wr(A["YH"], y >> 8); wr(A["YF"], 0)
+        wr(A["VXL"], vx8); wr(A["VXH"], vx8 >> 8); wr(A["VYL"], vy8); wr(A["VYH"], vy8 >> 8)
+        for f in range(frames):
+            for ax in ("X", "Y"):
+                vl, vh = rd(A[f"V{ax}L"]), rd(A[f"V{ax}H"])
+                p = rd(A[f"{ax}F"]) | rd(A[f"{ax}L"]) << 8 | rd(A[f"{ax}H"]) << 16
+                v = (vl | vh << 8) - (0x10000 if vh & 0x80 else 0)
+                p = (p + v) & 0xFFFFFF
+                wr(A[f"{ax}F"], p); wr(A[f"{ax}L"], p >> 8); wr(A[f"{ax}H"], p >> 16)
+            wcall("ff_rock" if kind == "rock" else "ff_foe", x=0)
+            d = c_dist(rd(A["XL"]) | rd(A["XH"]) << 8, rd(A["YL"]) | rd(A["YH"]) << 8)
+            if f > 0:
+                worst = min(worst, d - TW_R - r)
+    return worst
+
+
+wr(C["TWST"], 0)
+for kind, n in (("rock", 300), ("foe", 200)):
+    worst = fly_tower(kind, n, 60)
+    check(f"the tower: {n} {kind}s flown at it (a fifth born inside it) - none is ever left in it",
+          worst > -48, f"the closest any centre came: its radius {worst:+.0f} units")
+
+wr(C["SHIPINV"], 200)
+SR = C["FF_SHIPR"]
+worst, hurts, lit = 1e9, 0, 0
+for t in range(120):
+    th = random.uniform(0, 2 * math.pi)
+    u = random.uniform(10, TW_R + SR - 40) if t % 4 == 0 else TW_R + SR + random.uniform(10, 1500)
+    x, y = at_c(th, u)
+    sp = random.choice([1, 6, 20, 60, 100])
+    aim = th + math.pi + random.uniform(-1.0, 1.0)
+    vx = int(round(sp * math.sin(aim) * 256)) & 0xFFFFFF
+    vy = int(round(-sp * math.cos(aim) * 256)) & 0xFFFFFF
+    sx, sy = x << 8, y << 8
+    wr(C["FFHC"], 0); wr(C["FFLT"], 0)
+    for f in range(60):
+        for a, v in (("SHX", sx), ("SHY", sy)):
+            wr(C[a + "F"], v); wr(C[a + "L"], v >> 8); wr(C[a + "H"], v >> 16)
+        for a, v in (("VELX", vx), ("VELY", vy)):
+            wr(C[a + "L"], v); wr(C[a + "H"], v >> 8); wr(C[a + "T"], v >> 16)
+        wcall("ff_brake")
+        hurts += rd(C["FFHC"]) != 0
+        lit += rd(C["FFLT"]) != 0
+        sx = rd(C["SHXF"]) | rd(C["SHXL"]) << 8 | rd(C["SHXH"]) << 16
+        sy = rd(C["SHYF"]) | rd(C["SHYL"]) << 8 | rd(C["SHYH"]) << 16
+        sx, sy = (sx + vx) & 0xFFFFFF, (sy + vy) & 0xFFFFFF
+        worst = min(worst, c_dist(sx >> 8, sy >> 8) - TW_R - SR)
+check("the tower: the ship pressed into it (a quarter landed inside) slides on it - never in,"
+      " never hurt, no flash", worst > -48 and hurts == 0 and lit == 0,
+      f"closest: its radius {worst:+.0f} units; {hurts} hurts, {lit} flashes")
+wr(C["SHIPINV"], 0)
+
+wrong = 0
+for t in range(400):
+    th = random.uniform(0, 2 * math.pi)
+    x0, y0 = at_c(th, random.uniform(TW_R + 30, TW_R + 900))
+    tin = t % 2 == 0                            # half end inside it, half stay out
+    x1, y1 = at_c(th + random.uniform(-0.3, 0.3), random.uniform(0, TW_R - 30) if tin else
+                  random.uniform(TW_R + 30, TW_R + 900))
+    vx, vy = s16(x1 - x0), s16(y1 - y0)
+    if abs(vx) > 900 or abs(vy) > 900:
+        continue
+    wr(C["SHTLIVE"], 1)
+    wr(C["SHTXL"], x1); wr(C["SHTXH"], x1 >> 8); wr(C["SHTYL"], y1); wr(C["SHTYH"], y1 >> 8)
+    wr(C["SHTVXH"], vx); wr(C["SHTVXT"], vx >> 8); wr(C["SHTVYH"], vy); wr(C["SHTVYT"], vy >> 8)
+    _, got = wcall("ff_shot_p", x=0)
+    wrong += bool(got) != tin
+check("the tower: a bullet that ends in it is spent, one that stays out flies on", wrong == 0,
+      f"{wrong} wrong")
+
+# the field is DOWN while the tower is: a rock sitting across the edge stays where it is
+wr(C["TWST"], 5)
+moved = 0
+for t in range(40):
+    x, y = on_edge(random.uniform(0, 6.28), 100)
+    wr(C["OBJSHP"], 2)
+    for ax, v in (("X", x), ("Y", y)):
+        wr(C[f"OBJ{ax}L"], v); wr(C[f"OBJ{ax}H"], v >> 8); wr(C[f"OBJ{ax}F"], 0)
+        wr(C[f"OBJV{ax}L"], 0); wr(C[f"OBJV{ax}H"], 0)
+    wcall("ff_rock", x=0)
+    moved += (rd16(C["OBJXL"], C["OBJXH"]), rd16(C["OBJYL"], C["OBJYH"])) != (x, y)
+check("while the tower is down the edge stops nothing", moved == 0, f"{moved} put back")
+wr(C["TWST"], 0)
+
+# the EMP: the count, once, on the rocks inside
+save = {k: [rd(C[k] + i) for i in range(255)] for k in ("OBJSHP", "OBJXH", "OBJYH")}
+
+
+def emp_hit(rocks, k=20, ship=(CX + 0x1000, CY)):
+    """rocks = [(slot, shp, x, y)]; the ship at `ship`, the reach K pages: TWST after."""
+    for i in range(255):
+        wr(C["OBJSHP"] + i, 0xFF)
+    for sl, shp, x, y in rocks:
+        wr(C["OBJSHP"] + sl, shp); wr(C["OBJXH"] + sl, x >> 8); wr(C["OBJYH"] + sl, y >> 8)
+    wr16(C["SHXL"], ship[0], C["SHXH"]); wr16(C["SHYL"], ship[1], C["SHYH"])
+    wr(C["EMK"], k)
+    wr(C["TWST"], 0)
+    n, _ = wcall("ff_emp")
+    return rd(C["TWST"]), n
+
+
+inside = at_c(1.0, FF_R - 900)
+outside = at_c(1.0, FF_R + 900)
+cases = [("no rock at all", [], 0xFF),
+         ("a 192 inside", [(200, 0, *inside)], C["TW_DOWN"]),
+         ("only 16s inside (slot 0) - they do not count", [(0, 4, *inside)], 0xFF),
+         ("a 32 inside (slot 0)", [(0, 3, *inside)], C["TW_DOWN"]),
+         ("rocks only outside", [(7, 0, *outside), (254, 3, *outside)], 0xFF)]
+bad = []
+for name, rk, want in cases:
+    got = emp_hit(rk)[0]
+    if got != want:
+        bad.append(f"{name}: {got}")
+st_out, _ = emp_hit([(3, 1, *inside)], k=8)                 # the ring not there yet
+st_far, _ = emp_hit([(3, 1, *inside)], ship=(CX + 0x5000, CY))
+_, ncyc = emp_hit([])
+check("the EMP: rocks inside -> down for TW_DOWN, none (the 16s do not count) -> dead for good;"
+      " out of its reach, nothing", not bad and st_out == 0 and st_far == 0,
+      f"{bad or 'all four cases right'}; short ring TWST {st_out}, far ship TWST {st_far}")
+print(f"        ff_emp: {ncyc} cycles for the count over all 255 slots")
+for k, v in save.items():
+    for i in range(255):
+        wr(C[k] + i, v[i])
+
+# the drawing and the sparks, from near the middle, HEAD 0
+x, y = at_c(2.0, 3000)
+for a, v in (("SHX", x << 8), ("SHY", y << 8)):
+    wr(C[a + "F"], 0); wr(C[a + "L"], v >> 8); wr(C[a + "H"], v >> 16)
+wr(C["HEAD"], 0)
+
+
+def tower_cmds(st):
+    return [(op, pl) for op, pl in G["decode"](st) if op in (0x4C, 0x4E) and pl[6] in (0x86, 0x82)]
+
+
+draws = {}
+for name, tws in (("up", 0), ("down", 50), ("dead", 0xFF)):
+    wr(C["TWST"], tws); wr(C["TWSP"], 200)
+    for f in range(2):
+        st = run_frame()
+    draws[name] = tower_cmds(st)
+shape = {k: [(op, pl[6]) for op, pl in v] for k, v in draws.items()}
+check("the tower drawn: up solid (POLYGON16, both parts), down dotted (both), dead dotted"
+      " without its last part",
+      shape["up"] == [(0x4E, 0x86), (0x4E, 0x82)] and shape["down"] == [(0x4C, 0x86), (0x4C, 0x82)]
+      and shape["dead"] == [(0x4C, 0x86)], str(shape))
+
+# the spark is where the missing part is: its middle on the screen, from the down drawing
+sp_bad = []
+for twan in (0, 37, 100, 190):
+    wr(C["TWST"], 0xFF); wr(C["TWSP"], 1); wr(C["TWAN"], twan)
+    wr(C["FRAME"], 1)                           # no spin this frame
+    wcall("ff_frame")
+    ex = s16(rd16(C["EXTXL"], C["EXTXH"]) - CX)
+    ey = s16(rd16(C["EXTYL"], C["EXTYH"]) - CY)
+    wr(C["TWST"], 50); wr(C["TWAN"], twan); wr(C["FRAME"], 1)
+    st = run_frame()
+    cm = [pl for op, pl in tower_cmds(st) if pl[6] == 0x82]
+    if not cm:
+        sp_bad.append(f"{twan}: no part")
+        continue
+    pl = cm[0]
+    cx, cy = G["s16"](pl[0], pl[1]), G["s16"](pl[2], pl[3])
+    m = G["pg_matrix"](pl[4], pl[5])
+    v = [G["pg_vertex"](G["sb8"](pl[7 + 2 * j]), G["sb8"](pl[8 + 2 * j]), cx, cy, *m)
+         for j in range(2)]
+    mx, my = (v[0][0] + v[1][0]) / 2 - cx, (v[0][1] + v[1][1]) / 2 - cy   # half-res px
+    a_draw = math.atan2(my, mx)
+    a_spark = math.atan2(-ex, ey)                # fb = (world y, -world x) at HEAD 0
+    da = abs((a_draw - a_spark + math.pi) % (2 * math.pi) - math.pi)
+    if da > 0.15:
+        sp_bad.append(f"{twan}: {math.degrees(da):.0f} deg off")
+# the radar mark: four dots, blinking with the enemies while it stands, steady dead
+def marks(st):
+    """The 2x2 squares among the list's four-dot DOT_PIXELS (a puff can be four)."""
+    out = []
+    for op, pl in G["decode"](st):
+        if op == 0x47 and pl[0] == 4:
+            pts = sorted((pl[1 + 2 * j], pl[2 + 2 * j]) for j in range(4))
+            x, y = pts[0]
+            if pts == [(x, y), (x, y + 1), (x + 1, y), (x + 1, y + 1)]:
+                out.append(pl)
+    return out
+
+
+mk = {}
+for name, tws in (("up", 0), ("dead", 0xFF)):
+    wr(C["TWST"], tws); wr(C["TWSP"], 200)
+    mk[name] = sum(1 for f in range(20) if marks(run_frame()))   # one blink cycle
+check("the tower on the radar: a 2x2 mark, blinking while it stands, steady once dead",
+      mk["up"] == C["RAD_BLINK_ON"] and mk["dead"] == 20,
+      f"frames of 20 with the mark: {mk['up']} up, {mk['dead']} dead")
+
+check("the dead tower sparks where its last part was", not sp_bad and rd(C["TWSP"]) > 0,
+      str(sp_bad) if sp_bad else "four spins, each within 9 degrees")
+wr(C["TWST"], 0)
+
+# the GPU's price of the tower, up, down and dead, through the real GPU OS
+from py65.devices.mpu65c02 import MPU as _MPU
+_gm = bytearray(0x10000)
+_gm[0xC000:] = G["GPU_ROM"]
+_gpu = _MPU(memory=_gm)
+
+
+def gpu_cost(cmds):
+    out = []
+    for cmd in ([], cmds):
+        s = [0] + cmd + [0]
+        _gm[G["PPRAM"]:G["PPRAM"] + len(s)] = bytes(s)
+        _gm[3] = (G["PPRAM"] + 1) & 0xFF
+        _gm[4] = (G["PPRAM"] + 1) >> 8
+        _gpu.pc = G["DISPATCH"]
+        c0 = _gpu.processorCycles
+        while _gm[_gpu.pc] != 0xCB:
+            _gpu.step()
+        out.append(_gpu.processorCycles - c0)
+    return out[1] - out[0]
+
+
+gc = {k: gpu_cost(sum(([op] + list(pl) for op, pl in v), [])) for k, v in draws.items()}
+print(f"        the tower on the GPU: {gc['up']} cycles up (solid), {gc['down']} down, "
+      f"{gc['dead']} dead")
+
 # --- the level itself: FORCE FIELD TEST through the real loader -------------------
 # Its ship starts on HEAD 128 - which was lb_state's own "not a heading" marker for
 # the rotation tables, so they were never built and the first frames drew the
 # whole field on the ship (the user's madsim dump at frame 190).
 wr(C["CURLEV"], 2)
-call(cpu, LBL["ovl_load_field"])
-call(cpu, LBL["win_off"])
-call(cpu, LBL["level_begin"])
-call(cpu, LBL["win_on"])
+ld_call("ovl_load_field")
+pump()
+ld_call("ld_level_begin")                       # the whole sector, synchronously (as
+ld_call("ws_sync")                              #   power-on's), then its tenant, as
+pump()                                          #   ld_enter does, and the copies
 ok_load = (rd(LBL["WSCUR"]) == 1 and rd(C["FFON"]) == 1 and rd(C["HEAD"]) == 128)
 st = run_frame()
 rot = any(rd(C["ROTC_I"] + i) for i in range(256))
@@ -425,8 +734,8 @@ for op, pl in G["decode"](st):
         cxs.add((G["s16"](pl[0], pl[1]), G["s16"](pl[2], pl[3])))
 check("level 2 from level_begin: the field in the slots, the ship on HEAD 128",
       ok_load, f"WSCUR {rd(LBL['WSCUR'])} FFON {rd(C['FFON'])} HEAD {rd(C['HEAD'])}")
-check("...and its first frame has rotation tables and pieces at distinct anchors",
-      rot and len(cxs) == len(ps) and len(ps) >= 2, f"{len(ps)} pieces at {sorted(cxs)}")
+check("...and its first frame has rotation tables, and no field: the ship starts outside it",
+      rot and len(ps) == 0, f"rotation tables {'built' if rot else 'MISSING'}; {len(ps)} pieces")
 
 print()
 if fails:

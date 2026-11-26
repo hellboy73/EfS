@@ -72,6 +72,12 @@ SE_EMP       = 17       ; the EMP went off (emp.s) - a falling discharge,
                         ;   program in emp.s likewise
 SE_ZAP       = 18       ; something hit the force field - an electric buzz,
                         ;   program in ffield.s (slot B)
+SE_TWDOWN    = 19       ; the field's tower went down (ffield.s) - a warbling
+                        ;   tone falling to the bottom note in a second...
+SE_TWUP      = 20       ; ...and back up the same way when it comes back on
+SE_TWDIE_N   = 21       ; ...and, fired with SE_TWDOWN when it dies for good, a
+                        ;   short blast where the fall ends (the noise voice).
+                        ;   The three programs are in CODE8, below
 
 ; voice hint per effect: 0/1/2 = a forced tone voice, $FF = noise (auto, voice 7)
 VOICE_GUN   = 0
@@ -151,6 +157,8 @@ LEN_SATN   = 16
 LEN_SCREECH= 16
 LEN_EMP    = EMP_FRAMES ; se_emp is authored to the ring's own length
 LEN_ZAP    = 18
+LEN_TWSWEEP= 60         ; se_twdown and se_twup, each
+LEN_TWDIE_N= 106        ; the fall's second of silence, then the blast
 
 ; -----------------------------------------------------------------------------
 ; sfx_fire — A = SE_* id. Play that effect on its assigned voice.
@@ -227,18 +235,21 @@ sfx_lo: .byte   <se_shot, <se_rock_boom, <se_rock_hit, <se_klang
         .byte   <se_psst, <se_boost, <se_teleport, <se_klang_n
         .byte   <se_death, <se_death_low, <se_death_n, <se_ufo_shot
         .byte   <se_alarm, <se_laser, <se_wswitch, <se_satn
-        .byte   <se_screech, <se_emp, <se_zap
+        .byte   <se_screech, <se_emp, <se_zap, <se_twdown
+        .byte   <se_twup, <se_twdie_n
 sfx_hi: .byte   >se_shot, >se_rock_boom, >se_rock_hit, >se_klang
         .byte   >se_psst, >se_boost, >se_teleport, >se_klang_n
         .byte   >se_death, >se_death_low, >se_death_n, >se_ufo_shot
         .byte   >se_alarm, >se_laser, >se_wswitch, >se_satn
-        .byte   >se_screech, >se_emp, >se_zap
+        .byte   >se_screech, >se_emp, >se_zap, >se_twdown
+        .byte   >se_twup, >se_twdie_n
 sfx_voice:
         .byte   VOICE_GUN, VOICE_NOISE, VOICE_ROCK, VOICE_SHIP
         .byte   VOICE_NOISE, VOICE_NOISE, VOICE_SHIP, VOICE_NOISE
         .byte   VOICE_SHIP, VOICE_GUN, VOICE_NOISE, VOICE_ROCK
         .byte   VOICE_ROCK, VOICE_GUN, VOICE_GUN, VOICE_NOISE
-        .byte   VOICE_ROCK, VOICE_SHIP, VOICE_NOISE
+        .byte   VOICE_ROCK, VOICE_SHIP, VOICE_NOISE, VOICE_SHIP
+        .byte   VOICE_SHIP, VOICE_NOISE
 
 ; ...the same voice again as a 0-3 CLAIM INDEX, because sfx_voice's $FF is a
 ; firmware hint ("noise, allocate it yourself") and not a table row. Derived by
@@ -248,7 +259,8 @@ sfx_vi: .byte   VOICE_GUN, 3, VOICE_ROCK, VOICE_SHIP
         .byte   3, 3, VOICE_SHIP, 3
         .byte   VOICE_SHIP, VOICE_GUN, 3, VOICE_ROCK
         .byte   VOICE_ROCK, VOICE_GUN, VOICE_GUN, 3
-        .byte   VOICE_ROCK, VOICE_SHIP, 3
+        .byte   VOICE_ROCK, VOICE_SHIP, 3, VOICE_SHIP
+        .byte   VOICE_SHIP, 3
         .assert VOICE_N = 4, error, "sfx.s: sfx_vi's noise rows say 3; VOICE_N moved"
 
 ; ...and the arbiter's own two, in the same order. Every effect has a real row
@@ -259,14 +271,49 @@ sfx_pri:
         .byte   PRI_FEEDBACK, PRI_BOOST, PRI_FEEDBACK, PRI_KLANG
         .byte   PRI_DEATH, PRI_FEEDBACK, PRI_DEATH, PRI_FEEDBACK
         .byte   PRI_ALARM, PRI_FEEDBACK, PRI_FEEDBACK, PRI_BOOM
-        .byte   PRI_BOOM, PRI_KLANG, PRI_KLANG
+        .byte   PRI_BOOM, PRI_KLANG, PRI_KLANG, PRI_BOOM
+        .byte   PRI_BOOM, PRI_BOOM
 sfx_len:
         .byte   LEN_SHOT, LEN_BOOM, LEN_ROCKHIT, LEN_KLANG
         .byte   LEN_PSST, LEN_BOOST, LEN_TELE, LEN_KLANG_N
         .byte   LEN_DEATH, LEN_DEATH, LEN_DEATH, LEN_SHOT
         .byte   LEN_ALARM, LEN_LASER, LEN_WSWITCH, LEN_SATN
-        .byte   LEN_SCREECH, LEN_EMP, LEN_ZAP
-        .assert * - sfx_len = SE_ZAP + 1, error, "sfx.s: an effect is missing a row"
+        .byte   LEN_SCREECH, LEN_EMP, LEN_ZAP, LEN_TWSWEEP
+        .byte   LEN_TWSWEEP, LEN_TWDIE_N
+        .assert * - sfx_len = SE_TWDIE_N + 1, error, "sfx.s: an effect is missing a row"
+
+; --- the field tower's three (ffield.s), in CODE8: the run area is always mapped,
+; as the IRQ that plays them needs, and UPPER and the field's slots are full ----
+        .pushseg
+        .segment "CODE8"
+; SE_TWDOWN - the tower goes down: a tone that warbles (every other step four
+; semitones up) as it falls from C7 to the bottom note, A2, in one second.
+se_twdown:
+        .byte   $00                     ; tone
+        .byte   3, 96, 12,  3, 97, 12,  3, 91, 12,  3, 92, 12
+        .byte   3, 85, 12,  3, 87, 12,  3, 80, 12,  3, 81, 12
+        .byte   3, 75, 12,  3, 76, 12,  3, 69, 12,  3, 70, 12
+        .byte   3, 64, 12,  3, 65, 12,  3, 58, 12,  3, 60, 12
+        .byte   3, 53, 10,  3, 54, 8,  3, 45, 6,  3, 45, 3
+        .byte   $FF                     ; 60 frames = LEN_TWSWEEP
+; SE_TWUP - it comes back on: the same warble, rising.
+se_twup:
+        .byte   $00                     ; tone
+        .byte   3, 45, 4,  3, 52, 7,  3, 50, 10,  3, 57, 12
+        .byte   3, 56, 12,  3, 62, 12,  3, 61, 12,  3, 68, 12
+        .byte   3, 66, 12,  3, 73, 12,  3, 72, 12,  3, 79, 12
+        .byte   3, 77, 12,  3, 84, 12,  3, 83, 12,  3, 89, 12
+        .byte   3, 88, 12,  3, 95, 12,  3, 93, 12,  3, 100, 12
+        .byte   $FF                     ; 60 frames = LEN_TWSWEEP
+; SE_TWDIE_N - and dead for good: silent while the fall plays, then a blast where
+; it ends - louder and longer than a rock's: full volume held, then a long tail.
+se_twdie_n:
+        .byte   $01                     ; noise
+        .byte   60, 6, 0
+        .byte   4, 6, 15,  4, 6, 15,  4, 6, 14,  5, 6, 12
+        .byte   6, 6, 10,  7, 6, 7,  8, 6, 4,  8, 6, 2
+        .byte   $FF                     ; 106 frames = LEN_TWDIE_N
+        .popseg
 
 ; --- the effect programs -----------------------------------------------------
 

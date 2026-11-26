@@ -131,27 +131,9 @@ do_freight:
         ldy     FRYH,x                  ;   the middle of the base's 4x4 ring,
         jsr     gr_pos                  ;   while it is in reach (gate.s gr_pos,
         bcs     @near                   ;   as the base's and the gate's)
-        ldx     #FR_MN - 1
-        ldy     #$01
-@pt:    lda     GTRX
-        clc
-        adc     FR_MDX,x
-        sta     GTRB,y
-        iny
-        lda     GTRY
-        clc
-        adc     FR_MDY,x
-        sta     GTRB,y
-        iny
-        dex
-        bpl     @pt
-        lda     #FR_MN
-        sta     GTRB
-        lda     #<GTRB
-        sta     OS_ARG+0
-        lda     #>GTRB
-        sta     OS_ARG+1
-        jsr     API_GPU_DOTPIXELS
+        lda     #GSQ_N
+        ldx     #GSQ_X
+        jsr     gr_mark
 
 @near:  ldx     FRI
         sec                             ; P = freighter - ship
@@ -302,12 +284,6 @@ fr_vec: sta     fr_call+1              ; the routine fr_each runs (self-modifyin
         sty     fr_call+2               ;   FIELDRAM is RAM)
 fr_rts: rts
 
-; the radar mark, framebuffer axes as base.s's BR_DX/BR_DY: the 2x2 inside its
-; ring
-FR_MN       = 4
-FR_MDX: .byte   <-1, <-1, 0, 0
-FR_MDY: .byte   <-1, 0, <-1, 0
-        .assert FR_MDY - FR_MDX = FR_MN && GTR_N >= FR_MN, error, "freight.s: the mark's dots go through gate.s's GTRB"
 
 ; -----------------------------------------------------------------------------
 ; fr_each - A = the mover's x high byte, Y = its y high byte, X = its slot. For

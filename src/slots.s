@@ -18,7 +18,7 @@
 ;
 ; EVERY CALLER GOES THROUGH THE VECTORS (WS_*), never a tenant's routine by
 ; name: the movers (objects.s, foes.s, ship.s, shots.s) and frame_body cannot
-; know which tenant is in. Each tenant's table is the same six JMPs at the same
+; know which tenant is in. Each tenant's table is the same seven JMPs at the same
 ; address (asserted), with the base's contracts:
 ;
 ;   WS_FRAME  once a frame, inside the bracket, before do_stars: its discs
@@ -28,6 +28,7 @@
 ;   WS_BRAKE  do_ship, before the ship moves
 ;   WS_SHOTP  a player's bullet, X = its slot: carry SET = it ended on a wall
 ;   WS_SHOTF  an enemy's bullet, the same
+;   WS_EMP    do_emp, EMK this frame's reach (the field's tower; the base: rts)
 ;
 ; WHO CHOOSES: the sector loader writes WSKIND (WK_*) - base.s's base_load the
 ; base, then ffield.s's ff_load the field if the level has one (LVL_FF_ON) -
@@ -59,6 +60,7 @@ ws_tab_bs:
         jmp     base_brake
         jmp     base_shot_p
         jmp     base_shot_f
+        rts                             ; WS_EMP: nothing of the base's
 ws_frame_bs:                            ; the freighters, then the base - the
         jsr     do_freight              ;   order frame_body always had
         jmp     do_base
@@ -71,6 +73,7 @@ ws_tab_ff:
         jmp     ff_brake
         jmp     ff_shot_p
         jmp     ff_shot_f
+        jmp     ff_emp
 
         .assert ws_tab_ff = ws_tab_bs, lderror, "slots.s: the two tenants' vector tables are not at one address"
         .assert ws_tab_bs = __BSFRAME_RUN__, lderror, "slots.s: the base's vector table is not first in slot B"
@@ -83,6 +86,7 @@ WS_FOE      = ws_tab_bs + 6
 WS_BRAKE    = ws_tab_bs + 9
 WS_SHOTP    = ws_tab_bs + 12
 WS_SHOTF    = ws_tab_bs + 15
+WS_EMP      = ws_tab_bs + 18
 
 ; --- the swap ----------------------------------------------------------------
         .pushseg

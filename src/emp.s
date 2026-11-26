@@ -177,6 +177,7 @@ do_emp:
         asl     a
         .endrepeat
         sta     EMK
+        jsr     WS_EMP                  ; the field's tower, if the sector has one
         lda     NFOE
         beq     @ring
         dec     a
@@ -184,41 +185,9 @@ do_emp:
 @lp:    ldx     FEI
         lda     FOEST,x
         beq     @next                   ; FS_DEAD - and FS_MOUNTED is NOT skipped
-        lda     FOEXH,x                 ; the box, on high bytes
-        sec
-        sbc     SHXH
-        jsr     absa
-        cmp     EMK
-        beq     :+
-        bcs     @next
-:       sta     EMDX
-        lda     FOEYH,x
-        sec
-        sbc     SHYH
-        jsr     absa
-        cmp     EMK
-        beq     :+
-        bcs     @next
-:       asl     a                       ; ...then the circle: f(2a) = a*a
-        tay
-        ldx     EMDX
-        txa
-        asl     a
-        tax
-        clc
-        lda     QSL,x
-        adc     QSL,y
-        sta     EMT0
-        lda     QSH,x
-        adc     QSH,y
-        sta     EMT1
-        lda     EMK
-        asl     a
-        tax
-        lda     QSL,x                   ; K*K - the rim is inside
-        cmp     EMT0
-        lda     QSH,x
-        sbc     EMT1
+        ldy     FOEYH,x
+        lda     FOEXH,x
+        jsr     emp_rt
         bcc     @next
         jsr     foe_kill                ; FEI's, whatever its hit points
 @next:  dec     FEI
@@ -246,6 +215,48 @@ do_emp:
         bcc     :+
         lda     #$00                    ; grown out: the EMP is over
 :       sta     EMPN
+        rts
+
+; -----------------------------------------------------------------------------
+; emp_rt - A, Y = a thing's x and y position high bytes: carry SET = it is
+; within this frame's reach EMK of the ship. The box first, then the circle.
+; -----------------------------------------------------------------------------
+emp_rt:
+        sec
+        sbc     SHXH
+        jsr     absa
+        cmp     EMK
+        beq     :+
+        bcs     @no
+:       sta     EMDX
+        tya
+        sec
+        sbc     SHYH
+        jsr     absa
+        cmp     EMK
+        beq     :+
+        bcs     @no
+:       asl     a                       ; ...then the circle: f(2a) = a*a
+        tay
+        lda     EMDX
+        asl     a
+        tax
+        clc
+        lda     QSL,x
+        adc     QSL,y
+        sta     EMT0
+        lda     QSH,x
+        adc     QSH,y
+        sta     EMT1
+        lda     EMK
+        asl     a
+        tax
+        lda     QSL,x                   ; K*K - the rim is inside
+        cmp     EMT0
+        lda     QSH,x
+        sbc     EMT1
+        rts
+@no:    clc
         rts
 
 ; --- the sound programs --------------------------------------------------------

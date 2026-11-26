@@ -15,8 +15,6 @@
 ;   LEFT    the laser arrives, exactly as a pickup would (pk_arrive) - on the press
 ;   FIRE    the EMP arrives, exactly as a pickup would (pk_arrive) - on the press,
 ;           so EMP ACQUIRED is spoken and the hold comes full with it
-;   FIRE2   the force field, if the sector has one, turns visible / invisible
-;           (ffield.s FFVIS) - on the press
 ;
 ; Runs from cart_frame after do_input, inside the bracket: SATN lives under the
 ; window.
@@ -57,14 +55,6 @@ trainer_tick:
         lda     #SPT_EMP                ; FIRE: the EMP, through the REAL arrival -
         jsr     pk_arrive               ;   the whoosh, the flag, the full hold and
         plx                             ;   EMP ACQUIRED, none of it duplicated here
-:       lda     JOY1_PRESS,x
-        and     #JOY_FIRE2
-        beq     :+
-        lda     FFON                    ; FIRE2: the force field, visible <->
-        beq     :+                      ;   invisible (ffield.s FFVIS)
-        lda     FFVIS
-        eor     #$01
-        sta     FFVIS
 :       lda     JOY1_PRESS,x
         and     #JOY_DOWN
         beq     @done

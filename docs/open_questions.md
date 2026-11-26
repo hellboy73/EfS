@@ -678,7 +678,11 @@ draws, collides and lives in RAM is decided (11.51, the slots 11.52). What is st
 * **The missions.** Which sectors have it, and whether the player has to go in, out or
   both - the level's map decides (the user); a rescue from inside and back out is the
   first candidate. How the teleport's charge is kept for the way back.
-* **Visible or invisible per level** - both are built; which level gets which.
+* ~~Visible or invisible per level~~ and **the alien tower** - **settled and built
+  (the user, 2026-11-26): `design_technical.md` 11.51** (seen only from inside; the
+  tower in the centre, a wall that only the EMP takes down - for 3 s with rocks
+  inside the field, for good without; on the radar). What is open of it: the
+  level that teaches it.
 * **The radar** - not shown for now; look again once a level is flown.
 * **Enemies at the edge** - they slide along it (11.51); whether a hunter that keeps
   grinding there needs steering round it is the base's E11 again.

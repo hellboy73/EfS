@@ -505,24 +505,27 @@ gate_radar:
         jsr     gr_pos
         bcc     :+
         rts
-:
-        ldx     #$00                    ; the mark: GTR_N dots round its centre
-        ldy     #$01
-@pt:    lda     GTRX
-        clc
-        adc     GX_DX,x
-        sta     GTRB,y
-        iny
-        lda     GTRY
+:       lda     #GTR_N                  ; the mark: GTR_N dots round its centre
+        ldx     #GTR_N - 1
+; gr_mark - A = N dots, X = the last of them in GX_DX/GX_DY: that mark on the
+; radar at GTRX/GTRY, one DOT_PIXELS. The gate's triangle, and the 2x2 square
+; (GSQ_X) the freighter's and the field's tower's marks are.
+gr_mark:
+        sta     GTRB
+        asl     a
+        tay                             ; the last dot's y byte
+@pt:    lda     GTRY
         clc
         adc     GX_DY,x
         sta     GTRB,y
-        iny
-        inx
-        cpx     #GTR_N
+        dey
+        lda     GTRX
+        clc
+        adc     GX_DX,x
+        sta     GTRB,y
+        dex
+        dey
         bne     @pt
-        lda     #GTR_N
-        sta     GTRB
         lda     #<GTRB
         sta     OS_ARG+0
         lda     #>GTRB
@@ -627,9 +630,15 @@ gr_pos:
 ; turned - rows of 1, 3 and 5 half-res dots, the middle row on the gate's own
 ; point. Written in FRAMEBUFFER axes like everything the GPU is handed (TATE:
 ; fb x runs down the screen, fb y to the left), so the apex is -1 on fb x.
+; ...and behind it, GSQ_N more: a 2x2 square, the freighter's and the tower's.
 GX_DX:  .byte   <-1, 0, 0, 0, 1, 1, 1, 1, 1
+        .byte   <-1, <-1, 0, 0
 GX_DY:  .byte   0, 1, 0, <-1, 2, 1, 0, <-1, <-2
-        .assert GX_DY - GX_DX = GTR_N, error, "gate.s: GTR_N no longer counts the mark's dots"
+        .byte   <-1, 0, <-1, 0
+GSQ_N       = 4
+GSQ_X       = GTR_N + GSQ_N - 1     ; gr_mark's X for the square
+        .assert GX_DY - GX_DX = GTR_N + GSQ_N, error, "gate.s: GTR_N no longer counts the mark's dots"
+        .assert GSQ_N <= GTR_N, error, "gate.s: GTRB holds GTR_N dots"
 
         .segment "MSGDATA"          ; was CODE6 - see hud_game.s's
                                     ;   msg_open/msg_close
