@@ -2564,7 +2564,7 @@ These are settled and should not be re-opened without a reason:
         inside it (worst 7 units inside the radius); bullets decided right;
         the count 4.9 k cycles over 255 empty slots, once an EMP; the GPU, at
         25 px, 19.7 k cycles up (solid), 18.4 k down, 16.2 k dead; at 50 px
-        24.4 k / 21.0 k / 18.7 k (the 75 px it now is: TBM). Code: +417 B in the field's
+        24.4 k / 21.0 k / 18.7 k; at 75 px, as built, 28.8 k / 23.6 k / 21.3 k. Code: +417 B in the field's
         slots (FFWALL 1,416 of 1,440, FFFRAME 1,114 of 1,184); resident CODE6
         -4 B (emp.s +9, the shared `gr_mark` -13); the base's slot B -46 B (the
         freighter's mark through `gr_mark`). Its star-occlusion disc (`TW_DISC` 38 half-res px, to its corners) is a rock's, through `add_disc`.
