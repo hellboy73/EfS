@@ -1000,6 +1000,8 @@ proposal, built for the smallest code:
     * **The whole shape, frame 0, not animated.**
     * **No hits, no collision** (above).
   - **Cost (estimate, TBM; free space measured on the build of 2026-11-24, a73a65e).**
+    The placement in this table is superseded by the joint table below (the ghost
+    tenant, 2026-11-26); the byte counts still hold.
 
     | | where | bytes |
     |---|---|---|
@@ -1010,17 +1012,95 @@ proposal, built for the smallest code:
     | 4 ghosts x (position 4 + appearance + timer) + a count | under the window | 25 |
     | the DORMANT bit in `load_foes` | bank 8, LDCODE | ~25 |
 
-    **Where it lives: shared, not a level slot.** The wall slots (`slots.s`) hold the
-    base OR the force field, and ghosts are wanted WITH either (escape a field where
-    camouflaged craft wait; an ambush at the base) - and slot A has 26 B left with the
-    base in it. Of the shared areas, the run area has 618 B free (CODE8 ends `$5D95`)
-    against FIELDRAM's 168 (CODE9 to `$DA60`) and UPPER's 23. Proposed: the run area,
-    as flight code before the kernel (the tunnel lays over it; `overlay.s` brings it
-    back). The 25 B of data fit the ~34 left under the window (`FF_END` to `$9800`) but
-    take nearly all of it; the reserve is that the freighters and the field never
-    share a sector, so their state could share bytes (~47 B).
+    **Where it lives: PROBABLY a third tenant of the wall slots (the user,
+    2026-11-26)** - beside the base and the force field (`slots.s`,
+    design_technical 52), not resident. This supersedes the earlier "shared, not
+    a level slot" proposal and gives up ghosts WITH the base or the field (the
+    escape-a-field and ambush-at-the-base examples) in exchange for the zones
+    below. See *Three zones of play* after this item.
+  - **Rock ghosts belong to the same tenant (the user, 2026-11-26).** An
+    INVISIBLE rock - a real rock in the pool, so it moves, collides, is hit,
+    splits and scores like any other - that STROBES dotted while the ship is
+    near (the ghosts' "within R" and strobe), stays dotted for good once it is
+    revealed, and breaks into two ordinary smaller rocks.
+    * **Two bits in `OBJTYPE`, no RAM.** The variant is 0..3 (`AST_TYPES` 4)
+      and is read in one place (`one_asteroid`): bit 7 = ghost, bit 6 =
+      revealed. A hand-placed rock's record byte goes into `OBJTYPE` verbatim
+      (`load_level`), so a level marks a ghost for free; `rock_split` writes
+      freshly drawn variants (`SPL_TYA`/`SPL_TYB`), so the children come out
+      ordinary for free. Ghosts in the class SCATTER would be loader code
+      (~15-20 B, bank 8) - only if wanted.
+    * **Revealed by a HIT for free**: `OBJHP` below `ROCK_HP[class]` - every
+      hit (bullet, laser, UFO and pulsar bullets) goes through `rock_take_hit`,
+      and `one_asteroid` already makes that comparison for the crack. A
+      COLLISION takes no HP (ramming's rock damage is off by request, rock-rock
+      only bounces), so it sets bit 6: a 7 B `rk_reveal` and three `jsr`s
+      (`col_respond` x2, `ship_respond`).
+    * **The radar: nothing to do.** It admits rocks by CLASS (`OBJSHP`, the
+      mission's `RADCL` window) and never reads `OBJTYPE`, so a ghost is on it
+      exactly when the mission puts its class there.
+    * **Drawing**: the dotted path is `$4C DOT_POLYGON` with the half-res centre
+      (`CX2`/`CY2`, already built), the scale halved (`lsr`, as `gate.s` does)
+      and no star disc. It is CHEAPER on the GPU than the rock's solid
+      `POLYGON16` (~1,564 a vertex against 1,873, `AST_VCOST`), and an unseen
+      ghost costs nothing, so unlike an enemy ghost it needs no
+      one-a-frame rule.
+  - **Cost, both kinds together (estimate, TBM; free space MEASURED 2026-11-26 on
+    9cf1236).**
+
+    | | where | bytes |
+    |---|---|---|
+    | enemy ghosts: frame loop, timer, one a frame, `gb_draw`'s setup | ghost tenant (slot B) | ~100-125 |
+    | `gh_near` (delta, the square), shared by both kinds | ghost tenant | ~24 |
+    | the strobe | see below | ~15-20 |
+    | rock ghosts: the dotted draw, the near test's call | ghost tenant, through a vector | ~40-50 |
+    | `one_asteroid`: mask the variant, `bit OBJTYPE,x` / jump through the vector | resident (CODE) | ~8-10 |
+    | `rk_reveal` + three `jsr`s | resident (CODE, UPPER) | ~16 |
+    | the vector entry in the base's and the field's tables (asserted to one address) | slot B, each | 3 |
+    | `WSKIND` = ghosts in `ws_sync`, the tenant's ROM image | bank 8 / bank 2 or 7 | ~6 / its size |
+    | DORMANT bit in `load_foes` | bank 8 | ~25 |
+    | enemy ghosts' data (4 x position, appearance, timer + count) | under the window | 25 |
+    | rock ghosts' data | `OBJTYPE` bits | 0 |
+
+    **Resident: ~25 B instead of ~200-240.** That is what the tenant buys: the run
+    area has 451 B left (CODE8 ends `$5E3C`; it was 618 on 11-24), FIELDRAM 52,
+    UPPER 31. The slots hold 1,440 + 1,184 B, so ghosts at ~200-250 B leave
+    the third tenant ~2.3 KB for the rest of its zone. **The data stops being the
+    pinch too:** under the window only 31 B are left (`FF_END` = `$97E1`), but
+    tenants never share a sector, so the ghosts' 25 B can overlay the base's or
+    the field's state bytes instead of taking the last free ones.
+    **The strobe:** it was to be ONE routine shared with the field (decided
+    2026-11-24, so that a change changes both). With the two in different
+    tenants that is either a resident routine (~15-20 B) or one SOURCE (a macro)
+    assembled into both tenants - same rule kept, 0 B resident. Proposed: the
+    macro.
   - **Still open:** whether 4 ghosts a sector are enough. The GPU estimates above are a
     model fitted to the bench - measure a ghost in a dump.
+  - **Decided (the user, 2026-11-26): an enemy ghost is NOT on the radar.** It
+    appears there when it is woken: `A_WAKE` copies it into an enemy slot and
+    `radar_foes` shows it from then on, like any enemy. Nothing to build - the
+    ghost list is not something the radar reads. (Rock ghosts are different: they
+    ARE rocks, and follow the mission's classes, above.)
+* **THREE ZONES OF PLAY - the wall slots' three tenants (the user, 2026-11-26,
+  "probably").** Each optional code area is a kind of place, and a sector is one of
+  them:
+  1. **The near neighbourhood** - the human base and the freighters (`BSWALL` /
+     `BSFRAME`).
+  2. **The farther reaches** - objects in camouflage and without it: enemy ghosts,
+     rock ghosts, and what else lives out there (the third tenant, above).
+  3. **The distant sectors the aliens hold for good** - with force fields
+     (`FFWALL` / `FFFRAME`).
+  It follows the one rule the slots already have (design_technical 51/52: a sector
+  never has two tenants) and gives each zone its own ~2.6 KB of code that costs the
+  others nothing. **What it gives up:** a sector cannot mix the zones' code -
+  no ghosts at the base, none inside a field - unless the piece that is wanted in
+  two zones goes resident or is assembled into both. **Open:** whether the zones
+  are also the campaign's ORDER (near -> far -> alien, as `story.md` goes outward).
+  When it is settled, it moves into design_technical 52.
+  **The tenant gets both slots, like the other two.** The ghosts are all
+  frame-time code, so they start in slot B (with the vector table); slot A (the
+  base's and the field's WALL code) stays free for whatever else the far zone
+  brings - ~1.4 KB of room, not a decision.
 * **The editor.** At first `tools/level_editor.py` carries the `RULE` block through
   untouched; text macros are enough to write it by hand.
 * **Open:** what `A_FAIL` does (replay the sector - `design_technical.md` already has
