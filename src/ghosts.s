@@ -36,10 +36,20 @@
 ; radar takes rocks by CLASS (the mission's RADCL), never reads OBJTYPE: a
 ; ghost is on it exactly when its class is.
 ;
-;   GHWALL   slot A (upper RAM): gh_rock, gh_near, gh_irr
+;   GHWALL   slot A (upper RAM): gh_rock, gh_near, gh_irr, gh_hit
+;
+; A GHOST ROCK IS RICH (the user, 2026-11-26): every whole hit's worth of damage
+; it takes - a bullet, a UFO's shot, two and a half frames of laser - pays out
+; the Saturnium a destroyed 16 does (satn.s satn_kill: SATN_ADD and its motes),
+; the hit that breaks it included. The hint that the Saturnium in it is what
+; hides it. (A ghost 16 pays twice on its last hit: once here, once as a 16.)
 ;   GHFRAME  slot B (DEMO_RAM): after slots.s's vector table, the enemy ghosts
 ; State: GHN in the run area (the loader counts on it), the list under the
 ; window behind ffield.s's (written by load_foes, the loader).
+;
+; ONLY THE OUTER ZONE HAS GHOSTS (levels.s ZONE 2): anywhere else the loader
+; loads a dormant enemy awake (gh_add) and a ghost rock as an ordinary one
+; (load_level), since no other tenant can draw them.
 ; =============================================================================
 
 GH_MAX      = 4                 ; enemy ghosts a sector (the list's length)
@@ -133,6 +143,35 @@ gh_irr:
         lda     GH_IRR,y
         cmp     #$01
         rts
+
+; -----------------------------------------------------------------------------
+; gh_hit - WS_GHIT: X = a ghost rock about to take RKDMG hit points. Pays a 16's
+; Saturnium if that crosses a whole hit (HIT_HP) - or ends it. X kept; A, Y and
+; LVTMP (the loader's scratch, free in flight) clobbered.
+; -----------------------------------------------------------------------------
+gh_hit:
+        lda     OBJHP,x
+        jsr     @q
+        sty     LVTMP                   ; whole hits it stood on...
+        lda     OBJHP,x
+        sec
+        sbc     RKDMG
+        beq     @pay                    ; (this one ends it: a hit all the same)
+        bcc     @pay
+        jsr     @q                      ; ...and after this one
+        cpy     LVTMP
+        beq     @r                      ; no whole hit's worth yet (the beam)
+@pay:   stx     SPL_P
+        jmp     satn_kill               ; tail - it hands X = SPL_P back
+@q:     ldy     #$00                    ; A = HP >= 1 -> Y = (HP - 1) / HIT_HP
+        sec
+        sbc     #$01
+@ql:    cmp     #HIT_HP
+        bcc     @r
+        sbc     #HIT_HP                 ; (carry set by the compare)
+        iny
+        bra     @ql
+@r:     rts
 
 GH_IRR: .byte   1, 1, 0, 1, 1, 0, 0, 0,  0, 0, 1, 0, 0, 0, 0, 0
         .byte   1, 0, 1, 1, 1, 0, 1, 0,  0, 1, 0, 0, 0, 0, 0, 0
@@ -357,9 +396,16 @@ gh_wake:
         .segment "LDCODE"
 
 ; gh_add - load_foes: a DORMANT record, (T0) on it in ROM, onto the list. A kind
-; nothing flies, or a full list, is dropped. Clobbers A, X, Y.
+; nothing flies, or a full list, is dropped. Carry SET: the sector is not the
+; outer zone, which alone has ghosts - load it AWAKE. Clobbers A, X, Y.
 gh_add:
-        ldx     GHN
+        ldx     CURLEV
+        lda     LVL_ZONE,x
+        cmp     #ZN_OUTER
+        beq     :+
+        sec
+        rts
+:       ldx     GHN
         cpx     #GH_MAX
         bcs     @r
         ldy     #4
@@ -382,17 +428,7 @@ gh_add:
         sta     GHSP,x
         stz     GHT,x
         inc     GHN
-@r:     rts
-
-; gh_load - level_begin, after ff_load: this sector is the far zone's - the
-; ghosts take the wall slots - or not.
-gh_load:
-        stz     GHI
-        ldx     CURLEV
-        lda     LVL_GH_ON,x
-        beq     @r
-        lda     #WK_GHOST
-        sta     WSKIND
-@r:     rts
+@r:     clc
+        rts
 
         .popseg

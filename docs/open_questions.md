@@ -957,25 +957,12 @@ proposal, built for the smallest code:
     the GPU minds, thin it.
   - **Ghost rocks in the class SCATTER** - loader code, ~15-20 B, only if wanted;
     today only hand-placed rocks can be ghosts.
-  - **The editor** round-trips `GH_ON` and the ghost bits and names them ("192A
-    ghost", "GHOST UFO") but has no checkbox or field for them yet: hand edits.
-* **THREE ZONES OF PLAY - the wall slots' three tenants (the user, 2026-11-26,
-  "probably").** Each optional code area is a kind of place, and a sector is one of
-  them:
-  1. **The near neighbourhood** - the human base and the freighters (`BSWALL` /
-     `BSFRAME`).
-  2. **The farther reaches** - objects in camouflage and without it: enemy ghosts,
-     rock ghosts, and what else lives out there (`GHWALL` / `GHFRAME`, built).
-  3. **The distant sectors the aliens hold for good** - with force fields
-     (`FFWALL` / `FFFRAME`).
-  It follows the one rule the slots already have (design_technical 51/52: a sector
-  never has two tenants) and gives each zone its own ~2.6 KB of code that costs the
-  others nothing. **What it gives up:** a sector cannot mix the zones' code -
-  no ghosts at the base, none inside a field - unless the piece that is wanted in
-  two zones goes resident or is assembled into both (the strobe already is: one
-  macro in both). **Open:** whether the zones are also the campaign's ORDER (near ->
-  far -> alien, as `story.md` goes outward). When it is settled, it moves into
-  design_technical 52.
+* **THE ZONES' ORDER.** The three zones are BUILT (design_technical 52: a level's
+  `ZONE` - 1 inner, the base; 2 outer, the ghosts; 3 void, the force field - picks
+  the code its wall slots load). **Open:** whether they are also the campaign's
+  ORDER (near -> far -> alien, as `story.md` goes outward), and whether a sector
+  ever needs two zones' things at once (then that piece goes resident, or is
+  assembled into both tenants, as the field's strobe macro could be).
 * **The editor.** At first `tools/level_editor.py` carries the `RULE` block through
   untouched; text macros are enough to write it by hand.
 * **Open:** what `A_FAIL` does (replay the sector - `design_technical.md` already has

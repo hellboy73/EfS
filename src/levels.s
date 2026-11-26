@@ -76,8 +76,9 @@
 ;                    enemy and not in an enemy slot: HEADING 0 north / 128
 ;                    south, SPEED 0 docked. A kind nothing knows is not loaded.
 ;                    +128 = DORMANT, a GHOST (ghosts.s): kinds 0..3 only, at most
-;                    GH_MAX a level, and only in a GH_ON level - it waits as a
-;                    picture until woken, then flies HEADING / SPEED
+;                    GH_MAX a level, and only in the OUTER zone (ZONE 2) - it
+;                    waits as a picture until woken, then flies HEADING /
+;                    SPEED; anywhere else it loads awake
 ;   HEADING          the patrol course, brad, the ship's own convention - 0 flies
 ;                    toward -Y, "up" in the editor, and 64 toward +X. Unread by
 ;                    a mine, which never turns to a heading - HEADING and SPEED
@@ -158,10 +159,12 @@ NLEVELS     = 4
 ;         1 = there - never with the base (the wall slots, slots.s)
 ;   FF_X     its centre, world 16-bit; the radius is ffield.s's FF_R, fixed
 ;   FF_VIS   1 = drawn, 0 = invisible (flashed where it is hit)
-;   GH_ON    whether this sector is the far zone's (ghosts.s): 0 = no, 1 = its
-;         ghosts take the wall slots - never with the base or the field. A
-;         rock's TYPE +128 is a GHOST rock, a foe's KIND +128 a dormant one, and
-;         both need it
+;   ZONE     where the sector is, and so which code the wall slots load
+;         (slots.s): 1 = INNER, the near neighbourhood - the human base may
+;         be there; 2 = OUTER, the farther reaches - the GHOSTS: a rock's
+;         TYPE +128 is a ghost rock, a foe's KIND +128 a dormant one, and
+;         anywhere else they load as ordinary ones; 3 = VOID, the aliens' own
+;         sectors - the force field may be there
 ; -----------------------------------------------------------------------------
 ; level 0 - "MINING ZONE"
 L0_N192     = 15
@@ -184,7 +187,7 @@ L0_FF_ON    = 0
 L0_FF_X     = $8000
 L0_FF_Y     = $8000
 L0_FF_VIS   = 1
-L0_GH_ON    = 0
+L0_ZONE     = 1
 
 ; level 1 - "SECTOR ZERO"
 L1_N192     = 8
@@ -207,7 +210,7 @@ L1_FF_ON    = 0
 L1_FF_X     = $8000
 L1_FF_Y     = $8000
 L1_FF_VIS   = 1
-L1_GH_ON    = 0
+L1_ZONE     = 1
 
 ; level 2 - "FORCE FIELD TEST"
 L2_N192     = 0
@@ -230,7 +233,7 @@ L2_FF_ON    = 1
 L2_FF_X     = $8000
 L2_FF_Y     = $8000
 L2_FF_VIS   = 1
-L2_GH_ON    = 0
+L2_ZONE     = 3
 
 ; level 3 - "GHOST TEST"
 L3_N192     = 0
@@ -253,7 +256,7 @@ L3_FF_ON    = 0
 L3_FF_X     = $8000
 L3_FF_Y     = $8000
 L3_FF_VIS   = 1
-L3_GH_ON    = 1
+L3_ZONE     = 2
 
 ; The hand-placed blocks, and the counts DERIVED from their own length - so a
 ; record added or deleted by hand needs nothing else changed.
@@ -385,7 +388,7 @@ LVL_FF_XH:  .byte   >L0_FF_X, >L1_FF_X, >L2_FF_X, >L3_FF_X
 LVL_FF_YL:  .byte   <L0_FF_Y, <L1_FF_Y, <L2_FF_Y, <L3_FF_Y
 LVL_FF_YH:  .byte   >L0_FF_Y, >L1_FF_Y, >L2_FF_Y, >L3_FF_Y
 LVL_FF_VIS: .byte   L0_FF_VIS, L1_FF_VIS, L2_FF_VIS, L3_FF_VIS
-LVL_GH_ON:  .byte   L0_GH_ON, L1_GH_ON, L2_GH_ON, L3_GH_ON
+LVL_ZONE:   .byte   L0_ZONE, L1_ZONE, L2_ZONE, L3_ZONE
 
 LVL_ROCKN:  .byte   L0_ROCKN, L1_ROCKN, L2_ROCKN, L3_ROCKN
 LVL_ROCKLO: .byte   <LVL0_ROCKS, <LVL1_ROCKS, <LVL2_ROCKS, <LVL3_ROCKS
@@ -398,15 +401,19 @@ LVL_FOEHI:  .byte   >LVL0_FOES, >LVL1_FOES, >LVL2_FOES, >LVL3_FOES
 ; The one thing a level cannot be allowed to get wrong, checked by the
 ; assembler rather than discovered in the simulator.
         .assert L0_TOTAL <= NOBJ, error, "level 0 (MINING ZONE) asks for more rocks than NOBJ slots"
-        .assert !(L0_BASE_ON && L0_FF_ON), error, "level 0 (MINING ZONE) has the base AND the force field - the wall slots hold one"
-        .assert !(L0_GH_ON && (L0_BASE_ON || L0_FF_ON)), error, "level 0 (MINING ZONE) has the ghosts AND the base or the field - the wall slots hold one"
+        .assert (L0_ZONE >= 1) && (L0_ZONE <= 3), error, "level 0 (MINING ZONE): ZONE is 1 inner, 2 outer or 3 void"
+        .assert (!L0_BASE_ON) || (L0_ZONE = 1), error, "level 0 (MINING ZONE) has the base outside the inner zone (ZONE 1)"
+        .assert (!L0_FF_ON) || (L0_ZONE = 3), error, "level 0 (MINING ZONE) has the force field outside the void (ZONE 3)"
         .assert L1_TOTAL <= NOBJ, error, "level 1 (SECTOR ZERO) asks for more rocks than NOBJ slots"
-        .assert !(L1_BASE_ON && L1_FF_ON), error, "level 1 (SECTOR ZERO) has the base AND the force field - the wall slots hold one"
-        .assert !(L1_GH_ON && (L1_BASE_ON || L1_FF_ON)), error, "level 1 (SECTOR ZERO) has the ghosts AND the base or the field - the wall slots hold one"
+        .assert (L1_ZONE >= 1) && (L1_ZONE <= 3), error, "level 1 (SECTOR ZERO): ZONE is 1 inner, 2 outer or 3 void"
+        .assert (!L1_BASE_ON) || (L1_ZONE = 1), error, "level 1 (SECTOR ZERO) has the base outside the inner zone (ZONE 1)"
+        .assert (!L1_FF_ON) || (L1_ZONE = 3), error, "level 1 (SECTOR ZERO) has the force field outside the void (ZONE 3)"
         .assert L2_TOTAL <= NOBJ, error, "level 2 (FORCE FIELD TEST) asks for more rocks than NOBJ slots"
-        .assert !(L2_BASE_ON && L2_FF_ON), error, "level 2 (FORCE FIELD TEST) has the base AND the force field - the wall slots hold one"
-        .assert !(L2_GH_ON && (L2_BASE_ON || L2_FF_ON)), error, "level 2 (FORCE FIELD TEST) has the ghosts AND the base or the field - the wall slots hold one"
+        .assert (L2_ZONE >= 1) && (L2_ZONE <= 3), error, "level 2 (FORCE FIELD TEST): ZONE is 1 inner, 2 outer or 3 void"
+        .assert (!L2_BASE_ON) || (L2_ZONE = 1), error, "level 2 (FORCE FIELD TEST) has the base outside the inner zone (ZONE 1)"
+        .assert (!L2_FF_ON) || (L2_ZONE = 3), error, "level 2 (FORCE FIELD TEST) has the force field outside the void (ZONE 3)"
         .assert L3_TOTAL <= NOBJ, error, "level 3 (GHOST TEST) asks for more rocks than NOBJ slots"
-        .assert !(L3_BASE_ON && L3_FF_ON), error, "level 3 (GHOST TEST) has the base AND the force field - the wall slots hold one"
-        .assert !(L3_GH_ON && (L3_BASE_ON || L3_FF_ON)), error, "level 3 (GHOST TEST) has the ghosts AND the base or the field - the wall slots hold one"
+        .assert (L3_ZONE >= 1) && (L3_ZONE <= 3), error, "level 3 (GHOST TEST): ZONE is 1 inner, 2 outer or 3 void"
+        .assert (!L3_BASE_ON) || (L3_ZONE = 1), error, "level 3 (GHOST TEST) has the base outside the inner zone (ZONE 1)"
+        .assert (!L3_FF_ON) || (L3_ZONE = 3), error, "level 3 (GHOST TEST) has the force field outside the void (ZONE 3)"
 ; === END GENERATED ===

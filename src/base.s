@@ -208,9 +208,7 @@ base_load:                              ;   this bank's, read straight; nothing
         stz     BSAST
         lda     #EN_BASE_AHOLD
         sta     BSACD
-        lda     #WK_BASE                ; the wall slots' tenant (slots.s): the
-        sta     WSKIND                  ;   base, until a level asks for the field
-        rts
+        rts                             ; (the slots' tenant is the ZONE's: ws_zone)
         .popseg
 
 ; -----------------------------------------------------------------------------

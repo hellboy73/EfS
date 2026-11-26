@@ -77,6 +77,7 @@ DEFAULT_SHAPES = ROOT / "src" / "shapes.s"
 DEFAULT_MAIN = ROOT / "src" / "main.s"
 # ...and the rock tables sit beside the code that reads them.
 DEFAULT_OBJECTS = ROOT / "src" / "objects.s"
+DEFAULT_ENEMIES = ROOT / "src" / "enemies.s"
 
 SENTINEL_START = "; === GENERATED (tools/level_editor.py) - rewritten whole on Save ============="
 SENTINEL_END = "; === END GENERATED ==="
@@ -137,6 +138,9 @@ GATE_R_PX = 123                         # the gate's reach from its centre, full
 BASE_COLOR = "#ffd25a"
 FF_COLOR = "#c070ff"                    # the force field (ffield.s)
 FF_R = 16384                            # its radius, world units - ffield.s FF_R
+ZONES = ["1  inner - the human base", "2  outer - ghosts", "3  void - the force field"]
+GHOST_KINDS = 4                         # kinds that can be dormant: UFO, spider,
+                                        #   pulsar, mine (ghosts.s, FK_N)
 BASE_R_PX = 154                         # the hexagon's own reach, full-res px -
                                         #   base.s's header note
 MISSIONS = ["0 clear rocks", "1 kill enemies", "2 open", "3 rocks and enemies"]   # gate.s MS_*
@@ -241,7 +245,7 @@ class Level:
                  shx=0x8000, shy=0x8000, shhd=0, rocks=None, foes=None,
                  misn=0, mpar=0, gtx=0xB000, gty=0x5000,
                  base_on=0, base_x=0x8000, base_y=0x5800,
-                 ff_on=0, ff_x=0x8000, ff_y=0x8000, ff_vis=1, gh_on=0):
+                 ff_on=0, ff_x=0x8000, ff_y=0x8000, ff_vis=1, zone=1):
         self.name = name
         self.counts = list(counts or [0, 0, 0, 0, 0])   # per size class
         self.seed = seed                                 # the scatter's LFSR word
@@ -256,8 +260,9 @@ class Level:
         self.ff_on = ff_on                                # the force field
         self.ff_x, self.ff_y = ff_x, ff_y                # (ffield.s) - its centre;
         self.ff_vis = ff_vis                              #   never with the base
-        self.gh_on = gh_on                                # the ghosts (ghosts.s):
-                                                          #   never with either
+        self.zone = zone                                  # 1 inner, 2 outer, 3 void:
+                                                          #   which wall-slot code
+                                                          #   the sector loads (slots.s)
 
     @property
     def total(self):
@@ -268,7 +273,7 @@ class Level:
                      [dict(r) for r in self.rocks], [dict(f) for f in self.foes],
                      self.misn, self.mpar, self.gtx, self.gty,
                      self.base_on, self.base_x, self.base_y,
-                     self.ff_on, self.ff_x, self.ff_y, self.ff_vis, self.gh_on)
+                     self.ff_on, self.ff_x, self.ff_y, self.ff_vis, self.zone)
 
     def scatter(self, type_pick):
         """Exactly what load_level's first pass produces, in its own order:
@@ -346,7 +351,8 @@ class Model:
                 k(i, "MISN"), k(i, "MPAR"), k(i, "GTX", 0xB000), k(i, "GTY", 0x5000),
                 k(i, "BASE_ON", 0), k(i, "BASE_X", 0x8000), k(i, "BASE_Y", 0x5800),
                 k(i, "FF_ON", 0), k(i, "FF_X", 0x8000), k(i, "FF_Y", 0x8000),
-                k(i, "FF_VIS", 1), k(i, "GH_ON", 0)))
+                k(i, "FF_VIS", 1),
+                k(i, "ZONE", 0) or (2 if k(i, "GH_ON") else 3 if k(i, "FF_ON") else 1)))
         return cls(levels)
 
 
@@ -399,10 +405,12 @@ def render_generated(model):
     out.append(";         1 = there - never with the base (the wall slots, slots.s)")
     out.append(";   FF_X     its centre, world 16-bit; the radius is ffield.s's FF_R, fixed")
     out.append(";   FF_VIS   1 = drawn, 0 = invisible (flashed where it is hit)")
-    out.append(";   GH_ON    whether this sector is the far zone's (ghosts.s): 0 = no, 1 = its")
-    out.append(";         ghosts take the wall slots - never with the base or the field. A")
-    out.append(";         rock's TYPE +128 is a GHOST rock, a foe's KIND +128 a dormant one, and")
-    out.append(";         both need it")
+    out.append(";   ZONE     where the sector is, and so which code the wall slots load")
+    out.append(";         (slots.s): 1 = INNER, the near neighbourhood - the human base may")
+    out.append(";         be there; 2 = OUTER, the farther reaches - the GHOSTS: a rock's")
+    out.append(";         TYPE +128 is a ghost rock, a foe's KIND +128 a dormant one, and")
+    out.append(";         anywhere else they load as ordinary ones; 3 = VOID, the aliens' own")
+    out.append(";         sectors - the force field may be there")
     out.append("; -----------------------------------------------------------------------------")
     for i, l in enumerate(lv):
         out.append(f'; level {i} - "{l.name}"')
@@ -425,7 +433,7 @@ def render_generated(model):
         out.append(const("FF_X", f"${l.ff_x:04X}"))
         out.append(const("FF_Y", f"${l.ff_y:04X}"))
         out.append(const("FF_VIS", l.ff_vis))
-        out.append(const("GH_ON", l.gh_on))
+        out.append(const("ZONE", l.zone))
         out.append("")
 
     out.append("; The hand-placed blocks, and the counts DERIVED from their own length - so a")
@@ -494,7 +502,7 @@ def render_generated(model):
     out.append(_row("LVL_FF_YL", [f"<L{i}_FF_Y" for i in range(n)]))
     out.append(_row("LVL_FF_YH", [f">L{i}_FF_Y" for i in range(n)]))
     out.append(_row("LVL_FF_VIS", [f"L{i}_FF_VIS" for i in range(n)]))
-    out.append(_row("LVL_GH_ON", [f"L{i}_GH_ON" for i in range(n)]))
+    out.append(_row("LVL_ZONE", [f"L{i}_ZONE" for i in range(n)]))
     out.append("")
     out.append(_row("LVL_ROCKN", [f"L{i}_ROCKN" for i in range(n)]))
     out.append(_row("LVL_ROCKLO", [f"<LVL{i}_ROCKS" for i in range(n)]))
@@ -509,10 +517,12 @@ def render_generated(model):
     for i, l in enumerate(lv):
         out.append(f'        .assert L{i}_TOTAL <= NOBJ, error, '
                    f'"level {i} ({l.name}) asks for more rocks than NOBJ slots"')
-        out.append(f'        .assert !(L{i}_BASE_ON && L{i}_FF_ON), error, '
-                   f'"level {i} ({l.name}) has the base AND the force field - the wall slots hold one"')
-        out.append(f'        .assert !(L{i}_GH_ON && (L{i}_BASE_ON || L{i}_FF_ON)), error, '
-                   f'"level {i} ({l.name}) has the ghosts AND the base or the field - the wall slots hold one"')
+        out.append(f'        .assert (L{i}_ZONE >= 1) && (L{i}_ZONE <= 3), error, '
+                   f'"level {i} ({l.name}): ZONE is 1 inner, 2 outer or 3 void"')
+        out.append(f'        .assert (!L{i}_BASE_ON) || (L{i}_ZONE = 1), error, '
+                   f'"level {i} ({l.name}) has the base outside the inner zone (ZONE 1)"')
+        out.append(f'        .assert (!L{i}_FF_ON) || (L{i}_ZONE = 3), error, '
+                   f'"level {i} ({l.name}) has the force field outside the void (ZONE 3)"')
     return "\n".join(out)
 
 
@@ -541,6 +551,9 @@ class LevelEditor(tk.Tk):
         self.ast_vel = read_ast_vel(DEFAULT_OBJECTS)
         main_text = DEFAULT_MAIN.read_text(encoding="utf-8") if DEFAULT_MAIN.exists() else ""
         self.nobj = read_int(main_text, "NOBJ", 120)
+        en_text = DEFAULT_ENEMIES.read_text(encoding="utf-8") if DEFAULT_ENEMIES.exists() else ""
+        self.tower_r = read_int(en_text, "EN_ALIEN_TOWER_R", 33) * 32   # ffield.s TW_R,
+                                                                        #   world units
 
         self.model = Model.load(path.read_text(encoding="utf-8"))
         self.li = 0
@@ -624,6 +637,7 @@ class LevelEditor(tk.Tk):
         self._build_scatter_panel(side)
         self._build_ship_panel(side)
         self._build_gate_panel(side)
+        self._build_zone_panel(side)
         self._build_base_panel(side)
         self._build_ff_panel(side)
 
@@ -749,16 +763,69 @@ class LevelEditor(tk.Tk):
         self._touch()
         self._draw()
 
+    def _build_zone_panel(self, side):
+        """WHERE the sector is: the zone picks the code its wall slots load
+        (slots.s ws_zone) - the base lives only in the inner zone, the ghosts in
+        the outer, the force field in the void. Their controls follow it."""
+        f = self._section(side, "Zone (which code the sector loads)")
+        self.zone_var = tk.IntVar(value=1)
+        for r, t in enumerate(ZONES):
+            tk.Radiobutton(f, text=t, variable=self.zone_var, value=r + 1, bg=BG, fg=TEXT,
+                           selectcolor="#333", activebackground=BG,
+                           command=self._commit_zone).grid(row=r, column=0, sticky="w")
+
+    @staticmethod
+    def _ghosts(lv):
+        return (sum(1 for r in lv.rocks if r["type"] & GHOST)
+                + sum(1 for f in lv.foes if f["kind"] & GHOST))
+
+    def _commit_zone(self):
+        lv = self._lvl()
+        z = self.zone_var.get()
+        if z == lv.zone:
+            return
+        n = self._ghosts(lv)
+        if z != 2 and n and not messagebox.askyesno(
+                "Ghosts", f"This level has {n} ghost(s), and only the outer zone has "
+                          f"ghosts. Make them ordinary rocks and enemies?"):
+            self.zone_var.set(lv.zone)
+            return
+        lv.zone = z
+        if z != 2:
+            for r in lv.rocks:
+                r["type"] &= ~GHOST & 0xFF
+            for f in lv.foes:
+                f["kind"] &= ~GHOST & 0xFF
+        if z != 1:
+            lv.base_on = 0
+        if z != 3:
+            lv.ff_on = 0
+        if self.sel and self.sel[0] in ("base", "ff"):
+            self.sel = None
+        self._touch()
+        self._refresh_all()
+
+    def _zone_gates(self):
+        """Each zone's own controls on, the others' greyed out."""
+        z = self._lvl().zone
+        self.base_on_cb.configure(state="normal" if z == 1 else "disabled")
+        for cb in self.ff_cbs:
+            cb.configure(state="normal" if z == 3 else "disabled")
+        st = "normal" if z == 2 else "disabled"
+        self.new_ghost_cb.configure(state=st)
+        self.sel_ghost_cb.configure(state=st)
+
     def _build_base_panel(self, side):
         """The human base (src/base.s): optional, one per level - the checkbox
         is BASE_ON, and the marker only appears (and can only be dragged or
         selected) while it is ticked."""
         f = self._section(side, "Human base")
         self.base_on_var = tk.BooleanVar()
-        tk.Checkbutton(f, text="Present this sector", variable=self.base_on_var,
-                        bg=BG, fg=TEXT, selectcolor="#333", activebackground=BG,
-                        command=self._commit_base_on).grid(
-                            row=0, column=0, columnspan=2, sticky="w")
+        self.base_on_cb = tk.Checkbutton(f, text="Present this sector (inner zone)",
+                                         variable=self.base_on_var,
+                                         bg=BG, fg=TEXT, selectcolor="#333",
+                                         activebackground=BG, command=self._commit_base_on)
+        self.base_on_cb.grid(row=0, column=0, columnspan=2, sticky="w")
         self.base_vars = {}
         for i, (k, lab) in enumerate([("base_x", "World X"), ("base_y", "World Y")], 1):
             tk.Label(f, text=lab, bg=BG, fg=TEXT, width=14,
@@ -800,11 +867,16 @@ class LevelEditor(tk.Tk):
         f = self._section(side, "Force field")
         self.ff_on_var = tk.BooleanVar()
         self.ff_vis_var = tk.BooleanVar()
-        for r, (t, v) in enumerate([("Present this sector", self.ff_on_var),
-                                    ("Visible (else flashed)", self.ff_vis_var)]):
-            tk.Checkbutton(f, text=t, variable=v, bg=BG, fg=TEXT, selectcolor="#333",
-                            activebackground=BG, command=self._commit_ff_on).grid(
-                                row=r, column=0, columnspan=2, sticky="w")
+        self.ff_cbs = []
+        for r, (t, v) in enumerate([("Present this sector (void zone)", self.ff_on_var),
+                                    ("Visible from inside (else flashed)", self.ff_vis_var)]):
+            cb = tk.Checkbutton(f, text=t, variable=v, bg=BG, fg=TEXT, selectcolor="#333",
+                                activebackground=BG, command=self._commit_ff_on)
+            cb.grid(row=r, column=0, columnspan=2, sticky="w")
+            self.ff_cbs.append(cb)
+        tk.Label(f, text="From outside it is always invisible. The tower\n"
+                         "stands in its centre (drawn on the map).", bg=BG, fg=DIM,
+                 justify="left").grid(row=4, column=0, columnspan=2, sticky="w")
         self.ff_vars = {}
         for i, (k, lab) in enumerate([("ff_x", "Centre X"), ("ff_y", "Centre Y")], 2):
             tk.Label(f, text=lab, bg=BG, fg=TEXT, width=14,
@@ -883,6 +955,11 @@ class LevelEditor(tk.Tk):
         tk.Label(foe, text="speed 0 = holds its post", bg=BG, fg=DIM).grid(
             row=3, column=0, columnspan=2, sticky="w")
 
+        self.new_ghost = tk.BooleanVar()
+        self.new_ghost_cb = tk.Checkbutton(
+            f, text="Ghost - camouflaged (outer zone only)", variable=self.new_ghost,
+            bg=BG, fg=TEXT, selectcolor="#333", activebackground=BG)
+        self.new_ghost_cb.pack(anchor="w", pady=(4, 0))
         tk.Button(f, text="+ Add at view centre", command=self._add_at_centre
                   ).pack(fill="x", pady=(6, 0))
         tk.Label(f, text="...or double-click an empty spot on the map.", bg=BG,
@@ -899,8 +976,9 @@ class LevelEditor(tk.Tk):
     def _add_at(self, wx, wy):
         lv = self._lvl()
         if self.place_nb.index(self.place_nb.select()) == 0:
+            g = GHOST if self.new_ghost.get() and lv.zone == 2 else 0
             lv.rocks.append({"x": wx, "y": wy, "cls": self.new_cls.current(),
-                             "type": self.new_type.current()})
+                             "type": self.new_type.current() | g})
             self.sel = ("rock", len(lv.rocks) - 1)
         else:
             try:
@@ -908,7 +986,9 @@ class LevelEditor(tk.Tk):
                 spd = max(0, min(FOE_SPD_MAX, int(self.new_spd.get(), 0)))
             except ValueError:
                 hd, spd = 0, 0
-            lv.foes.append({"x": wx, "y": wy, "kind": self.new_kind.current(),
+            k = self.new_kind.current()
+            g = GHOST if self.new_ghost.get() and lv.zone == 2 and k < GHOST_KINDS else 0
+            lv.foes.append({"x": wx, "y": wy, "kind": k | g,
                             "hd": hd, "spd": spd})
             self.sel = ("foe", len(lv.foes) - 1)
         self._touch()
@@ -956,6 +1036,14 @@ class LevelEditor(tk.Tk):
         self.sel_kind = combo_row(5, "kind", "Kind", self._kind_labels(), 12)
         entry_row(6, "hd", "Heading", self.selhd)
         entry_row(7, "spd", "Speed px/s", self.selspd)
+        self.sel_ghost = tk.BooleanVar()
+        lab = tk.Label(f, text="Ghost", bg=BG, fg=TEXT, width=10, anchor="w")
+        lab.grid(row=8, column=0, sticky="w", pady=1)
+        self.sel_ghost_cb = tk.Checkbutton(f, variable=self.sel_ghost, bg=BG,
+                                           selectcolor="#333", activebackground=BG,
+                                           command=self._commit_sel)
+        self.sel_ghost_cb.grid(row=8, column=1, padx=4, sticky="w")
+        self.sel_rows["ghost"] = (lab, self.sel_ghost_cb)
         self.del_btn = tk.Button(f, text="Delete (Del)", command=self._delete_selected)
         self.del_btn.grid(row=1, column=2, rowspan=2, padx=6)
 
@@ -1021,6 +1109,7 @@ class LevelEditor(tk.Tk):
         for k in ("gtx", "gty", "mpar"):
             self.gate_vars[k].set(str(getattr(lv, k)))
         self.misn_var.set(MISSIONS[min(lv.misn, len(MISSIONS) - 1)])
+        self.zone_var.set(lv.zone)
         self.base_on_var.set(bool(lv.base_on))
         self.ff_on_var.set(bool(lv.ff_on))
         self.ff_vis_var.set(bool(lv.ff_vis))
@@ -1029,6 +1118,7 @@ class LevelEditor(tk.Tk):
         for k in ("base_x", "base_y"):
             self.base_vars[k].set(str(getattr(lv, k)))
         self._scatter_cache = None
+        self._zone_gates()
         self._update_totals()
         self._refresh_sel()
         self._draw()
@@ -1168,7 +1258,8 @@ class LevelEditor(tk.Tk):
         rr = max(1.5, self._rock_world_r(r["cls"], r["type"]) * self.ppu)
         if x < -rr or y < -rr or x > w + rr or y > h + rr:
             return
-        self.map.create_oval(x - rr, y - rr, x + rr, y + rr, outline=color, width=width)
+        self.map.create_oval(x - rr, y - rr, x + rr, y + rr, outline=color, width=width,
+                              dash=(3, 3) if r["type"] & GHOST else ())
         if self.show_drift.get():
             vx, vy = self.ast_vel[r["cls"] * 4 + (slot & 3)]
             n = max(1.0, (vx * vx + vy * vy) ** 0.5)
@@ -1189,7 +1280,8 @@ class LevelEditor(tk.Tk):
                                   outline=color, dash=(2, 4))
         s = 7
         self.map.create_polygon(x, y - s, x + s, y, x, y + s, x - s, y,
-                                 outline=color, fill="", width=2)
+                                 outline=color, fill="", width=2,
+                                 dash=(2, 2) if f["kind"] & GHOST else ())
         if f.get("spd"):
             # the patrol course: forward is (sin H, -cos H), +Y down the map,
             # exactly as the ship's heading is drawn in _draw_ship
@@ -1252,6 +1344,13 @@ class LevelEditor(tk.Tk):
             for oy in (-d, 0, d):
                 self.map.create_oval(x + ox - r, y + oy - r, x + ox + r, y + oy + r,
                                       outline=color, width=2, dash=dash)
+        t = self.tower_r * self.ppu                     # THE TOWER (ffield.s): always
+        for ox in (-d, 0, d):                           #   in the centre, a wall -
+            for oy in (-d, 0, d):                       #   nothing placed belongs in it
+                self.map.create_oval(x + ox - t, y + oy - t, x + ox + t, y + oy + t,
+                                      outline=color, width=1, fill="#2a1838")
+        self.map.create_text(x, y + max(t, 8) + 3, text="TOWER", fill=color, anchor="n",
+                              font=("Consolas", 8))
         self.map.create_line(x - 8, y, x + 8, y, fill=color, width=2)
         self.map.create_line(x, y - 8, x, y + 8, fill=color, width=2)
         self.map.create_text(x, y - 11, text="FIELD" + ("" if lv.ff_vis else " (invisible)"),
@@ -1469,20 +1568,21 @@ class LevelEditor(tk.Tk):
         elif kind == "rock":
             r = lv.rocks[i]
             self.sel_label.configure(
-                text=f"Placed rock #{i} - {CLASSES[r['cls']]}"
-                      f"{string.ascii_uppercase[r['type']]}")
+                text=f"Placed rock #{i} - {CLASSES[r['cls']]}{type_name(r['type'])}")
             x, y = r["x"], r["y"]
             self.sel_cls.current(r["cls"])
-            self.sel_type.current(min(r["type"], self.ast_types - 1))
-            keys |= {"cls", "type"}
+            self.sel_type.current(min(r["type"] & 0x3F, self.ast_types - 1))
+            self.sel_ghost.set(bool(r["type"] & GHOST))
+            keys |= {"cls", "type", "ghost"}
         else:
             f = lv.foes[i]
             self.sel_label.configure(text=f"Enemy #{i} - {kind_name(f['kind'])}")
             x, y = f["x"], f["y"]
-            self.sel_kind.current(min(f["kind"], FOE_KINDS - 1))
+            self.sel_kind.current(min(f["kind"] & 0x7F, FOE_KINDS - 1))
+            self.sel_ghost.set(bool(f["kind"] & GHOST))
             self.selhd.set(str(f.get("hd", 0)))
             self.selspd.set(str(f.get("spd", 0)))
-            keys |= {"kind", "hd", "spd"}
+            keys |= {"kind", "hd", "spd", "ghost"}
         self.selx.set(str(x))
         self.sely.set(str(y))
         self._show_sel_rows(keys)
@@ -1522,12 +1622,15 @@ class LevelEditor(tk.Tk):
             r = lv.rocks[i]
             r["x"], r["y"] = x, y
             r["cls"] = self.sel_cls.current()
-            r["type"] = self.sel_type.current()
+            g = GHOST if self.sel_ghost.get() and lv.zone == 2 else 0
+            r["type"] = self.sel_type.current() | g
             self._refresh_sel()
         else:
             item = lv.foes[i]
             item["x"], item["y"] = x, y
-            item["kind"] = self.sel_kind.current()
+            k = self.sel_kind.current()
+            g = GHOST if self.sel_ghost.get() and lv.zone == 2 and k < GHOST_KINDS else 0
+            item["kind"] = k | g
             try:
                 item["hd"] = int(self.selhd.get(), 0) & 0xFF
                 item["spd"] = max(0, min(FOE_SPD_MAX, int(self.selspd.get(), 0)))

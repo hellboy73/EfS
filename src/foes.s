@@ -3952,10 +3952,14 @@ load_foes:
         bpl     :-
         ldy     #4                      ; the KIND, out of the record in ROM -
         lda     (T0),y                  ;   FEREC+4 can't be read back here
-        bpl     :+                      ; DORMANT (bit 7): a ghost, on ghosts.s's
-        jsr     gh_add                  ;   own list and in no enemy slot
-        bra     @skip
-:       cmp     #FK_FREIGHT             ; a FREIGHTER is not an enemy: it goes to
+        bpl     @awake                  ; DORMANT (bit 7): a ghost, on ghosts.s's
+        jsr     gh_add                  ;   own list and in no enemy slot...
+        bcc     @skip
+        ldy     #4                      ; ...or, outside the outer zone, an
+        lda     (T0),y                  ;   ordinary enemy, awake (ghosts.s)
+        and     #$7F
+        sta     FEREC+4
+@awake: cmp     #FK_FREIGHT             ; a FREIGHTER is not an enemy: it goes to
         bne     :+                      ;   freight.s's own list, and takes no
         jsr     frt_add                 ;   slot
         bra     @skip

@@ -1408,11 +1408,8 @@ ff_emp:
 ff_load:
         ldx     CURLEV
         lda     LVL_FF_ON,x
-        sta     FFON
-        beq     :+
-        lda     #WK_FIELD               ; the wall slots' tenant: the field
-        sta     WSKIND                  ;   (base_load said the base)
-:       lda     LVL_FF_XL,x
+        sta     FFON                    ; (the slots' tenant is the ZONE's: ws_zone)
+        lda     LVL_FF_XL,x
         sta     FFCXL
         lda     LVL_FF_XH,x
         sta     FFCXH

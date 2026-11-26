@@ -177,6 +177,12 @@ load_level:
         lda     LVL_ROCKN,x
         sta     SCATC
         beq     @done
+        ldy     #$FF                    ; a GHOST rock only in the outer zone,
+        lda     LVL_ZONE,x              ;   the one tenant that draws them
+        cmp     #ZN_OUTER               ;   (ghosts.s): elsewhere its type is
+        beq     :+                      ;   masked to the variant, ordinary
+        ldy     #GH_VARM
+:       sty     LVTMP
 
 @plp:   ldy     #$05                    ; stage the record first (LVREC, not under
 :       lda     (T0),y                  ;   the window): Y has to be the record
@@ -195,6 +201,7 @@ load_level:
         lda     LVREC+4
         sta     OBJSHP,y
         lda     LVREC+5
+        and     LVTMP
         sta     OBJTYPE,y
         inc     SLOT
         clc                             ; ...and on to the next six bytes

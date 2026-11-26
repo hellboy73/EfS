@@ -22,7 +22,7 @@
 ;
 ; EVERY CALLER GOES THROUGH THE VECTORS (WS_*), never a tenant's routine by
 ; name: the movers (objects.s, foes.s, ship.s, shots.s) and frame_body cannot
-; know which tenant is in. Each tenant's table is the same eight entries at the
+; know which tenant is in. Each tenant's table is the same nine entries at the
 ; same address (asserted), with the base's contracts:
 ;
 ;   WS_FRAME  once a frame, inside the bracket, before do_stars: its discs
@@ -36,10 +36,12 @@
 ;   WS_GROCK  one_asteroid, a GHOST rock (OBJTYPE bit 7) with its command block
 ;             built in PBUF: draw it, or not (ghosts.s). Only the ghost tenant's
 ;             sectors have ghost rocks, so the other two never see the call
+;   WS_GHIT   rock_take_hit, a GHOST rock about to take RKDMG; X = it, kept
+;             (ghosts.s: its Saturnium). The same: only the ghost tenant's
 ;
-; WHO CHOOSES: the sector loader writes WSKIND (WK_*) - base.s's base_load the
-; base, then ffield.s's ff_load the field if the level has one (LVL_FF_ON),
-; then ghosts.s's gh_load the ghosts if the level has them (LVL_GH_ON) -
+; WHO CHOOSES: the sector's ZONE (levels.s, the user 2026-11-26) - 1 inner:
+; the base, 2 outer: the ghosts, 3 void: the field. The loader's ws_zone, the
+; step of level_begin after ff_load, writes WSKIND (WK_*) out of it -
 ; and ld_enter (loader.s) calls ws_sync once the
 ; loader is out of the window, which copies the tenant in if it is not the one
 ; resident (WSCUR). The base is the tenant at power-on: bootstrap.s copies it.
@@ -55,6 +57,10 @@
 WK_BASE     = 0                 ; WSKIND: the human base and its freighters
 WK_FIELD    = 1                 ; ...the force field (ffield.s)
 WK_GHOST    = 2                 ; ...the ghosts (ghosts.s)
+
+ZN_INNER    = 1                 ; levels.s ZONE: the near neighbourhood - the base
+ZN_OUTER    = 2                 ;   and freighters; the farther reaches - things in
+ZN_VOID     = 3                 ;   camouflage; the aliens' own sectors - the field
 
 BSWALL_BANK  = 7                ; must match cart.cfg's MEMORY order (ROMn = bank n)
 BSFRAME_BANK = 2
@@ -92,6 +98,8 @@ ws_tab_bs:
         rts                             ; WS_EMP: nothing of the base's
         .res    2
         rts                             ; WS_GROCK: no ghost rocks here
+        .res    2
+        rts                             ; WS_GHIT: ...nor here
 ws_frame_bs:                            ; the freighters, then the base - the
         jsr     do_freight              ;   order frame_body always had
         jmp     do_base
@@ -106,6 +114,8 @@ ws_tab_ff:
         jmp     ff_shot_f
         jmp     ff_emp
         rts                             ; WS_GROCK: no ghost rocks here
+        .res    2
+        rts                             ; WS_GHIT
 
         .segment "GHFRAME"
 ws_tab_gh:
@@ -125,6 +135,7 @@ ws_tab_gh:
         rts                             ; WS_EMP
         .res    2
         jmp     gh_rock                 ; WS_GROCK
+        jmp     gh_hit                  ; WS_GHIT
 
         .assert ws_tab_ff = ws_tab_bs, lderror, "slots.s: the two tenants' vector tables are not at one address"
         .assert ws_tab_gh = ws_tab_bs, lderror, "slots.s: the ghosts' vector table is not at the others' address"
@@ -141,6 +152,7 @@ WS_SHOTP    = ws_tab_bs + 12
 WS_SHOTF    = ws_tab_bs + 15
 WS_EMP      = ws_tab_bs + 18
 WS_GROCK    = ws_tab_bs + 21
+WS_GHIT     = ws_tab_bs + 24
 
 ; --- the swap ----------------------------------------------------------------
         .pushseg
@@ -152,6 +164,16 @@ WSCUR:      .byte   WK_BASE             ; ...and the one in the slots (bootstrap
 
         .segment "LDCODE"               ; the LOADER (loader.s): only ld_enter
                                         ;   calls it, with the window on bank 8
+
+; ws_zone - level_begin, after ff_load: the sector's ZONE -> the tenant it wants.
+ws_zone:
+        ldx     CURLEV
+        ldy     LVL_ZONE,x
+        lda     ZONE_WK - ZN_INNER,y
+        sta     WSKIND
+        rts
+ZONE_WK:    .byte   WK_BASE, WK_GHOST, WK_FIELD     ; inner, outer, void
+        .assert ZN_OUTER = ZN_INNER + 1 && ZN_VOID = ZN_INNER + 2, error, "slots.s: ZONE_WK is in zone order"
 ; -----------------------------------------------------------------------------
 ; ws_sync - ld_enter, after the loader: bring WSKIND's tenant into the slots if
 ; it is not there. Both rows are copied into RAM (overlay.s) - ld_pump reads

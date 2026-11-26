@@ -2589,13 +2589,20 @@ These are settled and should not be re-opened without a reason:
       and never a tenant's routine by name. Every table is asserted to one
       address.
     * **The third tenant (2026-11-26): the ghosts (54)** - `GHWALL` /
-      `GHFRAME`, from bank 7, `WK_GHOST`, chosen by `gh_load` after `ff_load`
-      when the level says `GH_ON`. The three tenants are the game's three zones
-      (open_questions): the near neighbourhood (the base), the farther reaches
-      (the ghosts), the aliens' own sectors (the field). levels.s asserts a level
-      asks for one at most.
-    * **The swap**: the loader writes `WSKIND` (base_load: the base, until a
-      level asks for the field); `ld_enter` calls `ws_sync` (since 53 in the
+      `GHFRAME`, from bank 7, `WK_GHOST`.
+    * **THE ZONE picks the tenant (the user, 2026-11-26).** Every level says
+      where it is - levels.s `ZONE`: 1 INNER, the near neighbourhood (the base
+      and its freighters may be there); 2 OUTER, the farther reaches (the
+      ghosts); 3 VOID, the sectors the aliens hold for good (the force field may
+      be there) - and the loader's `ws_zone` (slots.s, after `ff_load`) turns
+      it into `WSKIND` through `ZONE_WK`. `BASE_ON` and `FF_ON` stay - an inner
+      sector need not have a base - but levels.s asserts the base only in zone 1
+      and the field only in 3, and a ghost outside zone 2 is loaded as an
+      ordinary rock or an awake enemy (`load_level`, `gh_add`), since no other
+      tenant can draw one. The editor's Zone panel greys out what the zone has
+      no code for. Open: whether the zones are also the campaign's order.
+    * **The swap**: the loader writes `WSKIND` (`ws_zone`, from the level's
+      ZONE); `ld_enter` calls `ws_sync` (since 53 in the
       loader's bank, and QUEUING its copies for `ld_pump`). It patches both
       rows, queues A, and queues B only while FIELD is the DEMO_RAM tenant. The base is the power-on tenant
       (bootstrap.s). Verified in py65 (a scratch test on preview.py's boot):
@@ -2703,6 +2710,16 @@ These are settled and should not be re-opened without a reason:
       irregular strobe 109 and 260; the base's slot B +3 and the field's -1
       (the `WS_GROCK` entries; the macro); the loader +99 and level 3 +103 in
       bank 8; under the window 25 (`GH_END` `$97FE`, 2 B left).
-    * **The test level:** 3, GHOST TEST (`make run-ghtest`, `GHTEST=1`): four
+    * **A ghost rock is RICH (the user, 2026-11-26):** every whole hit's worth of
+      damage it takes - a bullet, a UFO's shot, 2.5 frames of laser - and the
+      hit that breaks it pay out what a destroyed 16 does (`satn_kill`:
+      `SATN_ADD` and its motes) - the hint that the Saturnium in it is what hides
+      it. `rock_take_hit` calls `WS_GHIT` (`gh_hit`, the ghost tenant) for a
+      ghost; a UFO's shot pays nobody, as ever. A ghost 16 pays twice on its last
+      hit.
+    * **Only the OUTER zone has ghosts** (52, the ZONE): elsewhere the loader
+      clears the bits. The level editor sets them - a "Ghost" box when adding and
+      on the selection, live only in zone 2 - and draws ghosts dashed.
+    * **The test level:** 3, GHOST TEST, ZONE 2 (`make run-ghtest`, `GHTEST=1`): four
       ghost rocks round the start beside two ordinary ones, four dormant
       enemies (one of each kind) ahead, the gate open.
