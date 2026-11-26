@@ -47,6 +47,9 @@ GH_R        = 9                 ; "near": both high-byte deltas within this many
                                 ;   pages, a square - +-2,304 units, 144 px at 1:1
                                 ;   (the user: 150 px, or the fastest close to it)
 GH_FLASH    = FF_FLASH          ; the strobe's timer, held here while near
+GH_SHAKE    = 0                 ; 1: a drawn ghost's PICTURE jumps a px each
+                                ;   frame (gh_jit) - tried and turned off (the
+                                ;   user, 2026-11-26)
 GH_ROCK     = $80               ; OBJTYPE: a ghost...
 GH_SEEN     = $40               ; ...revealed by a collision
 GH_VARM     = AST_TYPES - 1     ; ...and what is left is the variant
@@ -136,6 +139,40 @@ GH_IRR: .byte   1, 1, 0, 1, 1, 0, 0, 0,  0, 0, 1, 0, 0, 0, 0, 0
 GH_IRRN     = * - GH_IRR
         .assert (GH_IRRN & (GH_IRRN - 1)) = 0, error, "ghosts.s: GH_IRR's length must be a power of two"
 
+.if GH_SHAKE
+; -----------------------------------------------------------------------------
+; gh_jit - A = a seed, X = a zero-page centre (x lo, x hi, y lo, y hi): moved by
+; GH_JX/GH_JY[(FRAME + seed) & 7], one px in a direction that changes every
+; frame. The PICTURE only: what is moved is the screen centre about to be drawn,
+; never the position. Clobbers A, X, Y.
+; -----------------------------------------------------------------------------
+gh_jit:
+        clc
+        adc     FRAME
+        and     #$07
+        tay
+        lda     GH_JX,y
+        jsr     @add
+        inx
+        inx
+        lda     GH_JY,y
+@add:   pha                             ; A, signed, onto the 16-bit at 0,x
+        clc
+        adc     0,x
+        sta     0,x
+        pla
+        and     #$80                    ; (carry untouched from here on)
+        beq     :+
+        lda     #$FF
+:       adc     1,x
+        sta     1,x
+        rts
+
+GH_JX:  .byte   1, <-1,  0,  1, <-1,  0, <-1,  1   ; the eight neighbours, one
+GH_JY:  .byte   1, <-1,  1,  0,   1, <-1,  0, <-1   ;   step: 2 full-res px (the
+                                                    ;   user: half of the first 4)
+.endif
+
 ; -----------------------------------------------------------------------------
 ; gh_rock - WS_GROCK: one_asteroid's ghost, PBUF its POLYGON16 block and OS_ARG
 ; on it. Draw it dotted - half-res: the centre CX2/CY2, the scale halved for the
@@ -157,6 +194,11 @@ gh_rock:
 @rev:   txa                             ; (FOUND OUT: anywhere) - irregularly
         jsr     gh_irr
         bcc     @r
+.if GH_SHAKE
+        lda     OBJI                    ; the picture shakes, half-res px; the
+        ldx     #CX2L                   ;   rock stays where it is
+        jsr     gh_jit
+.endif
         lda     CX2L
         sta     PBUF+0
         lda     CX2H
@@ -257,12 +299,26 @@ gh_draw:
         bcs     @r
         jsr     view_xform
         jsr     zoom_fb
-        stz     GBST
-        stz     GBAN
+.if GH_SHAKE
+        lda     GHI                     ; the picture shakes - twice the step, FX
+        ldx     #FXL                    ;   being full-res - and the ghost stays
+        jsr     gh_jit                  ;   where it is
+        lda     GHI
+        ldx     #FXL
+        jsr     gh_jit
+.endif
+        stz     GBST                    ; frame 0
+        lda     #$FF                    ; every part, at its world angle 0...
+        ldy     #$00
+        ldx     GBAP
+        cpx     #EA_UFO
+        bne     :+
+        ldy     HEAD                    ; ...but the UFO: LEVEL ON THE SCREEN, as
+        lda     #(1 << EN_UFO_PW) - 1   ;   the live one (foe_body) - and only its
+:       sty     GBAN                    ;   hull and dome, not the stripes that
+        sta     GBMK                    ;   animate its spin (the user)
         lda     #$01
         sta     GBSH
-        lda     #$FF
-        sta     GBMK
         jmp     gb_draw                 ; tail
 @r:     rts
 

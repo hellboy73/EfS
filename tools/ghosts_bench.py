@@ -250,6 +250,25 @@ check("woken: four enemies in slots, the list empty",
       and all(rd(C["FOEST"] + i) for i in range(4)),
       f"NFOE {rd(C['NFOE'])}, kinds {kinds}, GHN {rd(GHN)}")
 
+# --- the shake: the picture jumps, the position does not -------------------------
+if "gh_jit" in LBL:
+    zp = C["CX2L"]
+    deltas = []
+    for f in range(8):
+        wr(C["FRAME"], f)
+        for i, v in enumerate((0x34, 0x01, 0x78, 0x00)):
+            wr(zp + i, v)
+        wcall("gh_jit", x=zp, a=5)
+        dx = (rd(zp) | rd(zp + 1) << 8) - 0x134
+        dy = (rd(zp + 2) | rd(zp + 3) << 8) - 0x78
+        deltas.append((dx, dy))
+    pos0 = [(rd(C["GHXH"] + i), rd(C["GHYH"] + i)) for i in range(4)]
+    check("the shake: one px a frame (half-res), never none, a different way each frame",
+          all(max(abs(dx), abs(dy)) <= 1 and (dx, dy) != (0, 0) for dx, dy in deltas)
+          and len(set(deltas)) == 8, f"half-res px over 8 frames {deltas}")
+else:
+    print("        (GH_SHAKE is 0: no shake to check)")
+
 # --- the other tenants ----------------------------------------------------------------
 load(0)
 w0 = rd(LBL["WSCUR"])

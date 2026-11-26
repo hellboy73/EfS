@@ -2657,7 +2657,10 @@ These are settled and should not be re-opened without a reason:
       not in an enemy slot, so nothing that reads `FOEST` sees it - no radar
       (the user: it shows there once woken), no hits, no collision, no mission.
       It is drawn as its kind's WHOLE shape, frame 0, dotted (`gb_draw`,
-      `GBSH` 1), STROBED while the ship is within `GH_R` (9 pages on both
+      `GBSH` 1) - but a UFO, like the live one, LEVEL ON THE SCREEN whatever the
+      camera does (the original Asteroids' saucer, the user) and only its hull
+      and dome (`EN_UFO_PW` parts), without the stripes that animate its spin -
+      STROBED while the ship is within `GH_R` (9 pages on both
       high-byte deltas, a square, 144 px at 1:1) and dying away once it has gone
       (`GH_FLASH` frames, the last half half as often), at most ONE a frame, in
       turn. `gh_wake` turns the whole list into enemies
@@ -2684,6 +2687,12 @@ These are settled and should not be re-opened without a reason:
       regular flash: `STROBE_LIT` (slots.s, a macro) is now the field's alone.
       With four enemy ghosts near, one of them is lit nearly every frame, so the
       one-a-frame rule is what bounds the GPU then (48 of 48 frames drew one).
+    * **Tried and turned OFF (the user, 2026-11-26): the picture SHAKES.** A drawn ghost's
+      screen centre jumps to one of its eight neighbours - 1 half-res px for a
+      rock, 2 full-res for an enemy, the same on the screen; the first try's 2
+      was too strong (the user) - in a direction that changes every frame (`gh_jit`, `GH_JX`/`GH_JY`
+      at `FRAME + seed`); its position does not move. `GH_SHAKE` is 0: the code
+      is assembled out, kept for a second look.
     * **Measured** (`tools/ghosts_bench.py`, py65 and the real GPU OS):
       enemy ghosts a drawn frame - UFO 19.7 k GPU cycles, pulsar 14.2 k, mine
       13.6 k, spider 27-34 k (the model said 17-20 k for the UFO); a ghost 192
