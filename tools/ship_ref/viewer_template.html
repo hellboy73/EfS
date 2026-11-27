@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<title>Escape from Saturn - podgląd modeli referencyjnych</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #1b1e25; color: #dfe3ea; font: 13px/1.4 Segoe UI, Arial, sans-serif; }
+  #app { display: flex; height: 100%; }
+  #panel { width: 292px; flex: none; overflow-y: auto; padding: 12px 14px; box-sizing: border-box; background: #232730; border-right: 1px solid #333945; }
+  h1 { font-size: 15px; margin: 0 0 10px; color: #fff; }
+  h2 { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: #8d97a8; margin: 16px 0 6px; }
+  label { display: block; margin: 5px 0 2px; color: #b6bdca; }
+  select, input[type=number], input[type=text] { width: 100%; box-sizing: border-box; background: #14171d; color: #e6e9ef; border: 1px solid #3a4150; border-radius: 4px; padding: 5px 6px; }
+  input[type=range] { width: 100%; }
+  .row { display: flex; gap: 8px; align-items: center; }
+  .row > * { flex: 1; }
+  .views { display: flex; flex-wrap: wrap; gap: 5px; }
+  button { background: #323a49; color: #e8ebf1; border: 1px solid #455064; border-radius: 4px; padding: 5px 9px; cursor: pointer; font: inherit; }
+  button:hover { background: #3d4759; }
+  button.big { width: 100%; padding: 11px; margin-top: 8px; background: #2f6f4e; border-color: #3f8f66; font-size: 14px; font-weight: 600; }
+  button.big:hover { background: #38815b; }
+  button.big.alt { background: #323a49; border-color: #455064; font-weight: 400; font-size: 13px; padding: 7px; }
+  .val { color: #fff; font-variant-numeric: tabular-nums; float: right; }
+  .small { color: #8d97a8; font-size: 12px; }
+  #stage { flex: 1; position: relative; overflow: hidden; background: #0e1014; }
+  #stage.checker { background: #888 conic-gradient(#aaa 25%, #777 0 50%, #aaa 0 75%, #777 0) 0 0 / 24px 24px; }
+  canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; }
+  canvas.drag { cursor: grabbing; }
+  #guide { position: absolute; border: 1px dashed rgba(255, 220, 120, .85); box-shadow: 0 0 0 9999px rgba(0, 0, 0, .22); pointer-events: none; }
+  #guide span { position: absolute; left: 6px; top: 4px; font-size: 11px; color: #ffe29a; text-shadow: 0 0 3px #000; }
+  #toast { position: absolute; right: 14px; bottom: 14px; background: rgba(20, 24, 30, .92); border: 1px solid #455064; padding: 8px 12px; border-radius: 5px; opacity: 0; transition: opacity .25s; pointer-events: none; }
+  #hint { position: absolute; left: 12px; bottom: 10px; color: #aab3c2; font-size: 12px; text-shadow: 0 0 3px #000; pointer-events: none; }
+  #err { color: #ff9a9a; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="panel">
+    <h1>Model referencyjny</h1>
+    <select id="model"></select>
+    <div class="small" id="info"></div>
+
+    <h2>Widoki gotowe</h2>
+    <div class="views" id="views"></div>
+
+    <h2>Kamera</h2>
+    <label>Obrót poziomy (azymut) <span class="val" id="azv"></span></label>
+    <input type="range" id="az" min="-180" max="180" step="1">
+    <label>Wysokość (elewacja) <span class="val" id="elv"></span></label>
+    <input type="range" id="el" min="-90" max="90" step="1">
+    <label>Przybliżenie <span class="val" id="scv"></span></label>
+    <input type="range" id="sc" min="0" max="1000" step="1">
+    <div class="row" style="margin-top:8px"><button id="reset">Wróć do widoku</button><button id="center">Wyśrodkuj</button></div>
+
+    <h2>Wygląd</h2>
+    <label>Tło</label>
+    <select id="bg">
+      <option value="#2b2f38">ciemne (jak arkusze)</option>
+      <option value="#ffffff">białe</option>
+      <option value="#000000">czarne</option>
+      <option value="#7a8494">szare</option>
+      <option value="transparent">przezroczyste (PNG)</option>
+      <option value="custom">własny kolor…</option>
+    </select>
+    <input type="color" id="bgc" value="#2b2f38" style="display:none;width:100%;height:30px;margin-top:4px;background:none;border:0">
+    <div class="row" style="margin-top:6px">
+      <label style="margin:0"><input type="checkbox" id="edges" checked> kontury</label>
+      <label style="margin:0">grubość <input type="number" id="lw" value="1" min="1" max="6" style="width:56px"></label>
+    </div>
+    <label style="margin-top:6px"><input type="checkbox" id="showguide" checked> pokaż kadr snapshotu</label>
+
+    <h2>Snapshot</h2>
+    <div class="row">
+      <div><label>Szerokość px</label><input type="number" id="sw" value="2000" min="64" max="8000"></div>
+      <div><label>Wysokość px</label><input type="number" id="sh" value="2000" min="64" max="8000"></div>
+    </div>
+    <div class="row" style="margin-top:6px">
+      <button data-size="1024,1024">1024²</button><button data-size="2048,2048">2048²</button><button data-size="1920,1080">16:9</button><button data-size="1080,1350">4:5</button>
+    </div>
+    <div class="small" style="margin-top:6px">Zapisany obraz to dokładnie to, co jest w żółtym kadrze (z wygładzaniem 2×).</div>
+    <button class="big" id="snap">Zrób snapshot (PNG)</button>
+    <button class="big alt" id="copy">Kopiuj do schowka</button>
+    <div id="err"></div>
+  </div>
+  <div id="stage" id="stage">
+    <canvas id="gl"></canvas>
+    <div id="guide"><span></span></div>
+    <div id="hint">LPM – obracaj &nbsp;·&nbsp; PPM / Shift+LPM – przesuń &nbsp;·&nbsp; kółko – przybliż &nbsp;·&nbsp; dwuklik – widok z listy</div>
+    <div id="toast"></div>
+  </div>
+</div>
+
+<script>
+const MODELS = /*__MODELS__*/null;
+
+// ---------------------------------------------------------------- helpers
+const $ = id => document.getElementById(id);
+const canvas = $('gl'), stage = $('stage');
+const gl = canvas.getContext('webgl2', { antialias: false, premultipliedAlpha: false, preserveDrawingBuffer: true, alpha: true });
+if (!gl) { $('err').textContent = 'Ta przeglądarka nie obsługuje WebGL2.'; throw new Error('no webgl2'); }
+const MAXTEX = gl.getParameter(gl.MAX_TEXTURE_SIZE);
+
+function b64bytes(s) { const b = atob(s), u = new Uint8Array(b.length); for (let i = 0; i < b.length; i++) u[i] = b.charCodeAt(i); return u; }
+function mk(type, src) { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s); if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s) + '\n' + src); return s; }
+function prog(vs, fs) { const p = gl.createProgram(); gl.attachShader(p, mk(gl.VERTEX_SHADER, vs)); gl.attachShader(p, mk(gl.FRAGMENT_SHADER, fs)); gl.linkProgram(p); if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p)); return p; }
+
+// ---------------------------------------------------------------- shaders
+const VS1 = `#version 300 es
+in vec3 aPos; in vec3 aNrm; in vec3 aCol; in vec2 aFlag; in vec3 aId;
+uniform vec3 uC, uR, uU, uCtr; uniform float uPPU, uRr; uniform vec2 uRes;
+out vec3 vView; out vec3 vN; flat out vec3 vCol; flat out vec2 vFlag; flat out vec3 vId;
+void main() {
+  vec3 p = aPos - uCtr;
+  vec3 v = vec3(dot(p, uR), dot(p, uU), dot(p, uC));
+  vView = v;
+  vN = vec3(dot(aNrm, uR), dot(aNrm, uU), dot(aNrm, uC));
+  vCol = aCol; vFlag = aFlag; vId = aId;
+  gl_Position = vec4(2.0 * v.x * uPPU / uRes.x, 2.0 * v.y * uPPU / uRes.y, -v.z / uRr, 1.0);
+}`;
+const FS1 = `#version 300 es
+precision highp float;
+in vec3 vView; in vec3 vN; flat in vec3 vCol; flat in vec2 vFlag; flat in vec3 vId;
+layout(location = 0) out vec4 oCol; layout(location = 1) out vec4 oId; layout(location = 2) out vec4 oDepth;
+void main() {
+  vec3 L = normalize(vec3(-0.45, 0.55, 0.70));
+  vec3 Lf = normalize(vec3(0.5, -0.1, 0.8));
+  vec3 col;
+  if (vFlag.x > 0.5) { col = vCol; }
+  else {
+    float lam;
+    if (vFlag.y > 0.5) {
+      vec3 n = normalize(vN); if (n.z < 0.0) n = -n;
+      lam = 0.30 + 0.62 * clamp(dot(n, L), 0.0, 1.0) + 0.25 * clamp(dot(n, Lf), 0.0, 1.0);
+    } else {
+      vec3 n = normalize(cross(dFdx(vView), dFdy(vView)));
+      lam = 0.30 + 0.62 * abs(dot(n, L)) + 0.25 * abs(dot(n, Lf));
+    }
+    col = vCol * min(lam, 1.15);
+  }
+  oCol = vec4(clamp(col, 0.0, 1.0), 1.0);
+  oId = vec4(vId / 255.0, vFlag.x > 0.5 ? 0.5 : 1.0);
+  float d = gl_FragCoord.z;
+  vec3 e = fract(d * vec3(1.0, 255.0, 65025.0));
+  e -= e.yzz * vec3(1.0 / 255.0, 1.0 / 255.0, 0.0);
+  oDepth = vec4(e, 1.0);
+}`;
+const VS2 = `#version 300 es
+void main() { vec2 p = vec2((gl_VertexID << 1) & 2, gl_VertexID & 2); gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0); }`;
+const FS2 = `#version 300 es
+precision highp float;
+uniform sampler2D uCol, uId, uDepth;
+uniform vec4 uBg; uniform int uLw; uniform float uEdgeDz, uRange; uniform bool uEdges;
+out vec4 o;
+float dec(vec4 t) { return dot(t.rgb, vec3(1.0, 1.0 / 255.0, 1.0 / 65025.0)); }
+void main() {
+  ivec2 p = ivec2(gl_FragCoord.xy);
+  vec4 id0 = texelFetch(uId, p, 0);
+  if (id0.a < 0.1) { o = uBg; return; }
+  vec3 col = texelFetch(uCol, p, 0).rgb;
+  bool emis = id0.a < 0.75;
+  float d0 = dec(texelFetch(uDepth, p, 0));
+  bool edge = false;
+  ivec2 sz = textureSize(uId, 0);
+  if (uEdges) {
+    for (int k = 1; k <= 6; k++) {
+      if (k > uLw) break;
+      ivec2 q1 = p - ivec2(k, 0), q2 = p + ivec2(0, k);
+      if (q1.x >= 0) { vec4 t = texelFetch(uId, q1, 0); if (t.a < 0.1 || any(notEqual(t.rgb, id0.rgb)) || abs(dec(texelFetch(uDepth, q1, 0)) - d0) * uRange > uEdgeDz) edge = true; }
+      if (q2.y < sz.y) { vec4 t = texelFetch(uId, q2, 0); if (t.a < 0.1 || any(notEqual(t.rgb, id0.rgb)) || abs(dec(texelFetch(uDepth, q2, 0)) - d0) * uRange > uEdgeDz) edge = true; }
+    }
+    // silhouette: any 4-neighbour is background (outline sits on the object's rim)
+    ivec2 n1 = p + ivec2(1, 0), n2 = p - ivec2(0, 1);
+    if (n1.x < sz.x && texelFetch(uId, n1, 0).a < 0.1) edge = true;
+    if (n2.y >= 0 && texelFetch(uId, n2, 0).a < 0.1) edge = true;
+  }
+  if (edge && !emis) col *= 0.35;
+  o = vec4(col, 1.0);
+}`;
+const P1 = prog(VS1, FS1), P2 = prog(VS2, FS2);
+const U1 = n => gl.getUniformLocation(P1, n), U2 = n => gl.getUniformLocation(P2, n);
+
+// ---------------------------------------------------------------- model upload
+let cur = null;            // {def, vao, vbo, n, rad}
+function loadModel(def) {
+  const raw = b64bytes(def.data), n = def.n;
+  const pos = new Float32Array(raw.buffer, 0, n * 9);
+  const nrm = new Float32Array(raw.buffer, n * 36, n * 9);
+  const cc = new Uint8Array(raw.buffer, n * 72, n * 4);
+  const gid = new Uint32Array(raw.buffer, n * 76, n);
+  const STR = 14;                                    // pos3 nrm3 col3 flag2 id3
+  const buf = new Float32Array(n * 3 * STR);
+  let mnx = 1e9, mny = 1e9, mnz = 1e9, mxx = -1e9, mxy = -1e9, mxz = -1e9;
+  for (let t = 0; t < n; t++) {
+    const fl = cc[t * 4 + 3], emis = fl & 1, smooth = (fl >> 1) & 1, g = gid[t];
+    for (let v = 0; v < 3; v++) {
+      const o = (t * 3 + v) * STR, s = t * 9 + v * 3;
+      buf[o] = pos[s]; buf[o + 1] = pos[s + 1]; buf[o + 2] = pos[s + 2];
+      buf[o + 3] = nrm[s]; buf[o + 4] = nrm[s + 1]; buf[o + 5] = nrm[s + 2];
+      buf[o + 6] = cc[t * 4] / 255; buf[o + 7] = cc[t * 4 + 1] / 255; buf[o + 8] = cc[t * 4 + 2] / 255;
+      buf[o + 9] = emis; buf[o + 10] = smooth;
+      buf[o + 11] = g & 255; buf[o + 12] = (g >> 8) & 255; buf[o + 13] = (g >> 16) & 255;
+      mnx = Math.min(mnx, pos[s]); mxx = Math.max(mxx, pos[s]);
+      mny = Math.min(mny, pos[s + 1]); mxy = Math.max(mxy, pos[s + 1]);
+      mnz = Math.min(mnz, pos[s + 2]); mxz = Math.max(mxz, pos[s + 2]);
+    }
+  }
+  if (cur) { gl.deleteVertexArray(cur.vao); gl.deleteBuffer(cur.vbo); }
+  const vao = gl.createVertexArray(); gl.bindVertexArray(vao);
+  const vbo = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, vbo); gl.bufferData(gl.ARRAY_BUFFER, buf, gl.STATIC_DRAW);
+  [['aPos', 3, 0], ['aNrm', 3, 3], ['aCol', 3, 6], ['aFlag', 2, 9], ['aId', 3, 11]].forEach(([nm, sz, off]) => {
+    const l = gl.getAttribLocation(P1, nm); gl.enableVertexAttribArray(l); gl.vertexAttribPointer(l, sz, gl.FLOAT, false, STR * 4, off * 4);
+  });
+  const cx = (mnx + mxx) / 2, cy = (mny + mxy) / 2, cz = (mnz + mxz) / 2;
+  const rad = Math.hypot(mxx - mnx, mxy - mny, mxz - mnz) / 2 * 1.05 + 1;
+  cur = { def, vao, vbo, n, rad, bbc: [cx, cy, cz] };
+}
+
+// ---------------------------------------------------------------- render
+let fbo = null, texs = [], fw = 0, fh = 0;
+function ensureFbo(w, h) {
+  if (fbo && fw === w && fh === h) return;
+  if (fbo) { gl.deleteFramebuffer(fbo); texs.forEach(t => gl.deleteTexture(t)); }
+  fbo = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, fbo); texs = [];
+  for (let i = 0; i < 3; i++) {
+    const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0 + i, gl.TEXTURE_2D, t, 0); texs.push(t);
+  }
+  const rb = gl.createRenderbuffer(); gl.bindRenderbuffer(gl.RENDERBUFFER, rb);
+  gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT24, w, h);
+  gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, rb);
+  gl.drawBuffers([gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1, gl.COLOR_ATTACHMENT2]);
+  fw = w; fh = h;
+}
+function camBasis(az, el) {
+  const a = az * Math.PI / 180, e = el * Math.PI / 180;
+  const c = [Math.sin(a) * Math.cos(e), Math.cos(a) * Math.cos(e), Math.sin(e)];
+  let up = [0, 0, 1]; if (Math.abs(e) > 89 * Math.PI / 180) up = [0, 1, 0];
+  const f = c.map(x => -x);
+  const cr = (p, q) => [p[1] * q[2] - p[2] * q[1], p[2] * q[0] - p[0] * q[2], p[0] * q[1] - p[1] * q[0]];
+  let r = cr(f, up); const l = Math.hypot(...r); r = r.map(x => x / l);
+  const u = cr(r, f);
+  return { c, r, u };
+}
+function bgColor() {
+  const v = $('bg').value;
+  if (v === 'transparent') return [0, 0, 0, 0];
+  const hex = v === 'custom' ? $('bgc').value : v;
+  return [parseInt(hex.slice(1, 3), 16) / 255, parseInt(hex.slice(3, 5), 16) / 255, parseInt(hex.slice(5, 7), 16) / 255, 1];
+}
+const st = { az: 30, el: 20, scale: 8, ctr: [0, 0, 0], view: null };
+
+// draws the model into the (already sized) canvas: w x h device px, ppu device px per model unit
+function draw(w, h, ppu) {
+  canvas.width = w; canvas.height = h;
+  ensureFbo(w, h);
+  const { c, r, u } = camBasis(st.az, st.el);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, fbo); gl.viewport(0, 0, w, h);
+  gl.disable(gl.BLEND); gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LESS); gl.depthMask(true);
+  gl.clearBufferfv(gl.COLOR, 0, [0, 0, 0, 0]); gl.clearBufferfv(gl.COLOR, 1, [0, 0, 0, 0]); gl.clearBufferfv(gl.COLOR, 2, [0, 0, 0, 0]);
+  gl.clearBufferfv(gl.DEPTH, 0, [1.0]);
+  gl.useProgram(P1);
+  gl.uniform3fv(U1('uC'), c); gl.uniform3fv(U1('uR'), r); gl.uniform3fv(U1('uU'), u); gl.uniform3fv(U1('uCtr'), st.ctr);
+  gl.uniform1f(U1('uPPU'), ppu); const Rr = cur.rad + Math.hypot(st.ctr[0] - cur.bbc[0], st.ctr[1] - cur.bbc[1], st.ctr[2] - cur.bbc[2]);
+  gl.uniform1f(U1('uRr'), Rr); gl.uniform2f(U1('uRes'), w, h);
+  gl.bindVertexArray(cur.vao); gl.drawArrays(gl.TRIANGLES, 0, cur.n * 3);
+  // composite
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, w, h); gl.disable(gl.DEPTH_TEST);
+  const bg = bgColor();
+  gl.clearColor(bg[0], bg[1], bg[2], bg[3]); gl.clear(gl.COLOR_BUFFER_BIT);
+  gl.useProgram(P2);
+  texs.forEach((t, i) => { gl.activeTexture(gl.TEXTURE0 + i); gl.bindTexture(gl.TEXTURE_2D, t); });
+  gl.uniform1i(U2('uCol'), 0); gl.uniform1i(U2('uId'), 1); gl.uniform1i(U2('uDepth'), 2);
+  gl.uniform4fv(U2('uBg'), bg); gl.uniform1i(U2('uLw'), Math.max(1, Math.min(6, +$('lw').value || 1)));
+  gl.uniform1f(U2('uEdgeDz'), cur.def.edge); gl.uniform1f(U2('uRange'), Rr * 2.0);
+  gl.uniform1i(U2('uEdges'), $('edges').checked ? 1 : 0);
+  gl.bindVertexArray(gl.createVertexArray()); gl.drawArrays(gl.TRIANGLES, 0, 3);
+}
+
+function liveGeom() {
+  const dpr = window.devicePixelRatio || 1;
+  const cw = Math.max(50, Math.round(stage.clientWidth)), ch = Math.max(50, Math.round(stage.clientHeight));
+  const ppuCss = st.scale * Math.min(cw, ch) / 1000;
+  const sw = +$('sw').value || 1000, sh = +$('sh').value || 1000;
+  const k = Math.min(cw * 0.92 / sw, ch * 0.92 / sh);
+  return { dpr, cw, ch, ppuCss, gw: sw * k, gh: sh * k, sw, sh };
+}
+function renderLive() {
+  if (!cur) return;
+  const g = liveGeom();
+  draw(Math.round(g.cw * g.dpr), Math.round(g.ch * g.dpr), g.ppuCss * g.dpr);
+  const guide = $('guide');
+  guide.style.display = $('showguide').checked ? 'block' : 'none';
+  guide.style.width = g.gw + 'px'; guide.style.height = g.gh + 'px';
+  guide.style.left = (g.cw - g.gw) / 2 + 'px'; guide.style.top = (g.ch - g.gh) / 2 + 'px';
+  guide.firstElementChild.textContent = 'kadr snapshotu ' + g.sw + '×' + g.sh;
+  stage.classList.toggle('checker', $('bg').value === 'transparent');
+}
+let pending = false;
+function redraw() { if (pending) return; pending = true; requestAnimationFrame(() => { pending = false; renderLive(); }); }
+
+// ---------------------------------------------------------------- snapshot
+function snapshotCanvas() {
+  const g = liveGeom();
+  const W = Math.max(64, Math.min(8000, g.sw)), H = Math.max(64, Math.min(8000, g.sh));
+  let ss = 2; while (ss > 1 && (W * ss > MAXTEX || H * ss > MAXTEX)) ss--;
+  const ppuSnap = g.ppuCss * (W / g.gw);                 // same framing as the guide
+  draw(W * ss, H * ss, ppuSnap * ss);
+  const out = document.createElement('canvas'); out.width = W; out.height = H;
+  const x = out.getContext('2d'); x.imageSmoothingEnabled = true; x.imageSmoothingQuality = 'high';
+  x.drawImage(canvas, 0, 0, W, H);
+  renderLive();
+  return out;
+}
+function fname() { return (cur.def.id + '_az' + Math.round(st.az) + '_el' + Math.round(st.el) + '.png'); }
+function toast(msg) { const t = $('toast'); t.textContent = msg; t.style.opacity = 1; clearTimeout(toast.h); toast.h = setTimeout(() => t.style.opacity = 0, 2200); }
+$('snap').onclick = () => {
+  const c = snapshotCanvas();
+  c.toBlob(b => { const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = fname(); a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 4000); toast('Zapisano ' + fname() + ' (' + c.width + '×' + c.height + ')'); }, 'image/png');
+};
+$('copy').onclick = () => {
+  const c = snapshotCanvas();
+  c.toBlob(async b => { try { await navigator.clipboard.write([new ClipboardItem({ 'image/png': b })]); toast('Skopiowano do schowka'); } catch (e) { toast('Schowek niedostępny - użyj przycisku zapisu'); } }, 'image/png');
+};
+
+// ---------------------------------------------------------------- UI
+function scaleToSlider(s) { return Math.round(Math.log(s / 0.5) / Math.log(120 / 0.5) * 1000); }
+function sliderToScale(v) { return 0.5 * Math.pow(120 / 0.5, v / 1000); }
+function syncUI() {
+  $('az').value = st.az; $('el').value = st.el; $('sc').value = scaleToSlider(st.scale);
+  $('azv').textContent = Math.round(st.az) + '°'; $('elv').textContent = Math.round(st.el) + '°'; $('scv').textContent = st.scale.toFixed(1);
+}
+function setView(v) {
+  st.view = v; st.az = v[2]; st.el = v[3]; st.scale = v[4]; st.ctr = v[5].slice(); syncUI(); redraw();
+}
+function pickModel(i) {
+  const def = MODELS[i]; loadModel(def);
+  $('info').textContent = def.n.toLocaleString('pl') + ' trójkątów';
+  const box = $('views'); box.innerHTML = '';
+  def.views.forEach(v => { const b = document.createElement('button'); b.textContent = v[1]; b.onclick = () => setView(v); box.appendChild(b); });
+  setView(def.views[0]);
+}
+MODELS.forEach((m, i) => { const o = document.createElement('option'); o.value = i; o.textContent = m.name; $('model').appendChild(o); });
+$('model').onchange = () => pickModel(+$('model').value);
+$('az').oninput = () => { st.az = +$('az').value; syncUI(); redraw(); };
+$('el').oninput = () => { st.el = +$('el').value; syncUI(); redraw(); };
+$('sc').oninput = () => { st.scale = sliderToScale(+$('sc').value); syncUI(); redraw(); };
+$('reset').onclick = () => st.view && setView(st.view);
+$('center').onclick = () => { st.ctr = cur.bbc.slice(); redraw(); };
+$('bg').onchange = () => { $('bgc').style.display = $('bg').value === 'custom' ? 'block' : 'none'; redraw(); };
+['bgc', 'edges', 'lw', 'showguide', 'sw', 'sh'].forEach(id => $(id).addEventListener('input', redraw));
+document.querySelectorAll('[data-size]').forEach(b => b.onclick = () => { const [w, h] = b.dataset.size.split(','); $('sw').value = w; $('sh').value = h; redraw(); });
+window.addEventListener('resize', redraw);
+
+// mouse: rotate / pan / zoom
+let drag = null;
+canvas.addEventListener('contextmenu', e => e.preventDefault());
+canvas.addEventListener('pointerdown', e => {
+  canvas.setPointerCapture(e.pointerId); canvas.classList.add('drag');
+  drag = { x: e.clientX, y: e.clientY, pan: e.button === 2 || e.shiftKey || e.button === 1 };
+});
+canvas.addEventListener('pointermove', e => {
+  if (!drag) return;
+  const dx = e.clientX - drag.x, dy = e.clientY - drag.y; drag.x = e.clientX; drag.y = e.clientY;
+  if (drag.pan) {
+    const g = liveGeom(), { r, u } = camBasis(st.az, st.el);
+    for (let i = 0; i < 3; i++) st.ctr[i] -= (dx * r[i] - dy * u[i]) / g.ppuCss;
+  } else {
+    st.az += dx * 0.4; st.el = Math.max(-90, Math.min(90, st.el + dy * 0.4));
+    if (st.az > 180) st.az -= 360; if (st.az < -180) st.az += 360;
+  }
+  syncUI(); redraw();
+});
+canvas.addEventListener('pointerup', () => { drag = null; canvas.classList.remove('drag'); });
+canvas.addEventListener('wheel', e => { e.preventDefault(); st.scale = Math.max(0.5, Math.min(120, st.scale * Math.exp(-e.deltaY * 0.0012))); syncUI(); redraw(); }, { passive: false });
+canvas.addEventListener('dblclick', () => st.view && setView(st.view));
+
+pickModel(0);
+</script>
+</body>
+</html>

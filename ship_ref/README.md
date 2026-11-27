@@ -210,3 +210,27 @@ joins both bodies (outline narrows from the full 60 width to a flat ~8-wide nose
 bulkhead at the stern (closed) and one at the bow. On the deck a tan/brown cargo CONTAINER (40 x 29, vertical ribs,
 orange stripe, dark corner posts, amber beacon), taller than before (10.5 high) but still just below the engine tops.
 TRANSPORTER v2: the underside is one flat closed belly plate (no grooves between engines and deck).
+
+## ALIEN TOWER (EA_ALIEN_TOWER, ffield.s)
+
+In the game data it is a diamond with both diagonals (75 px half-diagonal) - an "envelope" in 2D. In 3D: two extremely tall
+SQUARE PRISMS standing upright, joined BASE TO BASE, so it is one column with a waist halfway where the two bevelled bases meet
+(a thin light bevelled ring there). Each prism is 5 x as tall as its base side is wide (side 10, each prism 50 high, 100 in all);
+the square is turned 45 degrees, so seen from above it is the game's diamond. Colour: dark blue-grey, matte, with lightly
+bevelled (chamfered) edges, lighter bevels on the top, bottom and waist. Windows (tall pairs), vents (wide, with slits),
+tall doors and rows of small square ports are shown ONLY as thin engraved outlines - flush panels a shade lighter/darker than
+the wall, separated by thin contour lines, with a thin horizontal contour line between every 10-unit bay - so the whole surface
+stays closed and solid, with no openings and no glow. Files: alien_tower_sheet.png, alien_tower_*.png, alien_tower.obj
+(tools/ship_ref/build_alien_tower_ref.py).
+ALIEN TOWER, revised: the two prisms are now two tall square PYRAMIDS joined base to base - the tower narrows towards the top and
+towards the bottom into two slightly blunted tips (tiny flat square at each end), widest at the bevelled waist in the middle
+(a long bipyramid, 100 high x 10 wide). Edges bevelled (lighter); windows, vents, doors and ports are engraved outlines that taper
+with the walls, with the outermost segment at each tip left plain.
+
+## Interactive viewer
+
+`ship_ref/viewer.html` - one self-contained page (open it by double-click, no server, no internet). All models, with the same
+lighting and contour lines as the sheets: drag to rotate, right-drag / Shift-drag to pan, wheel to zoom, buttons for the
+preset views, sliders for azimuth / elevation / zoom, background (dark / white / black / transparent / custom). The yellow frame is
+exactly what "Zrób snapshot (PNG)" saves, at the size you type (2x smoothed); "Kopiuj do schowka" puts it on the clipboard.
+Regenerate after changing any model: `python tools/ship_ref/build_viewer.py` (needs numpy; the page itself needs a WebGL2 browser).
