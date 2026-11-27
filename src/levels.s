@@ -344,7 +344,7 @@ LVL3_FOES:
         .byte   $00, $80, $00, $58, 128, 0, 0       ; GHOST UFO at 32768, 22528, holding its post
         .byte   $00, $68, $00, $68, 130, 64, 40       ; GHOST PULSAR at 26624, 26624, course 64 at 40 px/s
         .byte   $00, $98, $00, $68, 131, 0, 0       ; GHOST EMP MINE at 38912, 26624, holding its post
-        .byte   $00, $80, $00, $70, 129, 0, 0       ; GHOST SPIDER at 32768, 28672, holding its post
+        .byte   $00, $80, $00, $70, 129, 0, 0       ; GHOST SPIDER at 32768, 28672: the 192 ghost's passenger (awake, cloaked)
 LVL3_FOES_END:
 L3_ROCKN    = (LVL3_ROCKS_END - LVL3_ROCKS) / 6
 L3_FOEN     = (LVL3_FOES_END - LVL3_FOES) / 7

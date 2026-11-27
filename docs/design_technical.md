@@ -2714,12 +2714,25 @@ These are settled and should not be re-opened without a reason:
       damage it takes - a bullet, a UFO's shot, 2.5 frames of laser - and the
       hit that breaks it pay out what a destroyed 16 does (`satn_kill`:
       `SATN_ADD` and its motes) - the hint that the Saturnium in it is what hides
-      it. `rock_take_hit` calls `WS_GHIT` (`gh_hit`, the ghost tenant) for a
-      ghost; a UFO's shot pays nobody, as ever. A ghost 16 pays twice on its last
-      hit.
+      it. `rock_take_hit` calls `WS_GHIT` for every rock (`gh_hit` tests the
+      bit: bank 1 had no room for it); a UFO's shot pays nobody, as ever. A ghost
+      16 pays twice on its last hit.
+    * **A ghost rock's PASSENGER (the user, 2026-11-27):** a spider riding a
+      ghost rock WORKS as ever - mounted, turning with it, digging - in the
+      rock's camouflage: drawn exactly on the frames its rock is (`gh_lit`, one
+      predicate for both), dotted through `gb_draw` in its own frame and the
+      rock's angle (`WS_GFOE` from `foe_draw_all`, `gh_foe`), no star disc, not on
+      the radar (`radar_foes`), and - mounted - never hit, as ever. The rock
+      broken, it falls off like any spider: ordinary, awake, drifting. The cloak
+      is the ROCK's, so an ordinary spider on a ghost rock is hidden the same
+      way; a GHOST SPIDER record is never dormant - `gh_add` loads it awake to
+      mount its rock (a spider with no rock near starts adrift and visible, the
+      level-design mistake it always was). Measured: a lit frame is the rock and
+      the spider's 5 parts, 6 DOT_POLYGONs; bank 1 has 4 B left.
     * **Only the OUTER zone has ghosts** (52, the ZONE): elsewhere the loader
       clears the bits. The level editor sets them - a "Ghost" box when adding and
       on the selection, live only in zone 2 - and draws ghosts dashed.
     * **The test level:** 3, GHOST TEST, ZONE 2 (`make run-ghtest`, `GHTEST=1`): four
-      ghost rocks round the start beside two ordinary ones, four dormant
-      enemies (one of each kind) ahead, the gate open.
+      ghost rocks round the start beside two ordinary ones, three dormant
+      enemies (UFO, pulsar, mine) ahead and a spider on the ghost 192, the gate
+      open.

@@ -639,6 +639,12 @@ radar_foes:
 @lp:    dex
         lda     FOEST,x                 ; shot down, or a slot never filled
         beq     @next                   ;   (foes.s): not a contact
+        cmp     #FS_MOUNTED             ; ...nor a passenger on a GHOST rock:
+        bne     :+                      ;   its camouflage (ghosts.s gh_foe)
+        ldy     FOEROCK,x
+        lda     OBJTYPE,y
+        bmi     @next
+:
         inc     RVISIT
         lda     FOEXH,x
         sec

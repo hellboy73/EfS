@@ -14,6 +14,8 @@ real frames over it, reading the command list each one builds:
                 ordinary rocks
   enemy ghosts  strobed near, dying away once the ship has gone, one drawn a
                 frame, no enemy slot and nothing on the radar; woken, enemies
+  the passenger the ghost spider rides the ghost 192 awake, drawn only with its
+                rock, dotted; the rock broken, an ordinary drifting spider
   the others    levels 0 and 2 still put their own tenants in the slots
 
 and what they cost, CPU1 and GPU. Exit status 1 if any check fails.
@@ -164,9 +166,12 @@ gh = [(rd(C["GHXH"] + i), rd(C["GHYH"] + i), rd(C["GHK"] + i)) for i in range(rd
 check("level 3 from level_begin: the ghosts in the wall slots",
       rd(LBL["WSCUR"]) == 2 and rd(LBL["ws_tab_bs"] + 21) == 0x4C,
       f"WSCUR {rd(LBL['WSCUR'])}, WS_GROCK opcode ${rd(LBL['ws_tab_bs'] + 21):02X}")
-check("...four dormant enemies on the ghosts' list, none in an enemy slot",
-      rd(GHN) == 4 and rd(C["NFOE"]) == 0
-      and sorted(k for _, _, k in gh) == [0, 1, 2, 3],
+spd = 0                                         # the ghost spider: a passenger
+check("...three dormant enemies on the ghosts' list; the spider awake, on its rock",
+      rd(GHN) == 3 and rd(C["NFOE"]) == 1
+      and sorted(k for _, _, k in gh) == [0, 2, 3]
+      and rd(C["FOEKIND"] + spd) == 1 and rd(C["FOEST"] + spd) == C["FS_MOUNTED"]
+      and rd(C["OBJTYPE"] + rd(C["FOEROCK"] + spd)) & 0x80,
       f"GHN {rd(GHN)}, NFOE {rd(C['NFOE'])}, list {gh}")
 check("...and four ghost rocks, the rest ordinary", len(ghosts) == 4,
       f"{len(ghosts)} of {nrock} rocks with GH_ROCK")
@@ -209,7 +214,7 @@ check("...broken, the 192 is two ordinary 128s, no ghost bit",
 # --- enemy ghosts -------------------------------------------------------------------
 load(3)
 wr(C["SHIPINV"], 250)
-ufo = [i for i in range(4) if rd(C["GHK"] + i) == 0][0]
+ufo = [i for i in range(rd(GHN)) if rd(C["GHK"] + i) == 0][0]
 ux, uy = rd(C["GHXH"] + ufo), rd(C["GHYH"] + ufo)
 put_ship(ux << 8 | 0x80, (uy - 6) << 8)         # 6 pages: near, ahead of a ship on HEAD 0? -
 f_near = frames(32)                              #   it is behind; drawn either way if on screen
@@ -219,15 +224,15 @@ fade = frames(40)
 fn = [len(f) for f in f_near]
 fd = [len(f) > 0 for f in fade]
 fl = [n > 0 for n in fn]
-check("an enemy ghost near the ship strobes irregularly, its whole shape (5 parts)",
-      irregular(fl) and 7 <= sum(fl) <= 16 and longest_dark(fl) >= 5 and set(fn) <= {0, 5},
-      f"{sum(fl)} of 32 frames: {''.join('#' if v else '.' for v in fl)}")
+check("an enemy ghost near the ship strobes irregularly, the UFO hull and dome only",
+      irregular(fl) and 7 <= sum(fl) <= 16 and longest_dark(fl) >= 5 and set(fn) <= {0, C["EN_UFO_PW"]},
+      f"{sum(fl)} of 32 frames, parts {sorted(set(fn))}: {''.join('#' if v else '.' for v in fl)}")
 check("...and dies away once the ship has gone, as the field's flash does",
       t0 == C["GH_FLASH"] and 3 <= sum(fd) <= 18 and not any(fd[C["GH_FLASH"] + 1:]),
       f"timer {t0} on leaving; drawn on {sum(fd)} of 40 frames, the last at "
       f"{max([i for i, v in enumerate(fd) if v], default=-1)}")
-check("...from no enemy slot", rd(C["NFOE"]) == 0, f"NFOE {rd(C['NFOE'])}")
-for i in range(4):                              # all four piled round the ship
+check("...from no enemy slot", rd(C["NFOE"]) == 1, f"NFOE {rd(C['NFOE'])} (the passenger)")
+for i in range(rd(GHN)):                        # all three piled round the ship
     wr(C["GHXH"] + i, 0x80 + (i & 1) * 2)
     wr(C["GHYH"] + i, 0x7C + (i >> 1) * 2)
 put_ship(0x8100, 0x7D00)
@@ -238,17 +243,49 @@ for _ in range(48):
         turn.add(rd(C["GHI"]))                  # which one it was
 drawn = [len({c for c, _ in f}) for f in many]
 every = len(turn)
-check("four near at once: at most one drawn a frame, each in its turn",
-      max(drawn) == 1 and sum(drawn) >= 12 and every == 4,
+check("three near at once: at most one drawn a frame, each in its turn",
+      max(drawn) == 1 and sum(drawn) >= 9 and every == 3,
       f"{sum(drawn)} of 48 frames drew one, never more; {every} different ghosts")
 cyc = wcall("gh_frame")
-print(f"        gh_frame, four ghosts near: {cyc} cycles")
+print(f"        gh_frame, three ghosts near: {cyc} cycles")
 wcall("gh_wake")
 kinds = sorted(rd(C["FOEKIND"] + i) for i in range(rd(C["NFOE"])))
 check("woken: four enemies in slots, the list empty",
       rd(C["NFOE"]) == 4 and kinds == [0, 1, 2, 3] and rd(GHN) == 0
       and all(rd(C["FOEST"] + i) for i in range(4)),
       f"NFOE {rd(C['NFOE'])}, kinds {kinds}, GHN {rd(GHN)}")
+
+# --- the passenger ------------------------------------------------------------------
+load(3)
+wr(GHN, 0)
+wr(C["SHIPINV"], 250)
+rk = rd(C["FOEROCK"] + spd)
+bx, by = rd(C["OBJXH"] + rk), rd(C["OBJYH"] + rk)
+put_ship(bx << 8 | 0x80, (by + 11) << 8)        # on the screen, not near
+far = frames(8)
+put_ship(bx << 8 | 0x80, (by + 6) << 8)         # near
+near = frames(32)
+solid_spd = 0
+pn = None
+check("the passenger far: neither it nor its rock drawn",
+      sum(len(f) for f in far) == 0, f"{sum(len(f) for f in far)} DOT_POLYGONs in 8 frames")
+cnt = [len(f) for f in near]
+lit = [n > 0 for n in cnt]
+check("...near: drawn exactly when its rock is, dotted (the rock + its parts)",
+      irregular(lit) and len(set(n for n in cnt if n)) == 1 and max(cnt) >= 2
+      and rd(C["FOEST"] + spd) == C["FS_MOUNTED"],
+      f"{sum(lit)} of 32 frames, {max(cnt)} DOT_POLYGONs a lit frame: "
+      f"{''.join('#' if v else '.' for v in lit)}")
+digs = rd(C["FOECD"] + spd)
+wcall("rock_take_hit", x=rk, a=250)
+st0 = rd(C["FOEST"] + spd)
+frames(2)
+st, _c = run_frame()
+polys = [op for op, pl in G["decode"](st) if op == 0x4E]
+check("...its rock broken: an ordinary drifting spider, drawn solid",
+      st0 != C["FS_MOUNTED"] and rd(C["FOEST"] + spd) not in (0, C["FS_MOUNTED"])
+      and len(polys) > 0,
+      f"FOEST {st0} after the break, {rd(C['FOEST'] + spd)} now; {len(polys)} POLYGON16s")
 
 # --- the shake: the picture jumps, the position does not -------------------------
 if "gh_jit" in LBL:

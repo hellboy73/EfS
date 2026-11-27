@@ -36,7 +36,16 @@
 ; radar takes rocks by CLASS (the mission's RADCL), never reads OBJTYPE: a
 ; ghost is on it exactly when its class is.
 ;
-;   GHWALL   slot A (upper RAM): gh_rock, gh_near, gh_irr, gh_hit
+;   GHWALL   slot A (upper RAM): gh_rock, gh_lit, gh_near, gh_irr, gh_hit, gh_foe
+;
+; A GHOST ROCK'S PASSENGER (the user, 2026-11-27): a spider riding a ghost rock
+; is in the rock's camouflage and WORKS as ever - mounted, turning with it,
+; digging. It is drawn exactly when its rock is (gh_lit), dotted, and is not on
+; the radar (radar.s); it is never hit anyway while mounted (foes.s). When the
+; rock breaks it falls off like any spider (foe_adrift) - an ordinary, awake,
+; drifting spider. A GHOST SPIDER record is therefore never dormant: gh_add has
+; it loaded awake to mount the rock beside it (an ordinary spider on a ghost
+; rock is cloaked the same way - the cloak is the rock's, not the spider's).
 ;
 ; A GHOST ROCK IS RICH (the user, 2026-11-26): every whole hit's worth of damage
 ; it takes - a bullet, a UFO's shot, two and a half frames of laser - pays out
@@ -145,11 +154,13 @@ gh_irr:
         rts
 
 ; -----------------------------------------------------------------------------
-; gh_hit - WS_GHIT: X = a ghost rock about to take RKDMG hit points. Pays a 16's
+; gh_hit - WS_GHIT: X = a rock about to take RKDMG hit points; a GHOST pays a 16's
 ; Saturnium if that crosses a whole hit (HIT_HP) - or ends it. X kept; A, Y and
 ; LVTMP (the loader's scratch, free in flight) clobbered.
 ; -----------------------------------------------------------------------------
 gh_hit:
+        bit     OBJTYPE,x               ; (every rock hit comes here: bank 1 had
+        bpl     @r                      ;   no room for the test)
         lda     OBJHP,x
         jsr     @q
         sty     LVTMP                   ; whole hits it stood on...
@@ -219,19 +230,7 @@ GH_JY:  .byte   1, <-1,  1,  0,   1, <-1,  0, <-1   ;   step: 2 full-res px (the
 ; -----------------------------------------------------------------------------
 gh_rock:
         ldx     OBJI
-        lda     OBJTYPE,x               ; bumped...
-        and     #GH_SEEN
-        bne     @rev
-        ldy     OBJSHP,x                ; ...or hit: under its class's hit points
-        lda     OBJHP,x
-        cmp     ROCK_HP,y
-        bcc     @rev
-        lda     OBJXH,x                 ; NOT YET: only near
-        ldy     OBJYH,x
-        jsr     gh_near
-        bcs     @r
-@rev:   txa                             ; (FOUND OUT: anywhere) - irregularly
-        jsr     gh_irr
+        jsr     gh_lit
         bcc     @r
 .if GH_SHAKE
         lda     OBJI                    ; the picture shakes, half-res px; the
@@ -249,6 +248,69 @@ gh_rock:
         lsr     PBUF+5
         jmp     API_GPU_DOTPOLYGON      ; tail
 @r:     rts
+
+; -----------------------------------------------------------------------------
+; gh_lit - X = a ghost rock: carry SET = it is drawn this frame. Found out
+; (bumped, or hit: under its class's hit points) - anywhere; not yet - only
+; near; both irregularly. X kept; Y and T0 clobbered.
+; -----------------------------------------------------------------------------
+gh_lit:
+        lda     OBJTYPE,x               ; bumped...
+        and     #GH_SEEN
+        bne     @rev
+        ldy     OBJSHP,x                ; ...or hit
+        lda     OBJHP,x
+        cmp     ROCK_HP,y
+        bcc     @rev
+        lda     OBJXH,x                 ; NOT YET: only near
+        ldy     OBJYH,x
+        jsr     gh_near
+        bcc     @rev
+        clc
+        rts
+@rev:   txa
+        jmp     gh_irr                  ; tail
+
+; -----------------------------------------------------------------------------
+; gh_foe - WS_GFOE: X = FEI, an enemy about to be drawn. Carry SET: a passenger
+; on a ghost rock - drawn here, its rock's strobe and dotted (gb_draw, its own
+; frame and its rock's angle), or not at all. CLEAR: draw it as ever.
+; -----------------------------------------------------------------------------
+gh_foe:
+        lda     FOEST,x
+        cmp     #FS_MOUNTED
+        bne     @no
+        ldy     FOEROCK,x
+        lda     OBJTYPE,y
+        bpl     @no
+        tya
+        tax
+        jsr     gh_lit
+        bcc     @yes                    ; dark with its rock
+        ldx     FEI
+        lda     FOEFXL,x
+        sta     FXL
+        lda     FOEFXH,x
+        sta     FXH
+        lda     FOEFYL,x
+        sta     FYL
+        lda     FOEFYH,x
+        sta     FYH
+        lda     FOEAPP,x
+        sta     GBAP
+        lda     FOEAST,x
+        sta     GBST
+        lda     FOEANG,x
+        sta     GBAN
+        lda     #$FF
+        sta     GBMK
+        lda     #$01
+        sta     GBSH
+        jsr     gb_draw
+@yes:   sec
+        rts
+@no:    clc
+        rts
 
 ; =============================================================================
 ; GHFRAME - slot B: the frame (slots.s's vector table is first)
@@ -399,11 +461,16 @@ gh_wake:
 ; nothing flies, or a full list, is dropped. Carry SET: the sector is not the
 ; outer zone, which alone has ghosts - load it AWAKE. Clobbers A, X, Y.
 gh_add:
+        ldy     #4                      ; a SPIDER is a ghost rock's passenger:
+        lda     (T0),y                  ;   loaded awake, to mount and work in
+        and     #$7F                    ;   its rock's camouflage (gh_foe)
+        cmp     #FK_SPIDER
+        beq     @aw
         ldx     CURLEV
         lda     LVL_ZONE,x
         cmp     #ZN_OUTER
         beq     :+
-        sec
+@aw:    sec
         rts
 :       ldx     GHN
         cpx     #GH_MAX

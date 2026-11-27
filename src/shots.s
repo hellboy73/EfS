@@ -1705,10 +1705,8 @@ NBLOCK      = $73A1             ; splits refused for want of a slot. It should b
 ; -----------------------------------------------------------------------------
 rock_take_hit:
         sta     RKDMG
-        bit     OBJTYPE,x               ; a GHOST pays out Saturnium as it is hit
-        bpl     :+                      ;   (ghosts.s gh_hit, the user) - only the
-        jsr     WS_GHIT                 ;   outer zone has ghosts, and its tenant
-:       lda     OBJHP,x                 ;   answers; X kept
+        jsr     WS_GHIT                 ; a GHOST pays out Saturnium as it is hit
+        lda     OBJHP,x                 ;   (ghosts.s gh_hit, the user); X kept
         sec
         sbc     RKDMG
         beq     @dead                   ; exactly used up...

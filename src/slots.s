@@ -22,7 +22,7 @@
 ;
 ; EVERY CALLER GOES THROUGH THE VECTORS (WS_*), never a tenant's routine by
 ; name: the movers (objects.s, foes.s, ship.s, shots.s) and frame_body cannot
-; know which tenant is in. Each tenant's table is the same nine entries at the
+; know which tenant is in. Each tenant's table is the same ten entries at the
 ; same address (asserted), with the base's contracts:
 ;
 ;   WS_FRAME  once a frame, inside the bracket, before do_stars: its discs
@@ -36,8 +36,12 @@
 ;   WS_GROCK  one_asteroid, a GHOST rock (OBJTYPE bit 7) with its command block
 ;             built in PBUF: draw it, or not (ghosts.s). Only the ghost tenant's
 ;             sectors have ghost rocks, so the other two never see the call
-;   WS_GHIT   rock_take_hit, a GHOST rock about to take RKDMG; X = it, kept
-;             (ghosts.s: its Saturnium). The same: only the ghost tenant's
+;   WS_GHIT   rock_take_hit, ANY rock about to take RKDMG; X = it, kept
+;             (ghosts.s: a ghost's Saturnium). Only the ghost tenant's
+;             sectors have ghost rocks, so the others just return
+;   WS_GFOE   foe_draw_all, enemy X about to be drawn: carry SET = a passenger
+;             in its ghost rock's camouflage, drawn there or not at all
+;             (ghosts.s gh_foe); the others: carry CLEAR, draw it as ever
 ;
 ; WHO CHOOSES: the sector's ZONE (levels.s, the user 2026-11-26) - 1 inner:
 ; the base, 2 outer: the ghosts, 3 void: the field. The loader's ws_zone, the
@@ -100,6 +104,9 @@ ws_tab_bs:
         rts                             ; WS_GROCK: no ghost rocks here
         .res    2
         rts                             ; WS_GHIT: ...nor here
+        .res    2
+        clc                             ; WS_GFOE: nobody in camouflage
+        rts
 ws_frame_bs:                            ; the freighters, then the base - the
         jsr     do_freight              ;   order frame_body always had
         jmp     do_base
@@ -116,6 +123,9 @@ ws_tab_ff:
         rts                             ; WS_GROCK: no ghost rocks here
         .res    2
         rts                             ; WS_GHIT
+        .res    2
+        clc                             ; WS_GFOE
+        rts
 
         .segment "GHFRAME"
 ws_tab_gh:
@@ -136,6 +146,7 @@ ws_tab_gh:
         .res    2
         jmp     gh_rock                 ; WS_GROCK
         jmp     gh_hit                  ; WS_GHIT
+        jmp     gh_foe                  ; WS_GFOE
 
         .assert ws_tab_ff = ws_tab_bs, lderror, "slots.s: the two tenants' vector tables are not at one address"
         .assert ws_tab_gh = ws_tab_bs, lderror, "slots.s: the ghosts' vector table is not at the others' address"
@@ -153,6 +164,7 @@ WS_SHOTF    = ws_tab_bs + 15
 WS_EMP      = ws_tab_bs + 18
 WS_GROCK    = ws_tab_bs + 21
 WS_GHIT     = ws_tab_bs + 24
+WS_GFOE     = ws_tab_bs + 27
 
 ; --- the swap ----------------------------------------------------------------
         .pushseg

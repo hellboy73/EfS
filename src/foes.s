@@ -2002,6 +2002,8 @@ foe_draw_all:
         beq     @next
         lda     FOEST,x
         beq     @next
+        jsr     WS_GFOE                 ; a passenger in camouflage: the ghost
+        bcs     @next                   ;   tenant's (ghosts.s gh_foe)
         jsr     foe_disc
         jsr     foe_body
 @next:  dec     FEI
