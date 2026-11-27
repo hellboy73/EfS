@@ -30,6 +30,11 @@ Once they realise they are being found, they hunt.
 
 ## Five levels
 
+> **2026-11-27: the user's outline of five chapters x three sectors x three
+> zones is in [`campaign.md`](campaign.md) and is newer than the table below.**
+> Its chapter names are SENSOR ANOMALY, CONTACT, RESCUE, SIEGE, ESCAPE (working);
+> the table and the notes after it are the earlier cut and are to be reconciled.
+
 | # | name | mission | new gameplay element |
 |---|---|---|---|
 | 1 | MINING ZONE | clear the field | asteroids only in 1-1; from 1-2 alien ships flicker into view and are gone, never attack, and Control calls them a sensor glitch (the old L2, SENSOR ANOMALY, folded in) |

@@ -18,6 +18,12 @@ per-sector consequences land:
   (`tools/level_editor.py`) and `levels.s` are what actually build it; this
   file is the plan, not the data.
 
+**The campaign outline (2026-11-27) is in [`campaign.md`](campaign.md):** five
+chapters of three sectors, each sector in a zone, with working names and what
+happens in every sector. The tables below are to be filled from it; where it
+disagrees with the L4 notes here, the outline is newer and the L4 notes are to be
+reconciled (the old L4 RESCUE is now chapter 3).
+
 Only L4 has a settled per-sector breakdown so far (`design_technical.md`
 11.46). Everything else below is a skeleton to fill in.
 
@@ -52,7 +58,7 @@ Decided, for the art and the texts that go with each board:
 
 ---
 
-## LEVEL 1 — MINING ZONE (clear the field)
+## LEVEL 1 — SENSOR ANOMALY (clear the field)
 
 | sector | mission | station | population | script/triggers |
 |---|---|---|---|---|
