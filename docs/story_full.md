@@ -1,5 +1,16 @@
 # Full story — Escape from Saturn
 
+*Rewritten 2026-11-27 to follow the campaign in [`campaign.md`](campaign.md): five
+chapters of three sectors, in three zones. The earlier five-level version is in
+git history. Chapter names are working names.*
+
+**The three zones, as the story names them.** The **inner field** is the ground
+round the human base: ours, cleared, mined. The **outer rings** are the farther
+reaches, rock soaked in Saturnium, where things hide. The **void** is the empty
+space the aliens hold, where they have their own mining fields under shields.
+
+---
+
 ## 2093 — The Discovery
 
 In 2093 several of the largest mining corporations begin a programme of automated
@@ -21,182 +32,180 @@ At first this is judged to be an exceptionally valuable industrial property.
 
 The race for Saturnium begins at once.
 
----
+A base is raised on the edge of the richest field. Transports begin to run.
 
-# LEVEL 1 — MINING ZONE
-
-The first autonomous mining stations and transports arrive near Saturn. Their task
-is to prepare the extraction fields.
-
-A corporate probe reports that the immediate neighbourhood of the deposits holds an
-enormous number of asteroids.
-
-The first missions are trivial.
-
-The area has to be cleared.
-
-This is the moment the player first enters the mining zone.
-
-There are no enemies.
-
-There is no mystery.
-
-There are only rocks.
-
-Large asteroids break into smaller fragments, and clearing the area allows mining
-to begin safely.
-
-The whole thing looks like an ordinary, routine operation.
+Five crewed survey ships stand ready on Titan.
 
 ---
 
-# LEVEL 2 — SENSOR ANOMALY
+# CHAPTER 1 — SENSOR ANOMALY
 
-As work continues, the automated systems start reporting errors.
+*Inner field, then the outer rings.*
 
-Transport ships report objects directly on their course, even though earlier scans
-detected nothing in that place.
+The first missions are routine.
 
-Several craft are destroyed.
+The area round the base is full of rock, and rock has to be cleared before anything
+else can be done. The pilot learns the ship: how to fly it, how to shoot, how to
+break a large asteroid into small ones.
 
-Analysis of the wrecks reveals no cause of collision.
+Then the transports arrive, and the lane they will fly has to be cleared as well.
+To get the freighters in, the pilot is taught the jump: a short teleport, paid for
+in Saturnium gathered from the rocks.
 
-At the same time the station crews begin reporting something stranger still.
+Everything looks ordinary.
 
-Large objects appear in space.
+Then the transports begin to go missing.
 
-For a second.
+Ships report objects directly on their course that no earlier scan showed. Several
+craft are lost. The wrecks show no sign of a collision.
 
-Sometimes less.
+The operators put it down to the instruments.
 
-Then they are gone.
+The pilot is sent into the outer rings, to look for the source of the false
+readings.
 
-The operators assume it is a software problem.
+Out there the rock is thick with Saturnium, and the readings lie most of all.
+Alien ships show for a moment at the edge of sight, hold still, and are gone. They
+cannot be found when searched for. They cannot be woken.
 
-One of the five crewed survey ships is sent out.
+One of the largest rocks does not appear on any scan. It is only when the pilot
+comes close that it stands there, huge, on the radar, where a moment before there
+was nothing.
 
-Its task is to clear the next area and check the anomalies.
+It is not a rock.
 
-During the mission the player sees an unknown ship for the first time.
+The pilot destroys it and brings home a sample.
 
-It appears out of nowhere.
-
-For a moment it holds still.
-
-Then it vanishes.
-
-Control cannot confirm that anything was detected at all.
-
----
-
-# LEVEL 3 — CONTACT
-
-After further craft are lost, the corporations stop calling it a system fault.
-
-The anomalies are repeatable.
-
-Some of the objects always appear near the Saturnium deposits.
-
-The scanners begin registering brief pulses whose source cannot be located.
-
-The five survey ships are given a new assignment.
-
-**Find the source of the anomaly.**
-
-On the next mission one of the ships runs into several unknown craft.
-
-This time they do not vanish.
-
-They stay visible.
-
-The player closes on one of them.
-
-For a few seconds nothing happens.
-
-And then the alien ship changes course.
-
-And opens fire.
-
-First contact with an alien civilisation is not a planned attempt at
-communication.
-
-It is a fight.
-
-The remaining craft react.
-
-From this moment on the situation stops being a survey mission.
-
-It becomes a fight for survival.
+Control still calls it a sensor fault.
 
 ---
 
-# LEVEL 4 — HUNT
+# CHAPTER 2 — CONTACT
 
-Control loses contact with most of the ships.
+*The void, the outer rings, the base.*
 
-Alien craft appear more and more often.
+The sample is not rock.
 
-This time they do not vanish after a second.
+The aliens are waking.
 
-They patrol the region.
+Following a course that does not match the charts, the pilot passes by accident
+under a shimmering dome of light — a force field — and sees what is inside: vast
+rocks, alive with spiders, and beyond the dome a gate, circled by alien ships.
 
-They move between the asteroids.
+The first look at the void is a reconnaissance, and a mistake.
 
-They are looking for humans.
+Back in the outer rings the ships that were ghosts are ghosts no longer. They wake
+one after another, as the others fall. This time they fight. This time they stay
+visible.
 
-When one of the alien ships detects the player, it gives chase. Not long after,
-more of them arrive.
+From the first of them the pilot takes the first of their weapons: a pulsar laser.
 
-The area of operations is enormous. Far larger than a single ship's field of view.
+The pilot returns to the base with a report and the samples. A lone alien ship
+follows. Pulsars are in the sky above the base.
 
-Flying in any direction, the ship can end up in a completely different part of the
-zone.
-
-Space behaves strangely.
-
-A pilot can fly out past one edge of the area and moments later appear on the other
-side.
-
-At first this can be put down to gravitational anomalies.
-
-Nobody has time to investigate it.
-
-The aliens have stopped hiding.
-
-They are hunting.
+In the report, nobody can any longer say that nothing was there.
 
 ---
 
-# LEVEL 5 — ESCAPE
+# CHAPTER 3 — RESCUE
 
-The last operational ship receives a single order:
+*Outer rings, the void, the way back.*
 
-**ESCAPE.**
+The base's analysts study the recordings and find something else in them.
 
-The anomaly zone is far larger than anyone assumed.
+Among the interference there are the remains of distress signals. Three crew are
+missing: pilots lost in space, whose capsules drifted out of the wormhole the
+jump opens. The pieces of their signals, put together, point to a single place in
+the void.
 
-Signals from Earth are getting weaker.
+The aliens have taken them.
 
-Communication is being disrupted.
+To get under the field a ship needs a weapon that can bring a shield down. The
+pilot goes out through the outer rings to look for it, finds the first mines
+laid by the aliens, and recovers an **EMP** — and is made to use it.
 
-There are hundreds of aliens.
+The second visit to the void is a rescue.
 
-Nobody knows how many of them are beyond sensor range.
+Inside the field stands a **tower**. It is the heart of their mining field. It
+holds the pilots.
 
-The player has to break through an enormous field of asteroids, avoiding or
-destroying one alien ship after another.
+The EMP brings the tower down.
 
-With every kilometre the space becomes more chaotic.
+The pilots come out in capsules. Each one is a life.
 
-The radar no longer shows everything.
+There is just enough Saturnium in the rocks of the field to pay for the EMP and for
+the jump out through the shield.
 
-Objects appear out of nowhere.
+On the way back the aliens come in waves. Each one that falls is replaced by
+another, sometimes of a different kind, woken from sleep and camouflage. Here the
+pilot meets all of them.
 
-Distances do not always match the instruments.
+At the base, they say it is over.
 
-The way home is not obvious.
+---
 
-The only remaining objective is to get outside the Saturn zone.
+# CHAPTER 4 — SIEGE
+
+*The inner field, the outer rings, the void.*
+
+It is not over.
+
+The tower the pilot destroyed was not the only one.
+
+The recordings of the rescue, the logs of the pilots and what the scanners now show
+make it plain: there are **hundreds** of them, scattered round Saturn. The base
+destroyed one. They know it. They know who did it.
+
+The aliens come to the base.
+
+It is a siege. Alien ships and pulsars attack the base, and the pilot defends it.
+Some of the attackers escape through the gate, to where the pilot cannot follow.
+
+Humanity has found them. They want nothing to be known about them.
+
+So the aliens destroy: bases, freighters, whatever there is. And what they
+destroy, they hide.
+
+There is no way to wait.
+
+The pilot goes out once more, through the outer rings, through waves of aliens
+that are replaced as they are killed. Then for the third time into the void, to the
+source of the attack: a tower ringed with mines, with more enemies than before.
+
+The rocks inside must be cleared first. The spiders on them are the field's guard.
+
+Then the EMP.
+
+When the tower falls, something comes out of it: an **artefact**. It holds the
+plans of the aliens' bases.
+
+It is the first proof of what is out there.
+
+---
+
+# CHAPTER 5 — ESCAPE
+
+*The outer rings, the inner field, the outer rings.*
+
+The pilot has the only thing that matters now.
+
+No one else knows where the towers are.
+
+The way home begins with a fight: the aliens come in waves, through the outer
+rings.
+
+At the inner field the base and the transports are gone. They were destroyed while
+the pilot was away, and the ruins hidden. The area has been mined. When the pilot
+finds them, the aliens appear.
+
+There is nothing left to return to.
+
+The only way out is out: through the rings of Saturn, to Titan.
+
+The last fight is the hardest: wave after wave, all of them woken, all of them
+sent to stop the artefact reaching Titan.
+
+The pilot has to get out.
 
 ---
 
@@ -235,7 +244,15 @@ time:
 
 That is when the hunt began.
 
-It is not yet known whether they want to destroy humanity.
+They do not want a war.
+
+They want to stay hidden.
+
+That is why the ghosts never attacked. That is why the pilots were taken, and the
+base burned, and the wrecks hidden: not to win, but to leave nothing that could
+be known about them.
+
+The towers are what they guard, and what hides them.
 
 It is not known what they are really guarding.
 
@@ -246,6 +263,10 @@ Only one thing is certain:
 **Humanity did not discover alien life in the Solar System.**
 
 **It discovered that the aliens had been here all along.**
+
+The point of the game was never to beat them.
+
+It was to get out with what is known about them.
 
 And that is why the only sensible thing the last pilot can do is:
 

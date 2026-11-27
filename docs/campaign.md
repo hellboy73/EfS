@@ -192,8 +192,7 @@ joins them, **offered, not decided**:
 6. **Three "waves on the way back"** (3-3, 4-2, 5-1) read the same in the
    outline. Suggest the escalation be explicit in the table: the pool size, the
    cap, the kinds, mines or none, how fast the dead are replaced.
-7. **Chapter 1 never meets the void; chapter 5 never meets it either.** The
-   story ends in the rings, not at the tower. Intended?
+7. ~~Chapter 1 and chapter 5 never meet the void~~ **Intended (user, 2026-11-27):** the story ends in the rings, not at a tower.
 8. **Briefing pictures** (`level_design.md`): which sectors have a
    distinctive picture. Candidates from here: 1-3 (the false rock), 2-1
    (under the field), 3-2 (the tower and the capsules), 4-1 (the siege),
@@ -255,13 +254,23 @@ beat, not the wording** - that is the author's. "Story" pictures are distinct;
 | P14 | 5-2 | a silent beacon at the base, no answer | the way home is by the inner zone | neutral possible |
 | P15 | 5-3 | the rings, the exit marked, the swarm | the last way out; everything they have | neutral possible |
 | E1 | ending won | Titan, the ship landing with the artefact | out with what is known: the game is *not* beating them, it is getting this out | story |
-| E2 | ending lost | (exists: the lost ending, 11.45) | | existing |
+| E2 | ending lost | **no picture (decided 2026-11-27):** a plain GAME OVER and back to the title. The player can die at any time, even before meeting the aliens, so no one picture fits. Per-chapter lost pictures are possible later, but the lean is no | none |
 
 Note on 5-2: the player finds the bases and transports destroyed *in the
 sector* (the discovery is the gameplay), so P14 must not show the ruin - it is
 the one picture that hides what the sector then reveals.
 
-**Count:** 15 + 1 new ending picture. Candidates to reuse/neutralise, if the
+**The aliens erase everything (user, 2026-11-27) - background only.** Their aim
+is to wipe out every trace, so they do not stop at killing: in the fiction what
+they destroy they also cloak, as they do their own units. This explains 5-2:
+the base and the freighters were destroyed while we were away (in 4-3), and the
+discovery is what brings the aliens out. **It is not in the game and will not
+be:** the engine cannot cloak a destroyed base, so 5-2 simply shows the wrecks
+and mines, and the cloaking stays in the story's text and pictures (the
+aliens' work is seen as an absence: a silent beacon P14, a freighter that never
+arrived). P11 (the burning base in 4-1) is the visible half of the same act.
+
+**Count:** 15 + 1 new ending picture (the won ending only). Candidates to reuse/neutralise, if the
 budget needs it (two banks each, `story.md`'s budget note): P2 (P1's art), P6,
 P14, P15, P12 (P8's tower). That leaves about **11 distinct** drawn scenes, of
 which the must-haves are P1, P3, P5, P8, **P10**, P11, P13, E1.
