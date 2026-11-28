@@ -304,44 +304,44 @@ EN_PULSAR_S14: .byte     3,   <-18,     9,    19,     9,     0,    18
 ; ---- GATE ----
 EN_GATE_PN     = 4      ; parts, the same in every frame
 EN_GATE_PW     = 4      ; ...of which the LEADING ones become wreck pieces
-EN_GATE_FN     = 5      ; authored frames
-EN_GATE_AN     = 5      ; playlist steps - any number
-EN_GATE_AHOLD  = 6      ; game frames one step lasts
+EN_GATE_FN     = 4      ; authored frames
+EN_GATE_AN     = 4      ; playlist steps - any number
+EN_GATE_AHOLD  = 7      ; game frames one step lasts
 EN_GATE_R      = 8      ; collision circle, collision units: radius 16 full-res px
 EN_GATE_RBASE  = 70      ; its first row in EN_PLO/EN_PHI...
 EN_GATE_ABASE  = 21      ; ...and its first step in EN_ANIM
-; f0p0, f1p0, f2p0, f3p0, f4p0
-EN_GATE_S0:    .byte     3,   <-115,     0,    58,   <-100,    58,   100
+; f0p0
+EN_GATE_S0:    .byte     3,   <-107,     7,    60,    89,    47,   <-96
 ; f0p1
-EN_GATE_S1:    .byte     3,   <-104,     0,    52,   <-90,    52,    90
+EN_GATE_S1:    .byte     3,   <-52,    34,    56,    27,   <-4,   <-62
 ; f0p2
-EN_GATE_S2:    .byte     3,   <-42,     0,    21,   <-36,    21,    36
+EN_GATE_S2:    .byte     3,   <-16,    32,    36,   <-2,   <-20,   <-30
 ; f0p3
-EN_GATE_S3:    .byte     3,   <-17,     0,     9,   <-15,     9,    15
+EN_GATE_S3:    .byte     3,     1,    21,    17,   <-11,   <-19,   <-9
+; f1p0
+EN_GATE_S4:    .byte     3,   <-92,    18,    62,    70,    30,   <-89
 ; f1p1
-EN_GATE_S4:    .byte     3,   <-87,     0,    43,   <-75,    43,    75
+EN_GATE_S5:    .byte     3,   <-41,    36,    51,    17,   <-11,   <-53
 ; f1p2
-EN_GATE_S5:    .byte     3,   <-35,     0,    17,   <-30,    17,    30
+EN_GATE_S6:    .byte     3,   <-10,    30,    31,   <-6,   <-21,   <-23
 ; f1p3
-EN_GATE_S6:    .byte     3,   <-14,     0,     7,   <-12,     7,    12
+EN_GATE_S7:    .byte     3,     4,    18,    14,   <-12,   <-17,   <-6
+; f2p0
+EN_GATE_S8:    .byte     3,   <-77,    26,    61,    54,    16,   <-80
 ; f2p1
-EN_GATE_S7:    .byte     3,   <-72,     0,    36,   <-62,    36,    62
+EN_GATE_S9:    .byte     3,   <-31,    35,    46,     9,   <-15,   <-45
 ; f2p2
-EN_GATE_S8:    .byte     3,   <-29,     0,    14,   <-25,    14,    25
+EN_GATE_S10:   .byte     3,   <-5,    27,    26,   <-9,   <-20,   <-18
 ; f2p3
-EN_GATE_S9:    .byte     3,   <-12,     0,     6,   <-10,     6,    10
+EN_GATE_S11:   .byte     3,     5,    15,    10,   <-12,   <-15,   <-3
+; f3p0
+EN_GATE_S12:   .byte     3,   <-64,    31,    59,    40,     5,   <-71
 ; f3p1
-EN_GATE_S10:   .byte     3,   <-60,     0,    30,   <-52,    30,    52
+EN_GATE_S13:   .byte     3,   <-23,    34,    41,     3,   <-18,   <-37
 ; f3p2
-EN_GATE_S11:   .byte     3,   <-24,     0,    12,   <-21,    12,    21
+EN_GATE_S14:   .byte     3,   <-2,    24,    21,   <-10,   <-20,   <-13
 ; f3p3
-EN_GATE_S12:   .byte     3,   <-10,     0,     5,   <-9,     5,     9
-; f4p1
-EN_GATE_S13:   .byte     3,   <-51,     0,    25,   <-44,    25,    44
-; f4p2
-EN_GATE_S14:   .byte     3,   <-21,     0,    10,   <-18,    10,    18
-; f4p3
-EN_GATE_S15:   .byte     3,   <-8,     0,     4,   <-7,     4,     7
+EN_GATE_S15:   .byte     3,     6,    12,     8,   <-11,   <-14,   <-1
 
 ; ---- BASE ----
 EN_BASE_PN     = 6      ; parts, the same in every frame
@@ -350,8 +350,8 @@ EN_BASE_FN     = 6      ; authored frames
 EN_BASE_AN     = 6      ; playlist steps - any number
 EN_BASE_AHOLD  = 60      ; game frames one step lasts
 EN_BASE_R      = 77      ; collision circle, collision units: radius 154 full-res px
-EN_BASE_RBASE  = 90      ; its first row in EN_PLO/EN_PHI...
-EN_BASE_ABASE  = 26      ; ...and its first step in EN_ANIM
+EN_BASE_RBASE  = 86      ; its first row in EN_PLO/EN_PHI...
+EN_BASE_ABASE  = 25      ; ...and its first step in EN_ANIM
 ; f0p0
 EN_BASE_S0:    .byte     3,    24,     0,    60,   <-21,    60,    21
 ; f0p1, f2p1, f3p1, f4p1, f5p1
@@ -384,8 +384,8 @@ EN_EMP_MINE_FN     = 1      ; authored frames
 EN_EMP_MINE_AN     = 1      ; playlist steps - any number
 EN_EMP_MINE_AHOLD  = 8      ; game frames one step lasts
 EN_EMP_MINE_R      = 8      ; collision circle, collision units: radius 16 full-res px
-EN_EMP_MINE_RBASE  = 126      ; its first row in EN_PLO/EN_PHI...
-EN_EMP_MINE_ABASE  = 32      ; ...and its first step in EN_ANIM
+EN_EMP_MINE_RBASE  = 122      ; its first row in EN_PLO/EN_PHI...
+EN_EMP_MINE_ABASE  = 31      ; ...and its first step in EN_ANIM
 ; f0p0
 EN_EMP_MINE_S0: .byte     3,   <-8,   <-14,     3,   <-5,   <-6,     0
 ; f0p1
@@ -400,8 +400,8 @@ EN_TRANSPORTER_FN     = 1      ; authored frames
 EN_TRANSPORTER_AN     = 1      ; playlist steps - any number
 EN_TRANSPORTER_AHOLD  = 8      ; game frames one step lasts
 EN_TRANSPORTER_R      = 21      ; collision circle, collision units: radius 42 full-res px
-EN_TRANSPORTER_RBASE  = 129      ; its first row in EN_PLO/EN_PHI...
-EN_TRANSPORTER_ABASE  = 33      ; ...and its first step in EN_ANIM
+EN_TRANSPORTER_RBASE  = 125      ; its first row in EN_PLO/EN_PHI...
+EN_TRANSPORTER_ABASE  = 32      ; ...and its first step in EN_ANIM
 ; f0p0
 EN_TRANSPORTER_S0: .byte     9,    45,    30,   <-35,    30,   <-48,     0,   <-35
                .byte   <-30,    45,   <-30,    45,   <-15,    40,   <-15,    40
@@ -414,8 +414,8 @@ EN_TRANSPORTER_DAMAGED_FN     = 1      ; authored frames
 EN_TRANSPORTER_DAMAGED_AN     = 1      ; playlist steps - any number
 EN_TRANSPORTER_DAMAGED_AHOLD  = 8      ; game frames one step lasts
 EN_TRANSPORTER_DAMAGED_R      = 21      ; collision circle, collision units: radius 42 full-res px
-EN_TRANSPORTER_DAMAGED_RBASE  = 130      ; its first row in EN_PLO/EN_PHI...
-EN_TRANSPORTER_DAMAGED_ABASE  = 34      ; ...and its first step in EN_ANIM
+EN_TRANSPORTER_DAMAGED_RBASE  = 126      ; its first row in EN_PLO/EN_PHI...
+EN_TRANSPORTER_DAMAGED_ABASE  = 33      ; ...and its first step in EN_ANIM
 ; f0p0
 EN_TRANSPORTER_DAMAGED_S0: .byte    11,    45,    30,   <-35,    30,   <-48,     0,    20
                .byte   <-15,   <-39,   <-24,   <-33,   <-38,    47,   <-27,    45
@@ -431,8 +431,8 @@ EN_ALIEN_TOWER_FN     = 1      ; authored frames
 EN_ALIEN_TOWER_AN     = 1      ; playlist steps - any number
 EN_ALIEN_TOWER_AHOLD  = 8      ; game frames one step lasts
 EN_ALIEN_TOWER_R      = 33      ; collision circle, collision units: radius 66 full-res px
-EN_ALIEN_TOWER_RBASE  = 132      ; its first row in EN_PLO/EN_PHI...
-EN_ALIEN_TOWER_ABASE  = 35      ; ...and its first step in EN_ANIM
+EN_ALIEN_TOWER_RBASE  = 128      ; its first row in EN_PLO/EN_PHI...
+EN_ALIEN_TOWER_ABASE  = 34      ; ...and its first step in EN_ANIM
 ; f0p0
 EN_ALIEN_TOWER_S0: .byte   134,   <-75,     0,     0,   <-75,    75,     0,   <-75
                .byte     0,     0,    75,     0,   <-75
@@ -483,9 +483,8 @@ EN_ANIM:       .byte 0*EN_UFO_PN, 1*EN_UFO_PN, 2*EN_UFO_PN, 3*EN_UFO_PN, 0*EN_SP
                .byte 1*EN_SPIDER_FLOAT_PN, 2*EN_SPIDER_FLOAT_PN, 3*EN_SPIDER_FLOAT_PN, 0*EN_PULSAR_PN, 1*EN_PULSAR_PN
                .byte 2*EN_PULSAR_PN, 3*EN_PULSAR_PN, 4*EN_PULSAR_PN, 3*EN_PULSAR_PN, 2*EN_PULSAR_PN
                .byte 1*EN_PULSAR_PN, 0*EN_GATE_PN, 1*EN_GATE_PN, 2*EN_GATE_PN, 3*EN_GATE_PN
-               .byte 4*EN_GATE_PN, 0*EN_BASE_PN, 1*EN_BASE_PN, 2*EN_BASE_PN, 3*EN_BASE_PN
-               .byte 4*EN_BASE_PN, 5*EN_BASE_PN, 0*EN_EMP_MINE_PN, 0*EN_TRANSPORTER_PN, 0*EN_TRANSPORTER_DAMAGED_PN
-               .byte 0*EN_ALIEN_TOWER_PN
+               .byte 0*EN_BASE_PN, 1*EN_BASE_PN, 2*EN_BASE_PN, 3*EN_BASE_PN, 4*EN_BASE_PN
+               .byte 5*EN_BASE_PN, 0*EN_EMP_MINE_PN, 0*EN_TRANSPORTER_PN, 0*EN_TRANSPORTER_DAMAGED_PN, 0*EN_ALIEN_TOWER_PN
 ; every row, end to end, frame-major within each appearance
 EN_PLO:        .byte <EN_UFO_S0, <EN_UFO_S1, <EN_UFO_S2, <EN_UFO_S3, <EN_UFO_S4, <EN_UFO_S0
                .byte <EN_UFO_S1, <EN_UFO_S5, <EN_UFO_S6, <EN_UFO_S4, <EN_UFO_S0, <EN_UFO_S1
@@ -499,17 +498,16 @@ EN_PLO:        .byte <EN_UFO_S0, <EN_UFO_S1, <EN_UFO_S2, <EN_UFO_S3, <EN_UFO_S4,
                .byte <EN_SPIDER_FLOAT_S16, <EN_PULSAR_S0, <EN_PULSAR_S1, <EN_PULSAR_S2, <EN_PULSAR_S3, <EN_PULSAR_S4
                .byte <EN_PULSAR_S5, <EN_PULSAR_S6, <EN_PULSAR_S7, <EN_PULSAR_S8, <EN_PULSAR_S9, <EN_PULSAR_S10
                .byte <EN_PULSAR_S11, <EN_PULSAR_S12, <EN_PULSAR_S13, <EN_PULSAR_S14, <EN_GATE_S0, <EN_GATE_S1
-               .byte <EN_GATE_S2, <EN_GATE_S3, <EN_GATE_S0, <EN_GATE_S4, <EN_GATE_S5, <EN_GATE_S6
-               .byte <EN_GATE_S0, <EN_GATE_S7, <EN_GATE_S8, <EN_GATE_S9, <EN_GATE_S0, <EN_GATE_S10
-               .byte <EN_GATE_S11, <EN_GATE_S12, <EN_GATE_S0, <EN_GATE_S13, <EN_GATE_S14, <EN_GATE_S15
-               .byte <EN_BASE_S0, <EN_BASE_S1, <EN_BASE_S2, <EN_BASE_S3, <EN_BASE_S4, <EN_BASE_S5
-               .byte <EN_BASE_S6, <EN_BASE_S7, <EN_BASE_S2, <EN_BASE_S3, <EN_BASE_S4, <EN_BASE_S5
-               .byte <EN_BASE_S6, <EN_BASE_S1, <EN_BASE_S8, <EN_BASE_S3, <EN_BASE_S4, <EN_BASE_S5
-               .byte <EN_BASE_S6, <EN_BASE_S1, <EN_BASE_S2, <EN_BASE_S9, <EN_BASE_S4, <EN_BASE_S5
-               .byte <EN_BASE_S6, <EN_BASE_S1, <EN_BASE_S2, <EN_BASE_S3, <EN_BASE_S10, <EN_BASE_S5
-               .byte <EN_BASE_S6, <EN_BASE_S1, <EN_BASE_S2, <EN_BASE_S3, <EN_BASE_S4, <EN_BASE_S11
-               .byte <EN_EMP_MINE_S0, <EN_EMP_MINE_S1, <EN_EMP_MINE_S2, <EN_TRANSPORTER_S0, <EN_TRANSPORTER_DAMAGED_S0, <EN_TRANSPORTER_DAMAGED_S1
-               .byte <EN_ALIEN_TOWER_S0, <EN_ALIEN_TOWER_S1
+               .byte <EN_GATE_S2, <EN_GATE_S3, <EN_GATE_S4, <EN_GATE_S5, <EN_GATE_S6, <EN_GATE_S7
+               .byte <EN_GATE_S8, <EN_GATE_S9, <EN_GATE_S10, <EN_GATE_S11, <EN_GATE_S12, <EN_GATE_S13
+               .byte <EN_GATE_S14, <EN_GATE_S15, <EN_BASE_S0, <EN_BASE_S1, <EN_BASE_S2, <EN_BASE_S3
+               .byte <EN_BASE_S4, <EN_BASE_S5, <EN_BASE_S6, <EN_BASE_S7, <EN_BASE_S2, <EN_BASE_S3
+               .byte <EN_BASE_S4, <EN_BASE_S5, <EN_BASE_S6, <EN_BASE_S1, <EN_BASE_S8, <EN_BASE_S3
+               .byte <EN_BASE_S4, <EN_BASE_S5, <EN_BASE_S6, <EN_BASE_S1, <EN_BASE_S2, <EN_BASE_S9
+               .byte <EN_BASE_S4, <EN_BASE_S5, <EN_BASE_S6, <EN_BASE_S1, <EN_BASE_S2, <EN_BASE_S3
+               .byte <EN_BASE_S10, <EN_BASE_S5, <EN_BASE_S6, <EN_BASE_S1, <EN_BASE_S2, <EN_BASE_S3
+               .byte <EN_BASE_S4, <EN_BASE_S11, <EN_EMP_MINE_S0, <EN_EMP_MINE_S1, <EN_EMP_MINE_S2, <EN_TRANSPORTER_S0
+               .byte <EN_TRANSPORTER_DAMAGED_S0, <EN_TRANSPORTER_DAMAGED_S1, <EN_ALIEN_TOWER_S0, <EN_ALIEN_TOWER_S1
 EN_PHI:        .byte >EN_UFO_S0, >EN_UFO_S1, >EN_UFO_S2, >EN_UFO_S3, >EN_UFO_S4, >EN_UFO_S0
                .byte >EN_UFO_S1, >EN_UFO_S5, >EN_UFO_S6, >EN_UFO_S4, >EN_UFO_S0, >EN_UFO_S1
                .byte >EN_UFO_S7, >EN_UFO_S8, >EN_UFO_S4, >EN_UFO_S0, >EN_UFO_S1, >EN_UFO_S9
@@ -522,17 +520,16 @@ EN_PHI:        .byte >EN_UFO_S0, >EN_UFO_S1, >EN_UFO_S2, >EN_UFO_S3, >EN_UFO_S4,
                .byte >EN_SPIDER_FLOAT_S16, >EN_PULSAR_S0, >EN_PULSAR_S1, >EN_PULSAR_S2, >EN_PULSAR_S3, >EN_PULSAR_S4
                .byte >EN_PULSAR_S5, >EN_PULSAR_S6, >EN_PULSAR_S7, >EN_PULSAR_S8, >EN_PULSAR_S9, >EN_PULSAR_S10
                .byte >EN_PULSAR_S11, >EN_PULSAR_S12, >EN_PULSAR_S13, >EN_PULSAR_S14, >EN_GATE_S0, >EN_GATE_S1
-               .byte >EN_GATE_S2, >EN_GATE_S3, >EN_GATE_S0, >EN_GATE_S4, >EN_GATE_S5, >EN_GATE_S6
-               .byte >EN_GATE_S0, >EN_GATE_S7, >EN_GATE_S8, >EN_GATE_S9, >EN_GATE_S0, >EN_GATE_S10
-               .byte >EN_GATE_S11, >EN_GATE_S12, >EN_GATE_S0, >EN_GATE_S13, >EN_GATE_S14, >EN_GATE_S15
-               .byte >EN_BASE_S0, >EN_BASE_S1, >EN_BASE_S2, >EN_BASE_S3, >EN_BASE_S4, >EN_BASE_S5
-               .byte >EN_BASE_S6, >EN_BASE_S7, >EN_BASE_S2, >EN_BASE_S3, >EN_BASE_S4, >EN_BASE_S5
-               .byte >EN_BASE_S6, >EN_BASE_S1, >EN_BASE_S8, >EN_BASE_S3, >EN_BASE_S4, >EN_BASE_S5
-               .byte >EN_BASE_S6, >EN_BASE_S1, >EN_BASE_S2, >EN_BASE_S9, >EN_BASE_S4, >EN_BASE_S5
-               .byte >EN_BASE_S6, >EN_BASE_S1, >EN_BASE_S2, >EN_BASE_S3, >EN_BASE_S10, >EN_BASE_S5
-               .byte >EN_BASE_S6, >EN_BASE_S1, >EN_BASE_S2, >EN_BASE_S3, >EN_BASE_S4, >EN_BASE_S11
-               .byte >EN_EMP_MINE_S0, >EN_EMP_MINE_S1, >EN_EMP_MINE_S2, >EN_TRANSPORTER_S0, >EN_TRANSPORTER_DAMAGED_S0, >EN_TRANSPORTER_DAMAGED_S1
-               .byte >EN_ALIEN_TOWER_S0, >EN_ALIEN_TOWER_S1
+               .byte >EN_GATE_S2, >EN_GATE_S3, >EN_GATE_S4, >EN_GATE_S5, >EN_GATE_S6, >EN_GATE_S7
+               .byte >EN_GATE_S8, >EN_GATE_S9, >EN_GATE_S10, >EN_GATE_S11, >EN_GATE_S12, >EN_GATE_S13
+               .byte >EN_GATE_S14, >EN_GATE_S15, >EN_BASE_S0, >EN_BASE_S1, >EN_BASE_S2, >EN_BASE_S3
+               .byte >EN_BASE_S4, >EN_BASE_S5, >EN_BASE_S6, >EN_BASE_S7, >EN_BASE_S2, >EN_BASE_S3
+               .byte >EN_BASE_S4, >EN_BASE_S5, >EN_BASE_S6, >EN_BASE_S1, >EN_BASE_S8, >EN_BASE_S3
+               .byte >EN_BASE_S4, >EN_BASE_S5, >EN_BASE_S6, >EN_BASE_S1, >EN_BASE_S2, >EN_BASE_S9
+               .byte >EN_BASE_S4, >EN_BASE_S5, >EN_BASE_S6, >EN_BASE_S1, >EN_BASE_S2, >EN_BASE_S3
+               .byte >EN_BASE_S10, >EN_BASE_S5, >EN_BASE_S6, >EN_BASE_S1, >EN_BASE_S2, >EN_BASE_S3
+               .byte >EN_BASE_S4, >EN_BASE_S11, >EN_EMP_MINE_S0, >EN_EMP_MINE_S1, >EN_EMP_MINE_S2, >EN_TRANSPORTER_S0
+               .byte >EN_TRANSPORTER_DAMAGED_S0, >EN_TRANSPORTER_DAMAGED_S1, >EN_ALIEN_TOWER_S0, >EN_ALIEN_TOWER_S1
 ; === END GENERATED ===
 
         .popseg

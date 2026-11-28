@@ -58,8 +58,14 @@ MS_BOTH     = 3                 ; ...the rocks AND the enemies: both goals
 MS_OPEN     = 2                 ; ...nothing: the gate stands open from the start
 
 GATE_DOT    = 1                 ; 1 = DOT_POLYGON, 0 = POLYGON16 - see the header
-GATE_SPIN   = 0                 ; its own turn, 1/256 brad a frame (0 = none;
-                                ;   256 is a full turn in 256 frames, ~4.2 s)
+GATE_SPIN   = -(65536 / 12) / (EN_GATE_AN * EN_GATE_AHOLD)
+                                ; its own turn, 1/256 brad a frame (0 = none;
+                                ;   256 is a full turn in 256 frames, ~4.2 s).
+                                ;   The spiral's 30 degrees (EA_GATE: each triangle
+                                ;   is the next one in turned 30, so the zoom turns it)
+                                ;   once more per playlist cycle, so the new outer
+                                ;   triangle never lands where the last one did.
+                                ;   Negative: the GPU's angle turns against the twist
 GATE_IN     = 48 * 16           ; the ship is IN when its centre is within this
                                 ;   many world units of the gate's on both axes:
                                 ;   48 px at 1:1, the middle of the X
